@@ -73,10 +73,31 @@ Capturas: `data/captures/pairing-session.log` (texto), `*.pcap` (binario).
 
 ## Pendiente decodificar (fase 3 activa)
 
-1. Payload de piezas p= : estructura (indice/coords + grid ocupacion?).
-   Usar screenshots de la app como oraculo.
+~~1. Payload de piezas p=~~ **RESUELTO 2026-10-13** (receta de
+   ecovacs-privacy-control/api_client/responses.go validada contra nuestro
+   corpus): piezas = LZMA-alone con cabecera props(1)+dict(u32)+size(u32);
+   reconstruir props+dict+size(u64)+data[9:] → 10.000 bytes (100x100 celdas).
+   Valores: 0=none, 1=floor, 2=wall, 3=carpet. Ver `tools/decode_map.py`
+   y `data/captures/session-02/map-decoded.png`.
+   Geometria (attrs del frame MapSet que confundiamos con "catalogo"):
+   `i`=mapid, `w`/`h`=100 celdas por pieza, `c`/`r`=8 piezas por eje,
+   `p`=50 (escala), `m`=CRCs por pieza. Grid total 800x800, 64 piezas.
 2. trace: varint LEB128, unidad ~2cm; par constante (48,64) sin identificar.
 3. Relacion pid ↔ pieza y como conoce la app el rango (MapSt?).
+   (Nota: en el corpus los pid de respuesta no viajan explicitos — el bridge
+   hara PullMP por pid y colocara cada pieza por su pid conocido.)
+
+## Intel importada de repos externos (revision 2026-10-13)
+
+- **kushagharahi/ecovacs-privacy-control**: pipeline de mapa LZMA (arriba),
+  tabla de sonidos PlaySound sid→frase ("30"="I am here"...), provisioning
+  WiFi sin app: `POST http://192.168.0.1:8888/rcp.do {"td":"SetApConfig",
+  "s":SSID,"p":PASS,...}`, comando `PullM tp=sa msid mid` (subconjuntos de
+  habitaciones), topics MQTT `iot/atr/<evt>/...` + `iot/p2p/<cmd>/...`
+  (plan C de transporte: robot→mosquitto directo), serial FIQ debugger
+  900/901, OTA `portal.ecouser.net/api/ota/...`.
+- **m8schmit/ecovacs-stack** (T9, JSON-era): solo referencia arquitectonica.
+
 
 ## Decode trace (offline, 2026-10-13)
 

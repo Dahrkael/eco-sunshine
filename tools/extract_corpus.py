@@ -15,7 +15,7 @@ from pathlib import Path
 FRAME_RE = re.compile(
     r"^(\S+Z) .*_parse_data.*from \(172[^\)]*\| (?P<jid>[^)]+)\) - (?P<xml>.+)$"
 )
-CTL_RE = re.compile(r'<ctl ([^/>]+)/>')
+CTL_RE = re.compile(r'<ctl\s+(.*?)/>')
 ATTR_RE = re.compile(r'(\w+)="([^"]*)"')
 
 
@@ -59,7 +59,12 @@ def main(log: str, outdir: str) -> None:
                         except Exception as e:  # noqa: BLE001
                             rec["tr_err"] = str(e)
                     dest = "traces.jsonl"
-                elif td in ("GetMapM", "MapSet", "GetMapSet", "MapSt", "TrM"):
+                elif td in ("GetMapM", "MapSet", "GetMapSet", "MapSt", "TrM", "PullMP") or "p" in attrs:
+                    if "p" in attrs and attrs["p"].startswith("XQ"):
+                        raw = base64.b64decode(attrs["p"])
+                        rec["p_hex"] = raw.hex()
+                        rec["p_len"] = len(raw)
+                        del rec["p"]
                     dest = "mapm.jsonl"
                 files[dest].write(json.dumps(rec) + "\n")
 

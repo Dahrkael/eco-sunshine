@@ -57,6 +57,27 @@ Capturas: `data/captures/pairing-session.log` (texto), `*.pcap` (binario).
    posible canal directo robot↔app fuera de Bumper.
 3. Offline: decodificar trace (int16 LE) y correlacionar con Pos.
 
+## Sesion-02 (limpieza + reentrada, 2026-10-13)
+
+- **El mapa viaja 100% por XMPP** (pcap conversaciones: solo 5223/8007/443;
+  sin canal directo robot↔app).
+- Protocolo de mapa: app manda `<ctl td="PullMP" pid="27"/>` (pid incremental,
+  27,28...) y el robot responde con piezas `<ctl i="<mapid>" p="<base64>">`.
+- Piezas: cabecera constante `5d 00 00 04 00 10 27 00 00` + payload variable
+  (53–749 B, media 335). 17 piezas unicas para la limpieza parcial.
+- El robot SI emite piezas durante la limpieza (t=20:02:12) — la app no las
+  renderiza en vivo (solo al reentrar en el mapa). Para el bridge da igual:
+  nosotros haremos PullMP + render propio.
+- SetMapAutoReport x127-288: la app lo re-activa constantemente.
+- Corpus: data/captures/session-02/ (log, pcap filtro amplio, extracted/).
+
+## Pendiente decodificar (fase 3 activa)
+
+1. Payload de piezas p= : estructura (indice/coords + grid ocupacion?).
+   Usar screenshots de la app como oraculo.
+2. trace: varint LEB128, unidad ~2cm; par constante (48,64) sin identificar.
+3. Relacion pid ↔ pieza y como conoce la app el rango (MapSt?).
+
 ## Decode trace (offline, 2026-10-13)
 
 - Payload NO es int16 plano: es **varint (LEB128)** estilo protobuf.

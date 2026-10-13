@@ -39,17 +39,20 @@ Puertos publicados en el host Windows (**192.0.2.10**): 443, 5223, 8007, 8883.
 
 ## DNS (Pi-hole) — hacer ANTES de emparejar el robot
 
-Dos opciones (elegir una):
+Opción recomendada (wildcard, a prueba de fututos subdominios — la app
+obtiene sus dominios dinámicamente del backend, ninguna lista exacta
+es fiable):
 
-1. **Local DNS Records (GUI)**: lista exacta de ~40 subdominios en
-   `docs/pihole/local-dns-records.md` + regex de bloqueo anti-fuga.
-2. **dnsmasq custom (wildcard)**: copiar `docs/pihole/99-deebot-bumper.conf`
+**1. dnsmasq custom (wildcard)**: copiar `docs/pihole/99-deebot-bumper.conf`
    a `/etc/dnsmasq.d/` del host de Pi-hole (o montarlo en el contenedor) y
-   recargar FTL. Redirige wildcard:
+   recargar FTL. Redirige:
 
 ```
 ecouser.net / ecovacs.com / ecovacs.net  →  192.0.2.10
 ```
+
+2. Alternativa Local DNS Records (GUI, ~40 dominios exactos):
+   `docs/pihole/local-dns-records.md` + regex de bloqueo anti-fuga.
 
 El móvil Android (app "Ecovacs" antigua) debe resolver por el Pi-hole:
 Wi-Fi → opciones avanzadas → DNS privado/IP = IP del Pi-hole.

@@ -23,6 +23,21 @@ bridge (nuevo, Python) ──► decoder mapa → renderer PNG → MQTT (formato
 | 4 | Bridge → MQTT Valetudo-compatible | pendiente |
 | 5 | Aislamiento (firewall) + dashboard HA | pendiente |
 
+## Decision pendiente: futuro de Bumper (upstream abandonado)
+
+El robot habla XMPP (lookup.do pide `EcoMsgNew`) → el protocolo no es
+negociable. Vias evaluadas:
+- (a) FORK propio (actual): ya vendorizado + parcheado; xmppserver ~800 lineas
+  que conocemos a fondo y corpus para regresion. Coste de mantenimiento bajo.
+- (b) Backend minimo propio (lookup.do + XMPP + HTTPS de la app): el corpus
+  ES la especificacion del dialecto. Elimina el componente abandonado sin
+  tocar el robot. Via elegante a medio plazo.
+- (c) MQTT-directo (estilo ecovacs-privacy-control, mosquitto local):
+  SOLO si el firmware del robot soporta pedir el servicio MQTT (los 900/901
+  migraron por OTA; algunos 930 segun privacy-control). Experimento incierto,
+  pierde la app como oraculo. No es "dropear XMPP": requeriria que el propio
+  robot cambie de canal.
+
 ## Operación (DEV, WSL + Docker Desktop)
 
 ```bash

@@ -38,32 +38,36 @@ class RobotState:
         serial = jid.split("@")[0]
         return RobotState(jid=jid, slug=f"deebot-{serial[-6:].lower()}")
 
-    # ---- ingesta de eventos ----
+    # ---- ingesta de eventos (pushes td=... y respuestas correladas) ----
 
     def update(self, attrs: dict, inner: str) -> None:
         td = attrs.get("td", "")
-        if td == "Pos":
+        # posicion: push td=Pos o respuesta a GetPos (mismos attrs a/p/valid)
+        if "p" in attrs and "valid" in attrs and "," in attrs["p"]:
             try:
                 x, y = (float(v) for v in attrs["p"].split(","))
                 self.position = Position(x, y, float(attrs.get("a", 0)))
                 if len(self.trace_points) < 100_000:
                     self.trace_points.append((x, y))
-            except (KeyError, ValueError):
+            except ValueError:
                 pass
-        elif td in ("CleanSt", "CleanReport"):
+        # consumibles: respuesta GetLifeSpan
+        if "left" in attrs and "total" in attrs:
+            self.lifespans[attrs.get("type", "?")] = {
+                "left": int(attrs["left"]), "total": int(attrs["total"])
+            }
+        if td in ("CleanSt", "CleanReport"):
             self.status = self._map_clean_status(attrs, inner)
         elif td == "ChargeState":
-            self.status = "charging" if attrs.get("report", "1") == "1" else self.status
-        elif td == "BatteryInfo" or "battery" in attrs:
+            if attrs.get("report", "1") == "1" or "charg" in inner:
+                self.status = "charging"
+        elif td == "BatteryInfo" or any("battery" in k.lower() for k in attrs):
             for k, v in attrs.items():
                 if "battery" in k.lower() or k == "power":
                     try:
                         self.battery = int(str(v).rstrip("%"))
                     except ValueError:
                         pass
-        elif td == "MapP" and "p" not in attrs:
-            # piezas llegan como attrs['p'] (el extractor las gestiona aparte)
-            pass
 
     @staticmethod
     def _map_clean_status(attrs: dict, inner: str) -> str:
@@ -87,13 +91,13 @@ class RobotCommander:
         self.robot = robot
 
     def start_clean(self) -> str:
-        return self.client.send_ctl(self.robot.jid, CMD_CLEAN_START)
+        return self.client.send_ctl(self.robot.jid, CMD_CLEAN_START, td="Clean")
 
     def pause(self) -> str:
-        return self.client.send_ctl(self.robot.jid, CMD_CLEAN_PAUSE)
+        return self.client.send_ctl(self.robot.jid, CMD_CLEAN_PAUSE, td="Clean")
 
     def dock(self) -> str:
-        return self.client.send_ctl(self.robot.jid, CMD_CHARGE_GO)
+        return self.client.send_ctl(self.robot.jid, CMD_CHARGE_GO, td="Charge")
 
     def get_pos(self) -> str:
         return self.client.send_ctl_td(self.robot.jid, "GetPos")

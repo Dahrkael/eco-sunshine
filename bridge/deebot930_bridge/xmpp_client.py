@@ -80,6 +80,7 @@ class BumperXMPPClient:
         self.writer: asyncio.StreamWriter | None = None
         self._buf = ""
         self.ready = asyncio.Event()
+        self._pending: dict[str, str] = {}  # iq_id -> td esperado (correlacion)
 
     # ---------- transporte ----------
 
@@ -125,6 +126,9 @@ class BumperXMPPClient:
         # py>=3.14 lo rechaza — mantenemos verificación de cadena sin strict
         if hasattr(ssl, "VERIFY_X509_STRICT"):
             ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        # el servidor es py3.7: con TLS1.3 pierde datos post-handshake (bug
+        # conocido de start_tls en 3.7); la app original negocia 1.2 — igualamos
+        ctx.maximum_version = ssl.TLSVersion.TLSv1_2
         loop = asyncio.get_running_loop()
         transport = await loop.start_tls(
             self.writer.transport, self.writer._protocol, ctx, server_hostname=None
@@ -132,6 +136,7 @@ class BumperXMPPClient:
         # mismo writer, nuevo transporte (si se crea otro StreamWriter, el
         # viejo muere por GC y su __del__ aborta la conexión TLS)
         self.writer._transport = transport
+        await asyncio.sleep(0.1)  # margen contra la carrera post-handshake
 
     def _send(self, data: str) -> None:
         assert self.writer is not None
@@ -176,11 +181,16 @@ class BumperXMPPClient:
 
     def _handle_ctl(self, xml: ET.Element) -> None:
         frm = xml.get("from", "")
+        iq_id = xml.get("id", "")
+        # correlacion respuesta→peticion: inyectar el td esperado
+        expected_td = self._pending.pop(iq_id, None)
         for child in xml:
             if not child.tag.endswith("query"):
                 continue
             for ctl in child:
                 attrs = dict(ctl.attrib)
+                if expected_td and "td" not in attrs:
+                    attrs["td"] = expected_td
                 inner = "".join(ET.tostring(c, encoding="unicode") for c in ctl)
                 if self.on_event:
                     asyncio.create_task(self._emit(frm, attrs, inner))
@@ -194,9 +204,11 @@ class BumperXMPPClient:
 
     # ---------- comandos ----------
 
-    def send_ctl(self, bot_jid: str, ctl_inner: str) -> str:
+    def send_ctl(self, bot_jid: str, ctl_inner: str, td: str = "") -> str:
         """Comando con hijos: <ctl id><clean .../></ctl>"""
         iq_id, ctl_id = uuid.uuid4().hex[:12], uuid.uuid4().hex[:8]
+        if td:
+            self._pending[iq_id] = td
         stanza = (
             f'<iq type="set" id="{iq_id}" from="{self.jid}" to="{bot_jid}">'
             f'<query xmlns="com:ctl"><ctl id="{ctl_id}">{ctl_inner}</ctl></iq></iq>'
@@ -207,6 +219,7 @@ class BumperXMPPClient:
     def send_ctl_td(self, bot_jid: str, td: str, extra_attrs: str = "") -> str:
         """Comando auto-cerrado: <ctl id td="GetPos" .../>"""
         iq_id, ctl_id = uuid.uuid4().hex[:12], uuid.uuid4().hex[:8]
+        self._pending[iq_id] = td
         stanza = (
             f'<iq type="set" id="{iq_id}" from="{self.jid}" to="{bot_jid}">'
             f'<query xmlns="com:ctl"><ctl id="{ctl_id}" td="{td}"{extra_attrs}/></query></iq>'

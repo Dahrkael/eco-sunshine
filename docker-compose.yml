@@ -22,11 +22,22 @@ services:
       - ./data/bumper:/bumper/data
       - ./data/certs:/bumper/certs
 
-  # Fase 4: bridge (a descomentar cuando exista)
-  # bridge:
-  #   build: ./bridge
-  #   container_name: deebot930-bridge
-  #   restart: unless-stopped
-  #   depends_on: [bumper]
-  #   volumes:
-  #     - ./data/bumper:/data:ro
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: deebot930-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./configs/mosquitto:/mosquitto/config:ro
+
+  bridge:
+    build: ./bridge
+    container_name: deebot930-bridge
+    restart: unless-stopped
+    profiles: ["bridge"]   # activo cuando 'serve' sea funcional
+    depends_on: [bumper, mosquitto]
+    environment:
+      TZ: ${TZ:-Europe/Madrid}
+    volumes:
+      - ./data/certs:/certs:ro

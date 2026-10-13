@@ -57,6 +57,16 @@ Capturas: `data/captures/pairing-session.log` (texto), `*.pcap` (binario).
    posible canal directo robot↔app fuera de Bumper.
 3. Offline: decodificar trace (int16 LE) y correlacionar con Pos.
 
+## Decode trace (offline, 2026-10-13)
+
+- Payload NO es int16 plano: es **varint (LEB128)** estilo protobuf.
+- Correlacion empirica con Pos: varint1 × 20 ≈ Pos.x_mm (chunks 1 y 3:
+  34→700mm, 115→2312mm; ratio 20.6/20.1). Unidad de traza ≈ 2 cm.
+- Par constante (varints 48,64) tras el primero: sin identificar.
+- Siguiente: portar el decoder de `getMapTrace` de ecovacs-deebot.js
+  (serie 950 usa el mismo estilo) y validar contra el path completo.
+
+
 
 ## Oraculo visual
 

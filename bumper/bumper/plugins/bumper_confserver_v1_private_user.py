@@ -20,6 +20,7 @@ class v1_private_user(plugins.ConfServerApp):
         authhandler = bumper.ConfServer.ConfServer_AuthHandler()
         self.routes = [
             web.route("*", "/private/{country}/{language}/{devid}/{apptype}/{appversion}/{devtype}/{aid}/user/login", authhandler.login, name="v1_user_login"),
+            web.route("*", "/private/{country}/{language}/{devid}/{apptype}/{appversion}/{devtype}/{aid}/user/directRegister", authhandler.login, name="v1_user_directRegister"),
             web.route("*", "/private/{country}/{language}/{devid}/{apptype}/{appversion}/{devtype}/{aid}/user/checkLogin", authhandler.login, name="v1_user_checkLogin"),
             web.route("*", "/private/{country}/{language}/{devid}/{apptype}/{appversion}/{devtype}/{aid}/user/getAuthCode", authhandler.get_AuthCode, name="v1_user_getAuthCode"),
             web.route("*", "/private/{country}/{language}/{devid}/{apptype}/{appversion}/{devtype}/{aid}/user/logout", authhandler.logout, name="v1_user_logout"),

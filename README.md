@@ -26,7 +26,7 @@ bridge (nuevo, Python) ──► decoder mapa → renderer PNG → MQTT (formato
 ## Operación (DEV, WSL + Docker Desktop)
 
 ```bash
-cd /tmp/opencode/deebot930
+cd /mnt/t/ecovacs
 docker compose up -d --build
 docker logs -f deebot930-bumper     # ver conexiones del robot/app
 ```

@@ -34,6 +34,30 @@ Capturas: `data/captures/pairing-session.log` (texto), `*.pcap` (binario).
 - `trace.tr` base64: traza comprimida por pares (probable int16/delta).
 - `GetMapM`: chunks del mapa de ocupacion; reconstruir via trid/reassembly.
 
+## Hallazgos sesion-01 (limpieza parcial, 2026-10-13)
+
+- **El bitmap del mapa NO viajo por XMPP en esta sesion**: frames mas grandes
+  del bot = 1081 chars (catalogo MapSet: 65 slots con el mismo map-id
+  1295764014, attrs h/w/p/r/c). Sin td="MapM", sin blobs, sin uploads HTTP
+  (solo getPurchaseUrl de consumibles).
+- Inventario de elementos del bot: iq/query/ctl/ping/charge/clean/wd/
+  session/class/chn/MID/root/battery/time/m. `CleanReport` anida `<clean>`
+  (st=h=home, type=auto, speed=standard...). `TrM`/`GetTrM` = solo contadores.
+- `trace.tr` header constante: `5d 00 00 04 00 05 00 00 00 00` + payload
+  int16-pairs + padding. tf/tt = numero de fragmento (1,3,5...). trid fijo
+  por sesion (605959).
+- Posiciones `Pos` ya extraidas a jsonl (112). Corpus en
+  data/captures/session-01/ (log.txt, traffic.pcap, extracted/).
+
+## Plan sesion-02
+
+1. Limpieza con la pantalla de mapa de la app ABIERTA desde el inicio
+   (SetMapAutoReport ya activo → ver si asi streamea chunks GetMapM).
+2. Ampliar filtro del sniffer a TODO el tcp (excepto 8883) para cazar un
+   posible canal directo robot↔app fuera de Bumper.
+3. Offline: decodificar trace (int16 LE) y correlacionar con Pos.
+
+
 ## Oraculo visual
 
 Screenshots de la app durante limpieza correlacionados por timestamp con

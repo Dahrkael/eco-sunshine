@@ -39,8 +39,13 @@ Puertos publicados en el host Windows (**192.0.2.10**): 443, 5223, 8007, 8883.
 
 ## DNS (Pi-hole) — hacer ANTES de emparejar el robot
 
-Copiar `docs/pihole/99-deebot-bumper.conf` a `/etc/dnsmasq.d/` del host de
-Pi-hole (o montarlo en el contenedor) y recargar FTL. Redirige wildcard:
+Dos opciones (elegir una):
+
+1. **Local DNS Records (GUI)**: lista exacta de ~40 subdominios en
+   `docs/pihole/local-dns-records.md` + regex de bloqueo anti-fuga.
+2. **dnsmasq custom (wildcard)**: copiar `docs/pihole/99-deebot-bumper.conf`
+   a `/etc/dnsmasq.d/` del host de Pi-hole (o montarlo en el contenedor) y
+   recargar FTL. Redirige wildcard:
 
 ```
 ecouser.net / ecovacs.com / ecovacs.net  →  192.0.2.10

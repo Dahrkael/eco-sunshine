@@ -1,0 +1,13 @@
+# Estado runtime (certs, db, logs) - NO versionar
+data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Editors / SO
+.idea/
+.vscode/
+.DS_Store

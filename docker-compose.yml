@@ -1,0 +1,32 @@
+name: deebot930
+
+services:
+  bumper:
+    build: ./bumper          # fuente vendorizado (instrumentable en fase 2)
+    container_name: deebot930-bumper
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Madrid}
+      BUMPER_ANNOUNCE_IP: ${BUMPER_ANNOUNCE_IP}   # IP que se anuncia al robot/app (host Windows en dev)
+      BUMPER_LISTEN: 0.0.0.0
+      BUMPER_DATA: /bumper/data
+      BUMPER_CERTS: /bumper/certs
+      BUMPER_DEBUG: ${BUMPER_DEBUG:-true}
+      LOG_TO_STDOUT: "true"
+    ports:
+      - "443:443"     # confserver (auth / API)
+      - "5223:5223"   # XMPP  <- OZMO 930
+      - "8007:8007"   # confserver (lbo lookup: robot pide aquí la IP del XMPP)
+      - "8883:8883"   # MQTT  (por si el firmware hablase MQTT)
+    volumes:
+      - ./data/bumper:/bumper/data
+      - ./data/certs:/bumper/certs
+
+  # Fase 4: bridge (a descomentar cuando exista)
+  # bridge:
+  #   build: ./bridge
+  #   container_name: deebot930-bridge
+  #   restart: unless-stopped
+  #   depends_on: [bumper]
+  #   volumes:
+  #     - ./data/bumper:/data:ro

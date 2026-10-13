@@ -1,0 +1,11 @@
+[project]
+name = "deebot930-bridge"
+version = "0.1.0"
+description = "Bridge XMPP->MQTT para Deebot OZMO 930: decoder de mapa en vivo + integracion Home Assistant"
+requires-python = ">=3.10"
+
+# Dependencias: se anadiran por fase ( XMPP: slixmpp/aiohttp | MQTT: aiomqtt | render: Pillow )
+dependencies = []
+
+[project.scripts]
+deebot930-bridge = "deebot930_bridge.__main__:main"

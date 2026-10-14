@@ -12,6 +12,8 @@ import logging
 import re
 from dataclasses import dataclass, field
 
+from .models import ModelInfo, detect_model
+
 log = logging.getLogger(__name__)
 
 # ---------- enums de la app (valores de wire) ----------
@@ -38,6 +40,7 @@ class Position:
 class RobotState:
     jid: str
     slug: str
+    model: ModelInfo = field(default_factory=lambda: detect_model(""))
     status: str = "unknown"  # docked/charging/cleaning/paused/returning/error/idle
     battery: int | None = None
     position: Position | None = None
@@ -51,7 +54,8 @@ class RobotState:
     @staticmethod
     def from_jid(jid: str) -> "RobotState":
         serial = jid.split("@")[0]
-        return RobotState(jid=jid, slug=f"deebot-{serial[-6:].lower()}")
+        model = detect_model(jid)
+        return RobotState(jid=jid, slug=f"{model.slug}-{serial[-6:].lower()}", model=model)
 
     # ---- ingesta de eventos y respuestas ----
 

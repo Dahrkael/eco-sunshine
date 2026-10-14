@@ -60,7 +60,8 @@ select:focus{outline:none;border-color:var(--accent)}
 </style>
 </head>
 <body>
-<h1>🤖 Deebot OZMO 930</h1>
+<h1 id="title">🤖 Deebot</h1>
+<select id="robot-sel" onchange="switchRobot(this.value)" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:.3rem .6rem;font-size:.9rem;margin-bottom:.4rem"></select>
 <div id="status-bar">
   <div class="status-item">🔋 <span id="battery" style="font-weight:700">--</span></div>
   <div class="status-item">📍 <span id="status" style="font-weight:700">--</span></div>
@@ -118,11 +119,12 @@ const COLORS = {0:'#0d1117', 1:'#30363d', 2:'#8b949e', 3:'#6b5b3e', 4:'#f85149'}
 const CELL_MM = 50;
 const ORIGIN_R = 401, ORIGIN_C = 401;
 
-let ws, gridData = null, gridW = 0, gridH = 0, cropR = 0, cropC = 0;
+let ws, gridData = null, currentRobot = null, robots = {}, gridW = 0, gridH = 0, cropR = 0, cropC = 0;
 let robot = null, charger = null, trace = [], animRobot = null, lastPos = null, lastTime = 0;
 const canvas = document.getElementById('map-canvas');
 const ctx = canvas.getContext('2d');
 
+function switchRobot(slug) { currentRobot = slug; gridData = null; trace = []; lastPos = null; document.getElementById('map-loading').style.display='flex'; if(ws) ws.close(); }
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${proto}//${location.host}/api/ws`);
@@ -132,6 +134,8 @@ function connect() {
 }
 
 function handle(d) {
+  if (d.type === 'robots') { updateRobotList(d.robots); return; }
+  if (currentRobot && d.slug && d.slug !== currentRobot) return;
   if (d.type === 'map') {
     gridData = d.rows.map(r => r.split('').map(Number));
     gridW = d.w; gridH = d.h; cropR = d.crop_r; cropC = d.crop_c;
@@ -232,6 +236,16 @@ function draw() {
   if (animRobot) requestAnimationFrame(draw);
 }
 
+function updateRobotList(list) {
+  robots = list;
+  const sel = document.getElementById('robot-sel');
+  if (Object.keys(list).length > 1) { sel.style.display='block'; } else { sel.style.display='none'; }
+  const slugs = Object.keys(list);
+  sel.innerHTML = slugs.map(s => `<option value="${s}" ${s===currentRobot?'selected':''}>${list[s]}</option>`).join('');
+  if (!currentRobot && slugs.length) currentRobot = slugs[0];
+  const name = list[currentRobot] || 'Deebot';
+  document.getElementById('title').textContent = '🤖 ' + name;
+}
 function updateStatus(d) {
   document.getElementById('battery').textContent = (d.battery ?? '--') + '%';
   document.getElementById('battery').style.color = d.battery < 20 ? '#f85149' : d.battery < 50 ? '#d29922' : '#3fb950';
@@ -250,7 +264,7 @@ function updateStatus(d) {
 
 async function cmd(action, value) {
   log(`> ${action} ${value ?? ''}`);
-  await fetch('/api/cmd', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action, value})});
+  await fetch('/api/cmd', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action, value, slug: currentRobot})});
 }
 function log(msg) {
   const el = document.getElementById('log');
@@ -325,6 +339,9 @@ class WebPanel:
                 "charger": {"x": r.charger.x, "y": r.charger.y} if r.charger else None,
                 "consumables": r.lifespans,
             }
+        # lista para el selector del panel
+        robot_list = {r.slug: r.model.display for r in svc.robots.values()}
+        docs["_robots"] = robot_list
         return web.json_response(docs)
 
     async def api_cmd(self, request: web.Request) -> web.Response:
@@ -332,9 +349,12 @@ class WebPanel:
         action = data.get("action", "")
         value = data.get("value")
         svc = self.service
+        target_slug = data.get("slug") or (currentRobot if currentRobot else None)
         for jid, r in svc.robots.items():
+            if target_slug and r.slug != target_slug:
+                continue
             c = svc.commanders[jid]
-            log.info("web cmd: %s %s", action, value or "")
+            log.info("web cmd [%s]: %s %s", r.slug, action, value or "")
             if action == "start": c.start_clean(speed=svc.fan_speeds.get(r.slug, "standard"))
             elif action == "pause": c.pause()
             elif action == "stop": c.stop()
@@ -356,6 +376,12 @@ class WebPanel:
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         self._ws_clients.append(ws)
+        # enviar lista de robots
+        svc = self.service
+        robot_list = {r.slug: r.model.display for r in svc.robots.values()}
+        if robot_list:
+            try: await ws.send_str(json.dumps({"type": "robots", "robots": robot_list}))
+            except ConnectionResetError: pass
         # enviar mapa inmediatamente al conectar
         if self._last_map_json:
             try: await ws.send_str(self._last_map_json)
@@ -382,9 +408,11 @@ class WebPanel:
             except Exception:
                 self._ws_clients.remove(ws)
 
-    async def broadcast(self, data: dict) -> None:
+    async def broadcast(self, data: dict, slug: str = "") -> None:
         """Envía estado a todos los WebSocket conectados."""
         data.setdefault("type", "state")
+        if slug:
+            data["slug"] = slug
         msg = json.dumps(data)
         for ws in self._ws_clients[:]:
             try:

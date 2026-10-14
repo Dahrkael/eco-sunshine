@@ -47,7 +47,7 @@ class MqttPublisher:
             "identifiers": [f"deebot-{slug}"],
             "name": name,
             "manufacturer": "Ecovacs (cloud-free)",
-            "model": "OZMO 930 via deebot930-bridge",
+            "model": model_name,
         }
 
     async def connect(self) -> None:
@@ -72,7 +72,7 @@ class MqttPublisher:
 
     # ---------- discovery ----------
 
-    async def publish_discovery(self, slug: str, name: str = "Deebot") -> None:
+    async def publish_discovery(self, slug: str, name: str = "Deebot", model_name: str = "Deebot") -> None:
         if not self.client:
             return
         dev = self._device(slug, name)

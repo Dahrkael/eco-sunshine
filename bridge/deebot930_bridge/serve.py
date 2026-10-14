@@ -21,7 +21,7 @@ from .xmpp_client import BumperXMPPClient
 log = logging.getLogger(__name__)
 
 POLL_SECONDS = 30
-KNOWN_JID = "E000105701860607AB7@115.ecorobot.net/atom"
+# robots se detectan automáticamente al recibir su primer frame
 
 HA_STATUS = {
     "docked": "docked",
@@ -65,7 +65,8 @@ class Service:
             return
         if jid not in self.robots:
             self._adopt(jid)
-            await self.pub.publish_discovery(self.robots[jid].slug)
+            r = self.robots[jid]
+            await self.pub.publish_discovery(r.slug, r.model.display, r.model.ha_model)
         r = self.robots[jid]
         r.update(attrs, inner)
 
@@ -204,12 +205,7 @@ class Service:
         self._load_map_from_log()
 
         # adopcion inicial del robot conocido + discovery inmediato
-        if self.jid_hint and self.jid_hint not in self.robots:
-            self._adopt(self.jid_hint)
-            await self.pub.publish_discovery(self.robots[self.jid_hint].slug)
-            c = self.commanders[self.jid_hint]
-            c.set_map_autoreport(True)
-            c.get_pos(); c.get_clean_state(); c.get_charge_state()
+        # los robots se adoptan automáticamente en on_event al primer frame
 
         await self.panel.start()
         log.info("serve operativo (poll cada %ds, panel en :8080)", POLL_SECONDS)

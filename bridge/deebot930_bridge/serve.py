@@ -15,6 +15,7 @@ from .config import Config
 from .map_pieces import MapAssembler, render_png
 from .mqtt_pub import MqttPublisher
 from .robot import RobotCommander, RobotState
+from .webpanel import WebPanel
 from .xmpp_client import BumperXMPPClient
 
 log = logging.getLogger(__name__)
@@ -47,6 +48,7 @@ class Service:
             cfg.mqtt.base_topic,
         )
         self.client: BumperXMPPClient | None = None
+        self.panel = WebPanel(self, port=8080)
         self._last_publish: dict[str, float] = {}
         self._last_status: dict[str, str] = {}
 
@@ -129,6 +131,8 @@ class Service:
             if life and life.get("total"):
                 await self.pub.publish_consumable(r.slug, key, round(life["left"] / life["total"] * 100))
         await self.pub.publish_attributes(r.slug, doc)
+        await self.panel.broadcast(doc)
+        self.panel._last_png = None  # invalidar cache del mapa
 
     # ---------- comandos MQTT ----------
 
@@ -205,7 +209,8 @@ class Service:
             c.set_map_autoreport(True)
             c.get_pos(); c.get_clean_state(); c.get_charge_state()
 
-        log.info("serve operativo (poll cada %ds)", POLL_SECONDS)
+        await self.panel.start()
+        log.info("serve operativo (poll cada %ds, panel en :8080)", POLL_SECONDS)
         await asyncio.gather(
             self.client.listen(),
             self.pub.listen_commands(),

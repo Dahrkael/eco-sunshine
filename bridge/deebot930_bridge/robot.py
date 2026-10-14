@@ -360,6 +360,18 @@ class RobotCommander:
     def set_clean_speed(self, speed: str) -> str:
         return self._cmd(f'<ctl id="{{ctl_id}}" td="SetCleanSpeed" speed="{speed}" />', "SetCleanSpeed")
 
+    # ---- fregado (nivel de agua — el 930 lo soporta via protocolo compartido) ----
+
+    def get_water_permeability(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetWaterPermeability" />', "GetWaterPermeability")
+
+    def set_water_permeability(self, level: int) -> str:
+        """level: 1-4 (bajo/alto)"""
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="SetWaterPermeability" v="{level}" />', "SetWaterPermeability")
+
+    def get_water_box_info(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetWaterBoxInfo" />', "GetWaterBoxInfo")
+
     # ---- schedules ----
 
     def add_sched(self, sched_xml: str) -> str:

@@ -1,4 +1,10 @@
-"""Estado por robot + vocabulario de comandos (validado contra corpus del 930)."""
+"""Estado + comandos del 930 — vocabulario 1:1 del driver de la app
+(DR930.java + EcoRobotProtocol.java decompilados, corpus sesiones 1-3).
+
+Formatos de comando (todos dentro de <iq type=set><query><ctl .../></query></iq>):
+  self-closing: <ctl id=".." [attrs] td="CMD" [attrs]/>
+  con hijos:     <ctl id=".." td="Clean"><clean .../></ctl>
+"""
 
 from __future__ import annotations
 
@@ -8,11 +14,24 @@ from dataclasses import dataclass, field
 
 log = logging.getLogger(__name__)
 
+# ---------- enums de la app (valores de wire) ----------
+
+CLEAN_TYPES = {"auto": "auto", "spot_area": "SpotArea", "custom_area": "CustomArea",
+               "stop": "stop", "spot": "spot"}
+CLEAN_SPEEDS = {"standard": "standard", "silent": "silent", "intelligent": "intelligent",
+                "strong": "strong"}
+CLEAN_ACTIONS = {"s": "s", "p": "p", "r": "r", "h": "h"}
+COMPONENTS = {"brush": "Brush", "sidebrush": "SideBrush", "dustcase": "DustCaseHeap",
+              "airfilter": "AirFilter", "ion": "IonSterilize"}
+SOUNDS = {"boot": 0, "wheels": 4, "dustbin": 6, "stuck": 5, "ding": 17, "battery_low": 18,
+          "here": 30, "brush_tangled": 31, "returning": 63, "paused": 65, "relocating": 55}
+
+
 @dataclass
 class Position:
-    x: float  # mm
+    x: float
     y: float
-    angle: float
+    angle: float = 0.0
 
 
 @dataclass
@@ -23,20 +42,23 @@ class RobotState:
     battery: int | None = None
     position: Position | None = None
     charger: Position | None = None
+    error: str | None = None
+    version: str | None = None
     trace_points: list[tuple[float, float]] = field(default_factory=list)
-    map_pieces: list[bytes] = field(default_factory=list)
     lifespans: dict[str, dict] = field(default_factory=dict)
+    cleaned_map_pieces: dict[str, str] = field(default_factory=dict)
 
     @staticmethod
     def from_jid(jid: str) -> "RobotState":
         serial = jid.split("@")[0]
         return RobotState(jid=jid, slug=f"deebot-{serial[-6:].lower()}")
 
-    # ---- ingesta de eventos (pushes td=... y respuestas correladas) ----
+    # ---- ingesta de eventos y respuestas ----
 
     def update(self, attrs: dict, inner: str) -> None:
         td = attrs.get("td", "")
-        # posicion: push td=Pos o respuesta a GetPos (mismos attrs a/p/valid)
+
+        # posición: push td=Pos o respuesta GetPos (attrs a/p/t/valid)
         if "p" in attrs and "valid" in attrs and "," in attrs["p"]:
             try:
                 x, y = (float(v) for v in attrs["p"].split(","))
@@ -45,31 +67,43 @@ class RobotState:
                     self.trace_points.append((x, y))
             except ValueError:
                 pass
-        # consumibles: respuesta GetLifeSpan
-        if "left" in attrs and "total" in attrs:
-            self.lifespans[attrs.get("type", "?")] = {
-                "left": int(attrs["left"]), "total": int(attrs["total"])
-            }
-        # base de carga: respuesta GetChargerPos (<charge p="x,y" a="ang"/>)
-        if "p" in attrs and "," in str(attrs.get("p", "")) and "type" not in attrs and td == "GetChargerPos":
+
+        # base de carga (GetChargerPos con p= en attrs)
+        if td == "GetChargerPos" and "p" in attrs and "," in attrs["p"]:
             try:
                 x, y = (float(v) for v in attrs["p"].split(","))
                 self.charger = Position(x, y, float(attrs.get("a", 0)))
             except ValueError:
                 pass
-        elif self.charger is None and td == "GetChargerPos":
-            m = re.search(r'p="(-?\d+),(-?\d+)"', inner)
-            if m:
-                self.charger = Position(float(m.group(1)), float(m.group(2)),
-                                        float(re.search(r'a="(-?\d+)"', inner).group(1)) if re.search(r'a="(-?\d+)"', inner) else 0)
+
+        # consumibles: respuesta GetLifeSpan
+        if "left" in attrs and "total" in attrs:
+            self.lifespans[attrs.get("type", "?")] = {
+                "left": int(attrs["left"]), "total": int(attrs["total"])
+            }
+
+        # batería: respuesta GetBatteryInfo (<battery power="N"/>) o push
         if td in ("BatteryInfo", "GetBatteryInfo") or "power" in attrs:
             m = re.search(r'power="(\d+)"', inner) or (
-                "power" in attrs and re.match(r"\d+$", str(attrs["power"])) and None)
+                re.search(r'power="(\d+)"', str(attrs)) if "power" in attrs else None)
             if m:
                 self.battery = int(m.group(1))
-            elif "power" in attrs:
-                try: self.battery = int(attrs["power"])
-                except (TypeError, ValueError): pass
+
+        # error: respuesta GetError (<error errno=.../> o attrs)
+        if td == "GetError" or "errno" in attrs:
+            m = re.search(r'errno="(\d+)"', inner) or re.search(r'errno="(\d+)"', str(attrs))
+            if m and m.group(1) not in ("0", ""):
+                self.error = m.group(1)
+                if self.status not in ("cleaning",):
+                    self.status = "error"
+
+        # versión firmware: respuesta GetVersion (<FW ver>)
+        if td == "GetVersion":
+            m = re.search(r'ver="([^"]+)"', inner)
+            if m:
+                self.version = m.group(1)
+
+        # estado de limpieza
         if td in ("CleanSt", "CleanReport", "GetCleanState"):
             st = attrs.get("st")
             if not st:
@@ -77,37 +111,33 @@ class RobotState:
                 st = m.group(1) if m else None
             if st:
                 self.status = self._map_clean_status({"st": st}, inner)
-        elif td in ("ChargeState", "GetChargeState") or "SlotCharging" in inner:
-            if "SlotCharging" in inner or "WireCharging" in inner:
-                self.status = "charging"
-            elif "Going" in inner:
+            # stats: t = tiempo (s), a = area?
+            m = re.search(r't="(\d+)"', inner)
+            if m:
+                self.clean_seconds = int(m.group(1))
+        elif td == "ChargeState" or "SlotCharging" in inner or "Going" in inner:
+            if "Going" in inner:
                 self.status = "returning"
+            elif "SlotCharging" in inner or "WireCharging" in inner:
+                self.status = "charging"
             elif "Idle" in inner and self.status not in ("cleaning", "paused"):
                 self.status = "idle"
-        elif td == "BatteryInfo" or any("battery" in k.lower() for k in attrs):
-            for k, v in attrs.items():
-                if "battery" in k.lower() or k == "power":
-                    try:
-                        self.battery = int(str(v).rstrip("%"))
-                    except ValueError:
-                        pass
+
+    clean_seconds: int = 0
 
     @staticmethod
     def _map_clean_status(attrs: dict, inner: str) -> str:
-        st = attrs.get("st", inner)
-        # 'st': h=home/dock, i=idle, p=paused, c/g cleaning variants (930 empirico)
-        low = st if isinstance(st, str) else ""
-        if "charg" in inner or "charg" in low:
-            return "charging"
+        st = attrs.get("st", "")
+        if not st:
+            m = re.search(r'st="([a-z])"', inner)
+            st = m.group(1) if m else ""
         return {
-            "h": "docked",
-            "i": "idle",
-            "p": "paused",
-        }.get(low[:1], "cleaning" if low else "idle")
+            "h": "docked", "i": "idle", "p": "paused",
+        }.get(st[:1], "cleaning" if st else "idle")
 
 
 class RobotCommander:
-    """Comandos 1:1 con los stanzas reales de la app (corpus sesiones 1-2)."""
+    """Comandos 1:1 con los stanzas de la app (corpus + EcoRobotProtocol)."""
 
     def __init__(self, client, robot: RobotState):
         self.client = client
@@ -116,14 +146,46 @@ class RobotCommander:
     def _cmd(self, ctl: str, td: str = "") -> str:
         return self.client.send_command(self.robot.jid, ctl, td)
 
-    def start_clean(self) -> str:
-        return self._cmd('<ctl id="{ctl_id}" td="Clean"><clean act="s" speed="standard" type="auto" /></ctl>', "Clean")
+    # ---- limpieza ----
+
+    def start_clean(self, speed: str = "standard", clean_type: str = "auto") -> str:
+        return self._cmd(
+            f'<ctl id="{{ctl_id}}" td="Clean"><clean act="s" speed="{speed}" type="{clean_type}" /></ctl>',
+            "Clean")
 
     def pause(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="Clean"><clean act="p" speed="standard" type="auto" /></ctl>', "Clean")
 
+    def resume(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="Clean"><clean act="r" speed="standard" type="auto" /></ctl>', "Clean")
+
+    def stop(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="Clean"><clean act="h" speed="standard" type="auto" /></ctl>', "Clean")
+
+    def clean_area(self, mid: str, positions: str, speed: str = "standard") -> str:
+        return self._cmd(
+            f'<ctl id="{{ctl_id}}" td="Clean"><clean act="s" speed="{speed}" type="SpotArea" mid="{mid}" p="{positions}" /></ctl>',
+            "Clean")
+
+    def clean_custom(self, positions: str, speed: str = "standard") -> str:
+        return self._cmd(
+            f'<ctl id="{{ctl_id}}" td="Clean"><clean act="s" speed="{speed}" type="CustomArea" p="{positions}" /></ctl>',
+            "Clean")
+
+    # ---- movimiento ----
+
     def dock(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="Charge"><charge type="go" /></ctl>', "Charge")
+
+    def move(self, action: str) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="Move"><move act="{action}" /></ctl>', "Move")
+
+    # ---- sonido ----
+
+    def play_sound(self, sid: int = 30) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="PlaySound" sid="{sid}" />', "PlaySound")
+
+    # ---- consultas ----
 
     def get_pos(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="GetPos" />', "GetPos")
@@ -137,14 +199,28 @@ class RobotCommander:
     def get_battery_info(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="GetBatteryInfo" />', "GetBatteryInfo")
 
-    def get_lifespan(self, kind: str = "Brush") -> str:
-        return self._cmd(f'<ctl id="{{ctl_id}}" td="GetLifeSpan" type="{kind}" />', "GetLifeSpan")
+    def get_charger_pos(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetChargerPos" />', "GetChargerPos")
+
+    def get_error(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetError" />', "GetError")
 
     def get_version(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" name="FW" td="GetVersion" />', "GetVersion")
 
-    def set_map_autoreport(self, on: bool = True) -> str:
-        return self._cmd(f'<ctl id="{{ctl_id}}" on="{int(on)}" td="SetMapAutoReport" />', "SetMapAutoReport")
+    def get_life_span(self, kind: str = "Brush") -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="GetLifeSpan" type="{kind}" />', "GetLifeSpan")
+
+    def get_more_life_span(self, kind: str) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="GetMoreLifeSpan" type="{kind}" />', "GetMoreLifeSpan")
+
+    def reset_life_span(self, kind: str = "Brush") -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="ResetLifeSpan" type="{kind}" />', "ResetLifeSpan")
+
+    def get_device_position(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetDevicePosition" />', "GetDevicePosition")
+
+    # ---- mapa ----
 
     def get_map_m(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="GetMapM" />', "GetMapM")
@@ -152,11 +228,60 @@ class RobotCommander:
     def pull_map_piece(self, pid: int) -> str:
         return self._cmd(f'<ctl id="{{ctl_id}}" pid="{pid}" td="PullMP" />', "PullMP")
 
+    def get_map_st(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetMapSt" />', "GetMapSt")
+
+    def set_map_autoreport(self, on: bool = True) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" on="{int(on)}" td="SetMapAutoReport" />', "SetMapAutoReport")
+
     def get_trace_page(self, tt: int, trid: int = 605959, tf: int = 0) -> str:
         return self._cmd(f'<ctl id="{{ctl_id}}" td="GetTr" tf="{tf}" trid="{trid}" tt="{tt}" />', "GetTr")
 
-    def get_charger_pos(self) -> str:
-        return self._cmd('<ctl id="{ctl_id}" td="GetChargerPos" />', "GetChargerPos")
+    def get_map_set(self, tp: str = "vw") -> str:
+        """tp: vw=muros virtuales, sa=zonas, mw=zonas de fregado"""
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="GetMapSet" tp="{tp}" />', "GetMapSet")
 
-    def play_sound(self, sid: int = 30) -> str:
-        return self._cmd(f'<ctl id="{{ctl_id}}" td="PlaySound" sid="{sid}" />', "PlaySound")
+    # ---- idioma / hora / silent ----
+
+    def get_languages(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetLanguages" />', "GetLanguages")
+
+    def get_active_lang(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetActiveLang" />', "GetActiveLang")
+
+    def set_active_lang(self, lang: str) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="SetActiveLang" lang="{lang}" />', "SetActiveLang")
+
+    def set_time(self, ts: int, tz: int = 60) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="SetTime" t="{ts}" tz="{tz}" />', "SetTime")
+
+    # ---- DND (block time) / silent ----
+
+    def get_block_time(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetBlockTime" />', "GetBlockTime")
+
+    def set_block_time_state(self, on: bool) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="SetBlockTimeState" on="{int(on)}" />', "SetBlockTimeState")
+
+    def get_silent_mode_state(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetSilentModeState" />', "GetSilentModeState")
+
+    def set_silent_mode_state(self, on: bool) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="SetSilentModeState" on="{int(on)}" />', "SetSilentModeState")
+
+    # ---- schedules / logs / stats ----
+
+    def get_sched(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetSched" />', "GetSched")
+
+    def get_clean_logs(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetCleanLogs" />', "GetCleanLogs")
+
+    def get_clean_statistics(self, typ: str = "all") -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="GetCleanStatistics" type="{typ}" />', "GetCleanStatistics")
+
+    def get_clean_sum(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetCleanSum" />', "GetCleanSum")
+
+    def get_progress(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetProgress" />', "GetProgress")

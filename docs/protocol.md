@@ -135,6 +135,26 @@ Clean (<clean act=s/p type=auto speed=standard>), Charge (<charge type=go>),
 SetMapAutoReport (on=1 — la app lo re-arma constantemente), PullMP (pid),
 GetTr (paginas de traza), PlaySound (sid), SetOnOff/GetOnOff, GetMapSet tp=vw
 
+## VERIFICACION DEFINITIVA por decompile del APK (jadx, 2026-10-14)
+
+Fuente: com/ecovacs/lib_iot_client/robot/MapInfo.java (app Ecovacs 1.4.9).
+
+- init(row_grid=100, column_grid=100, row_piece=8, column_piece=8)
+  → grid 800x800 celdas, pieza = 100x100, p=50mm/celda
+- UpdateMapBuffer(pid, pieza): blockRow = pid/8; colOffset = (pid%8)*100;
+  rowOffset = blockRow*100; buffer[rowOffset+r][colOffset+c] = pieza[r*100+c]
+  → **fila-major, sin trasponer** (confirma row-major original)
+- MapP: decode7z (LZMA) + CRC32(descomprimido); solo actualiza si el CRC
+  difiere del almacenado (0 = primera vez)
+- **CleanedMap**: el robot empuja el area limpiada por pieza:
+  <ctl td="CleanedMap" sts=<ts> ts=<ts> p="<base64>" pid="<pid>" total="<N>"/>
+  → overlay de "limpiado" con fuente propia del robot (implementar en bridge)
+- Posicion → mapa: mm / pixelWidth(50)
+
+El mapa parcial actual es EXPECTED: el robot reconstruyo el mapa hoy
+(MapSt st=building) y la limpieza de 4 min solo cubrio parte de la casa.
+Crece con cada limpieza (persiste en el robot salvo reset/relocate).
+
 ## Intel importada de repos externos (revision 2026-10-13)
 
 - **kushagharahi/ecovacs-privacy-control**: pipeline de mapa LZMA (arriba),

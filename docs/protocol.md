@@ -100,6 +100,41 @@ Capturas: `data/captures/pairing-session.log` (texto), `*.pcap` (binario).
 - Espejos: confunden al LDS (rayos fantasma en el mapa) — artefacto conocido
   tambien visible en la app.
 
+## FORMATO DEL MAPA (resuelto y validado — resumen definitivo)
+
+### Pieza MapP (el mapa va por piezas de 100x100 celdas)
+- Robot empuja: `<iq type="set"><query><ctl i="<mapid>" pid="<N>" td="MapP" p="<base64>"/></query></iq>`
+- `p` = base64 → bytes: `[0]` props LZMA (0x5d), `[1:5]` dict u32 LE (256 KB),
+  `[5:9]` size u32 LE (10000), `[9:]` stream LZMA1
+- Descomprime a 10.000 bytes = 100x100 celdas: 0=desconocido, 1=suelo,
+  2=pared, 3=alfombra
+- Pieza N ocupa el bloque (fila de piezas N//8, columna N%8) del grid 800x800
+- Validez: crc32(descomprimido) == crcs[pid] de la spec vigente (m=)
+
+### Spec GetMapM (geometria + CRCs)
+`<ctl c="8" h="100" i="<mapid>" m="<crc0,crc1,...>" p="50" r="8" w="100"/>`
+- w/h = celdas por pieza; c/r = piezas por eje (8x8=64); p = mm por celda
+- m = 64 CRC32, uno por pieza (crc 1295764014 = pieza vacia)
+- La app/bridge pide piezas con `<ctl pid="<N>" td="PullMP"/>`
+
+### Posicion (Pos push / GetPos)
+- `p="x,y"` en **mm** en el marco del robot; `a` = angulo
+- conversion al grid: fila = x/50 + 400, col = y/50 + 390 (ejes permutados
+  respecto al grid + offset empirico; correlacion 82% con 23k puntos)
+
+### Traza (trace)
+- base64 → varints LEB128, unidad ~2 cm (x20 = mm)
+
+### Estado
+CleanSt/CleanReport (st=h/i/p + <clean st type speed>), ChargeState
+(SlotCharging/WireCharging/Going/Idle), BatteryInfo (<battery power>),
+GetLifeSpan (consumibles por tipo), SleepStatus, GetError
+
+### Comandos
+Clean (<clean act=s/p type=auto speed=standard>), Charge (<charge type=go>),
+SetMapAutoReport (on=1 — la app lo re-arma constantemente), PullMP (pid),
+GetTr (paginas de traza), PlaySound (sid), SetOnOff/GetOnOff, GetMapSet tp=vw
+
 ## Intel importada de repos externos (revision 2026-10-13)
 
 - **kushagharahi/ecovacs-privacy-control**: pipeline de mapa LZMA (arriba),

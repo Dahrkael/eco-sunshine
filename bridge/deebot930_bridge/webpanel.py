@@ -227,23 +227,59 @@ class WebPanel:
         return web.json_response(docs)
 
     async def api_map(self, _: web.Request) -> web.Response:
-        if self._last_png:
-            return web.Response(body=self._last_png, content_type="image/png")
         svc = self.service
+        # intentar render en vivo
         if svc.asm.maps:
             map_id = max(svc.asm.maps, key=lambda m: svc.asm.piece_count(m))
             grid = svc.asm.assemble(map_id)
             if grid:
-                robot = next(iter(svc.robots.values()), None)
-                png = render_png(
-                    grid,
-                    trace=[(p.x, p.y) for p in ([robot.position] if robot and robot.position else [])],
-                    position=(robot.position.x, robot.position.y) if robot and robot.position else None,
-                    dock=(robot.charger.x, robot.charger.y) if robot and robot.charger else None,
-                )
-                self._last_png = png
-                return web.Response(body=png, content_type="image/png")
+                try:
+                    robot = next(iter(svc.robots.values()), None)
+                    png = render_png(
+                        grid,
+                        trace=[(p.x, p.y) for p in ([robot.position] if robot and robot.position else [])],
+                        position=(robot.position.x, robot.position.y) if robot and robot.position else None,
+                        dock=(robot.charger.x, robot.charger.y) if robot and robot.charger else None,
+                    )
+                    self._last_png = png
+                    self._save_cache(png)
+                    return web.Response(body=png, content_type="image/png")
+                except Exception:  # noqa: BLE001
+                    log.exception("render de mapa falló")
+        # fallback: cache en disco
+        cached = self._load_cache()
+        if cached:
+            return web.Response(body=cached, content_type="image/png")
+        # último recurso: fichero del corpus
+        try:
+            from pathlib import Path
+            p = Path(__file__).parent.parent.parent / "data" / "captures" / "session-02" / "map-final.png"
+            if p.exists():
+                return web.Response(body=p.read_bytes(), content_type="image/png")
+        except OSError:
+            pass
         return web.Response(status=404, text="Sin mapa")
+
+    def _cache_path(self) -> "Path":
+        from pathlib import Path
+        d = Path(__file__).parent.parent.parent / "data"
+        d.mkdir(parents=True, exist_ok=True)
+        return d / "last-map.png"
+
+    def _save_cache(self, png: bytes) -> None:
+        try:
+            self._cache_path().write_bytes(png)
+        except OSError:
+            pass
+
+    def _load_cache(self) -> bytes | None:
+        try:
+            p = self._cache_path()
+            if p.exists():
+                return p.read_bytes()
+        except OSError:
+            pass
+        return None
 
     async def api_cmd(self, request: web.Request) -> web.Response:
         data = await request.json()

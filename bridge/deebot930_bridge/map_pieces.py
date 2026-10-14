@@ -30,10 +30,11 @@ TRACE_COLOR = (255, 255, 255)   # limpiado
 ROBOT_COLOR = (76, 175, 80)
 DOCK_COLOR = (255, 152, 0)
 
-# Origen del grid respecto al marco mm del robot (resuelto empiricamente:
-# correlacion traza/suelo 82% — ver tools/corr_offset.py)
-ORIGIN_ROW = 400
-ORIGIN_COL = 390
+# Origen del grid respecto al marco mm del robot (resuelto por busqueda
+# exhaustiva: 86.8% traza-sobre-suelo — tools/buscar_transformacion.py).
+# Mapeo natural: fila = y_mm/50, col = x_mm/50 (x→columnas, y→filas).
+ORIGIN_ROW = 401
+ORIGIN_COL = 401
 
 
 # Colocacion empirica de piezas (validada por el usuario contra su piso):
@@ -94,15 +95,15 @@ class MapAssembler:
         return len(self.maps.get(map_id, {}))
 
     def assemble(self, map_id: str) -> list[list[int]] | None:
-        """Colocacion column-major — LA VALIDADA (map-con-traza.png).
-        NO cambiar sin validacion visual contra la app."""
+        """Colocacion row-major (privacy-control): r0=pid//8, c0=pid%8.
+        Validada por correlacion traza/suelo 86.8% (tools/buscar_transformacion.py)."""
         pieces = self.maps.get(map_id)
         if not pieces:
             return None
         grid = [[0] * GRID_CELLS for _ in range(GRID_CELLS)]
         for pid, piece in pieces.items():
-            r0 = (pid % PIECES_PER_ROW) * PIECE_CELLS
-            c0 = (pid // PIECES_PER_ROW) * PIECE_CELLS
+            r0 = (pid // PIECES_PER_ROW) * PIECE_CELLS
+            c0 = (pid % PIECES_PER_ROW) * PIECE_CELLS
             for r in range(PIECE_CELLS):
                 base = r * PIECE_CELLS
                 row = grid[r0 + r]
@@ -133,8 +134,8 @@ def render_png(
     # overlay: mm → celda del grid completo (ejes intercambiados + origen),
     # luego restar el recorte
     def to_cell(x_mm: float, y_mm: float) -> tuple[int, int] | None:
-        row = int(x_mm // cell_mm) + ORIGIN_ROW - rmin
-        col = int(y_mm // cell_mm) + ORIGIN_COL - cmin
+        row = int(y_mm // cell_mm) + ORIGIN_ROW - rmin
+        col = int(x_mm // cell_mm) + ORIGIN_COL - cmin
         if 0 <= row < h and 0 <= col < w:
             return row, col
         return None

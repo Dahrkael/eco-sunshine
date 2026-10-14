@@ -22,7 +22,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
     import asyncio
     import logging
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s: %(message)s")
 
     from .config import load_config
     from .robot import RobotCommander, RobotState
@@ -105,7 +105,7 @@ def cmd_replay(args: argparse.Namespace) -> int:
     import re
     from pathlib import Path
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s: %(message)s")
 
     from .config import load_config
     from .map_pieces import MapAssembler, render_png
@@ -173,7 +173,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     """Servicio vivo: XMPP (Bumper) ⇄ MQTT (Home Assistant)."""
     import logging
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s: %(message)s")
 
     from .config import load_config
     from .serve import Service

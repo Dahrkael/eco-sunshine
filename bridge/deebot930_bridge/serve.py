@@ -48,7 +48,6 @@ class Service:
         self.client: BumperXMPPClient | None = None
         self._last_publish: dict[str, float] = {}
         self._last_status: dict[str, str] = {}
-        self._walked: set[str] = set()
 
     # ---------- eventos XMPP ----------
 
@@ -67,19 +66,25 @@ class Service:
         r = self.robots[jid]
         r.update(attrs, inner)
 
-        # piezas de mapa (pid real del frame; walk PullMP para reponer)
-        p = attrs.get("p", "")
-        if p.startswith("XQ") and attrs.get("i"):
+        # spec de mapa (respuesta GetMapM: geometria + crcs por pieza)
+        if attrs.get("m") and attrs.get("i") and attrs.get("w"):
             map_id = attrs["i"]
-            try:
-                pid = int(attrs.get("pid", self.asm.piece_count(map_id)))
-                self.asm.add_piece(map_id, pid, p)
-                log.info("pieza mapa %s#%d", map_id, pid)
-                if map_id not in self._walked:
-                    self._walked.add(map_id)
-                    asyncio.create_task(self._pull_walk(map_id))
-            except Exception:  # noqa: BLE001
-                log.exception("pieza de mapa ilegible")
+            before = self.asm.spec_changes
+            self.asm.set_geometry(map_id, attrs)
+            if self.asm.spec_changes > before:
+                log.info(
+                    "spec mapa %s: %d crcs — lanzando pull walk",
+                    map_id, len(self.asm.crcs[map_id]),
+                )
+                asyncio.create_task(self._pull_walk(map_id))
+            return
+
+        # piezas de mapa (pid real; el assembler valida CRC contra la spec)
+        p = attrs.get("p", "")
+        if p.startswith("XQ") and attrs.get("i") and attrs.get("pid"):
+            map_id, pid = attrs["i"], int(attrs["pid"])
+            if self.asm.add_piece(map_id, pid, p):
+                log.info("pieza mapa %s#%d aceptada", map_id, pid)
 
         await self._publish_state(jid)
 
@@ -131,6 +136,8 @@ class Service:
                     c.get_clean_state()
                     c.get_charge_state()
                     c.get_charger_pos()
+                    c.get_battery_info()
+                    c.get_map_m()
                 except Exception:  # noqa: BLE001
                     log.exception("poll falló para %s", jid)
             await asyncio.sleep(POLL_SECONDS)
@@ -177,26 +184,49 @@ class Service:
             await asyncio.sleep(0.25)
 
     async def _map_publisher(self) -> None:
-        """Publica el mapa cuando llegan piezas nuevas (throttle 10s)."""
+        """Publica el mapa cuando cambie contenido; re-walk periódico de piezas."""
         import time
 
-        last_count, last_pub = -1, 0.0
+        last_version, last_pub, last_walk = -1, 0.0, 0.0
+        walking = False
         while True:
             await asyncio.sleep(5)
-            total = sum(self.asm.piece_count(m) for m in self.asm.maps)
             now = time.monotonic()
-            if total > last_count and now - last_pub > 10 and self.asm.maps:
-                last_count, last_pub = total, now
+
+            # re-walk: reponer piezas cada 60s (la app hace lo mismo al abrir el mapa)
+            if not walking and now - last_walk > 60 and self.asm.maps:
+                walking = True
+                last_walk = now
+                map_id = max(self.asm.maps, key=lambda m: self.asm.piece_count(m))
+
+                async def walk() -> None:
+                    nonlocal walking
+                    try:
+                        await self._pull_walk(map_id)
+                    finally:
+                        walking = False
+
+                asyncio.create_task(walk())
+
+            # publicar si el contenido del mapa cambió (no solo si crece)
+            total = sum(self.asm.piece_count(m) for m in self.asm.maps)
+            if self.asm.version != last_version and now - last_pub > 10 and self.asm.maps:
+                last_version, last_pub = self.asm.version, now
                 map_id = max(self.asm.maps, key=lambda m: self.asm.piece_count(m))
                 try:
                     grid = self.asm.assemble(map_id)
                     for jid, r in self.robots.items():
+                        trace = [(p.x, p.y) for p in ([r.position] if r.position else [])]
                         png = render_png(
                             grid,
-                            trace=[(p.x, p.y) for p in ([r.position] if r.position else [])],
+                            trace=trace,
                             position=(r.position.x, r.position.y) if r.position else None,
+                            dock=(r.charger.x, r.charger.y) if r.charger else None,
                         )
                         await self.pub.publish_map(r.slug, png)
-                    log.info("mapa %s publicado (%d piezas)", map_id, total)
+                    log.info(
+                        "mapa %s publicado (v%d, %d piezas)",
+                        map_id, self.asm.version, total,
+                    )
                 except Exception:  # noqa: BLE001
-                    log.exception("render/publicacion de mapa falló")
+                    log.exception("render/publicación de mapa falló")

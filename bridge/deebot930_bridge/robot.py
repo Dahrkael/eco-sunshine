@@ -62,6 +62,14 @@ class RobotState:
             if m:
                 self.charger = Position(float(m.group(1)), float(m.group(2)),
                                         float(re.search(r'a="(-?\d+)"', inner).group(1)) if re.search(r'a="(-?\d+)"', inner) else 0)
+        if td in ("BatteryInfo", "GetBatteryInfo") or "power" in attrs:
+            m = re.search(r'power="(\d+)"', inner) or (
+                "power" in attrs and re.match(r"\d+$", str(attrs["power"])) and None)
+            if m:
+                self.battery = int(m.group(1))
+            elif "power" in attrs:
+                try: self.battery = int(attrs["power"])
+                except (TypeError, ValueError): pass
         if td in ("CleanSt", "CleanReport", "GetCleanState"):
             st = attrs.get("st")
             if not st:
@@ -126,6 +134,9 @@ class RobotCommander:
     def get_charge_state(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="GetChargeState" />', "GetChargeState")
 
+    def get_battery_info(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetBatteryInfo" />', "GetBatteryInfo")
+
     def get_lifespan(self, kind: str = "Brush") -> str:
         return self._cmd(f'<ctl id="{{ctl_id}}" td="GetLifeSpan" type="{kind}" />', "GetLifeSpan")
 
@@ -134,6 +145,9 @@ class RobotCommander:
 
     def set_map_autoreport(self, on: bool = True) -> str:
         return self._cmd(f'<ctl id="{{ctl_id}}" on="{int(on)}" td="SetMapAutoReport" />', "SetMapAutoReport")
+
+    def get_map_m(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetMapM" />', "GetMapM")
 
     def pull_map_piece(self, pid: int) -> str:
         return self._cmd(f'<ctl id="{{ctl_id}}" pid="{pid}" td="PullMP" />', "PullMP")

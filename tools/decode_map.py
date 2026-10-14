@@ -23,21 +23,20 @@ P_RE = re.compile(r"^[A-Za-z0-9+/]{20,}={0,2}$")
 
 def extract(log_path: str) -> MapAssembler:
     asm = MapAssembler()
-    seen: set[str] = set()
-    counters: dict[str, int] = {}
+    seen: set[tuple[str, int]] = set()
     for line in open(log_path, errors="replace"):
         for tag in CTL_RE.findall(line):
             attrs = dict(ATTR_RE.findall(tag))
             p = attrs.get("p", "")
             i = attrs.get("i", "")
-            if not (i and p and P_RE.match(p)):
+            pid = attrs.get("pid", "")
+            if not (i and p and pid.isdigit() and P_RE.match(p)):
                 continue
-            if p in seen:  # el log duplica frames
+            key = (i, int(pid))
+            if key in seen:  # el log duplica frames; nos quedamos con la última versión
                 continue
-            seen.add(p)
-            pid = counters.get(i, 0)
-            counters[i] = pid + 1
-            asm.add_piece(i, pid, p)
+            seen.add(key)
+            asm.add_piece(i, int(pid), p)
             if attrs.get("w") and attrs.get("c"):
                 asm.set_geometry(i, attrs)
     return asm
@@ -52,7 +51,11 @@ def main() -> None:
         if grid is None:
             continue
         out = f"{prefix}-{map_id}.png"
-        Path(out).write_bytes(render_png(grid))
+        try:
+            Path(out).write_bytes(render_png(grid))
+        except ValueError:
+            print(f"{out}: grid vacío, saltado")
+            continue
         print(f"{out}")
 
 

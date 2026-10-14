@@ -19,14 +19,16 @@ PIECE_CELLS = 100
 PIECES_PER_ROW = 8
 GRID_CELLS = PIECE_CELLS * PIECES_PER_ROW  # 800
 
+# estilo tipo app: plano gris = pendiente, traza blanca = limpiado
 COLORS = {
-    0: (10, 10, 14),       # sin datos (fondo casi negro)
-    1: (96, 125, 139),     # suelo
-    2: (236, 239, 241),    # pared
-    3: (129, 199, 132),    # alfombra
+    0: (247, 247, 245),    # sin datos (fondo claro)
+    1: (203, 206, 210),    # suelo pendiente de limpiar
+    2: (85, 91, 98),       # pared
+    3: (174, 214, 241),    # alfombra
 }
-TRACE_COLOR = (244, 67, 54)
+TRACE_COLOR = (255, 255, 255)   # limpiado
 ROBOT_COLOR = (76, 175, 80)
+DOCK_COLOR = (255, 152, 0)
 
 
 def decode_piece(p_b64: str) -> bytes:
@@ -41,14 +43,30 @@ class MapAssembler:
     def __init__(self) -> None:
         self.maps: dict[str, dict[int, bytes]] = {}
         self.geometry: dict[str, dict] = {}
+        self.crcs: dict[str, list[int]] = {}  # por map_id: crc esperado por pid
+        self.version = 0
+        self.spec_changes = 0
 
     def set_geometry(self, map_id: str, attrs: dict) -> None:
-        self.geometry[map_id] = {
-            k: attrs.get(k) for k in ("w", "h", "c", "r", "p", "m")
-        }
+        self.geometry[map_id] = {k: attrs.get(k) for k in ("w", "h", "c", "r", "p")}
+        crcs_new = [int(x) for x in attrs.get("m", "").split(",") if x]
+        old = self.crcs.get(map_id)
+        self.crcs[map_id] = crcs_new
+        if old is not None and old != crcs_new:
+            self.spec_changes += 1
 
-    def add_piece(self, map_id: str, pid: int, p_b64: str) -> None:
-        self.maps.setdefault(map_id, {})[pid] = decode_piece(p_b64)
+    def add_piece(self, map_id: str, pid: int, p_b64: str) -> bool:
+        """Acepta la pieza solo si su crc32 coincide con la spec vigente."""
+        pieces = self.maps.setdefault(map_id, {})
+        decoded = decode_piece(p_b64)
+        crcs = self.crcs.get(map_id)
+        if crcs and pid < len(crcs) and zlib.crc32(decoded) != crcs[pid]:
+            return False  # pieza obsoleta (mapa reconstruido): descartada
+        changed = pieces.get(pid) != decoded
+        if changed:
+            pieces[pid] = decoded
+            self.version += 1
+        return True
 
     def piece_count(self, map_id: str) -> int:
         return len(self.maps.get(map_id, {}))
@@ -74,6 +92,7 @@ def render_png(
     grid: list[list[int]],
     trace: list[tuple[float, float]] | None = None,
     position: tuple[float, float] | None = None,
+    dock: tuple[float, float] | None = None,
     cell_mm: int = 50,
     trace_color: tuple[int, int, int] = TRACE_COLOR,
 ) -> bytes:
@@ -105,8 +124,12 @@ def render_png(
         cell = to_cell(*position)
         if cell:
             canvas[cell[0]][cell[1]] = -2  # marcador robot
+    if dock:
+        dcell = to_cell(*dock)
+        if dcell:
+            canvas[dcell[0]][dcell[1]] = -3  # marcador base
 
-    lut = {-1: trace_color, -2: ROBOT_COLOR, **COLORS}
+    lut = {-1: trace_color, -2: ROBOT_COLOR, -3: DOCK_COLOR, **COLORS}
     px = b"".join(
         b"\x00" + b"".join(bytes(lut.get(v, COLORS[0])) for v in row) for row in canvas
     )

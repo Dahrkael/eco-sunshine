@@ -165,13 +165,18 @@ class BumperXMPPClient:
                 raise ConnectionError("conexión cerrada por Bumper")
             self._buf += data.decode(errors="replace")
             stanzas, self._buf = extract_stanzas(self._buf)
+            if stanzas:
+                log.debug("stanzas recibidas: %d (buf %d)", len(stanzas), len(self._buf))
+                for st in stanzas:
+                    log.debug("<< %s", st[:140])
             for s in stanzas:
                 await self._handle_stanza(s)
 
     async def _handle_stanza(self, s: str) -> None:
         try:
             xml = ET.fromstring(s)
-        except ET.ParseError:
+        except ET.ParseError as e:
+            log.warning("stanza no parseable (%s): %.180s", e, s)
             return
         if xml.tag.endswith("iq"):
             if xml.get("type") == "get":  # ping del servidor
@@ -182,6 +187,8 @@ class BumperXMPPClient:
 
     def _handle_ctl(self, xml: ET.Element) -> None:
         frm = xml.get("from", "")
+        if "m=" in ET.tostring(xml, encoding="unicode")[:400]:
+            log.debug("frame con m=: %s...", ET.tostring(xml, encoding="unicode")[:300])
         iq_id = xml.get("id", "")
         # correlacion respuesta→peticion: inyectar el td esperado
         expected_td = self._pending.pop(iq_id, None)

@@ -285,3 +285,99 @@ class RobotCommander:
 
     def get_progress(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="GetProgress" />', "GetProgress")
+
+    # ---- mapa wifi / net ----
+
+    def get_map_wifi(self) -> str:
+        """Mapa de cobertura WiFi (MapType wa): mismo GetMapM pero tipo wa."""
+        return self._cmd('<ctl id="{ctl_id}" tp="wa" td="GetMapM" />', "GetMapM")
+
+    def get_net_info(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetNetInfo" />', "GetNetInfo")
+
+    # ---- gestión de mapa / multi-piso ----
+
+    def if_have_map(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="IfHaveMap" />', "IfHaveMap")
+
+    def clear_map(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="ClearMap" all="1" />', "ClearMap")
+
+    def recover_map(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="RecoverMap" />', "RecoverMap")
+
+    def build_map(self, action: str = "pp") -> str:
+        """pp=preparar, r=reanudar, h=parar"""
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="BuildMap" act="{action}" />', "BuildMap")
+
+    def get_build_map_state(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetBuildMapState" />', "GetBuildMapState")
+
+    def rename_map(self, mid: str, name: str) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="RenameM" mid="{mid}" n="{name}" />', "RenameM")
+
+    # ---- muros virtuales / zonas ----
+
+    def pull_map_set(self, tp: str, msid: str, mid: str, seq: int = 0) -> str:
+        return self._cmd(
+            f'<ctl id="{{ctl_id}}" td="PullM" tp="{tp}" msid="{msid}" mid="{mid}" seq="{seq}" />',
+            "PullM")
+
+    def add_map_set(self, tp: str, msid: str, name: str, data: str) -> str:
+        return self._cmd(
+            f'<ctl id="{{ctl_id}}" td="AddM" tp="{tp}" msid="{msid}" n="{name}" m="{data}" />',
+            "AddM")
+
+    def del_map_set(self, tp: str, msid: str, mid: str) -> str:
+        return self._cmd(
+            f'<ctl id="{{ctl_id}}" td="DelM" tp="{tp}" msid="{msid}" mid="{mid}" />',
+            "DelM")
+
+    # ---- volumen / sonido ----
+
+    def get_volume(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetVolume" />', "GetVolume")
+
+    def set_volume(self, vol: int) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="SetVolume" vol="{vol}" />', "SetVolume")
+
+    def set_mute(self, on: bool) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="SetMute" mute="{int(on)}" />', "SetMute")
+
+    # ---- switches (t: g=continuo, b=DND, l=LED, cl=bloqueo infantil) ----
+
+    def set_on_off(self, t: str, on: bool) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="SetOnOff" t="{t}" on="{int(on)}" />', "SetOnOff")
+
+    def get_on_off(self, t: str) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="GetOnOff" t="{t}" />', "GetOnOff")
+
+    # ---- velocidad de limpieza directa ----
+
+    def get_clean_speed(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetCleanSpeed" />', "GetCleanSpeed")
+
+    def set_clean_speed(self, speed: str) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="SetCleanSpeed" speed="{speed}" />', "SetCleanSpeed")
+
+    # ---- schedules ----
+
+    def add_sched(self, sched_xml: str) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="AddSched">{sched_xml}</ctl>', "AddSched")
+
+    def del_sched(self, sid: str) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="DelSched" sid="{sid}" />', "DelSched")
+
+    # ---- misc ----
+
+    def get_time(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetTime" />', "GetTime")
+
+    def get_sys_info(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetSysInfo" />', "GetSysInfo")
+
+    def get_sleep_status(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetSleepStatus" />', "GetSleepStatus")
+
+    def factory_reset(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="FactoryReset" />', "FactoryReset")

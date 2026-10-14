@@ -77,19 +77,20 @@ class MapAssembler:
         return len(self.maps.get(map_id, {}))
 
     def assemble(self, map_id: str) -> list[list[int]] | None:
-        """Colocacion EXACTA de ecovacs-privacy-control (responses.go):
-        rowStart = pieceId / rowPiece; columnStart = pieceId % columnPiece.
-        Cada pieza = 100x100 celdas (row-major dentro de la pieza)."""
+        """Colocacion column-major (validada visualmente contra la app:
+        mapa-con-traza cuadra con el plano del piso)."""
         pieces = self.maps.get(map_id)
         if not pieces:
             return None
         grid = [[0] * GRID_CELLS for _ in range(GRID_CELLS)]
         for pid, piece in pieces.items():
-            row_start = pid // PIECES_PER_ROW
-            col_start = pid % PIECES_PER_ROW
+            r0 = (pid % PIECES_PER_ROW) * PIECE_CELLS
+            c0 = (pid // PIECES_PER_ROW) * PIECE_CELLS
             for r in range(PIECE_CELLS):
+                base = r * PIECE_CELLS
+                row = grid[r0 + r]
                 for c in range(PIECE_CELLS):
-                    grid[row_start * PIECE_CELLS + r][col_start * PIECE_CELLS + c] = piece[r * PIECE_CELLS + c]
+                    row[c0 + c] = piece[base + c]
         return grid
 
 

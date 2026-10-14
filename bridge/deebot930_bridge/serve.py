@@ -48,6 +48,7 @@ class Service:
         self.client: BumperXMPPClient | None = None
         self._last_publish: dict[str, float] = {}
         self._last_status: dict[str, str] = {}
+        self._walked: set[str] = set()
 
     # ---------- eventos XMPP ----------
 
@@ -66,14 +67,17 @@ class Service:
         r = self.robots[jid]
         r.update(attrs, inner)
 
-        # piezas de mapa en pushes (pid secuencial por map id)
+        # piezas de mapa (pid real del frame; walk PullMP para reponer)
         p = attrs.get("p", "")
         if p.startswith("XQ") and attrs.get("i"):
             map_id = attrs["i"]
-            pid = self.asm.piece_count(map_id)
             try:
+                pid = int(attrs.get("pid", self.asm.piece_count(map_id)))
                 self.asm.add_piece(map_id, pid, p)
                 log.info("pieza mapa %s#%d", map_id, pid)
+                if map_id not in self._walked:
+                    self._walked.add(map_id)
+                    asyncio.create_task(self._pull_walk(map_id))
             except Exception:  # noqa: BLE001
                 log.exception("pieza de mapa ilegible")
 
@@ -157,6 +161,19 @@ class Service:
             self.poll_loop(),
             self._map_publisher(),
         )
+
+    async def _pull_walk(self, map_id: str) -> None:
+        """Repone las piezas emitidas antes de arrancar: PullMP 0..63 (como la app)."""
+        c = next((c for j, c in self.commanders.items()), None)
+        if not c:
+            return
+        log.info("pull walk mapa %s", map_id)
+        for pid in range(64):
+            try:
+                c.pull_map_piece(pid)
+            except Exception:  # noqa: BLE001
+                return
+            await asyncio.sleep(0.25)
 
     async def _map_publisher(self) -> None:
         """Publica el mapa cuando llegan piezas nuevas (throttle 10s)."""

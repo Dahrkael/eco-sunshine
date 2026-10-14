@@ -66,6 +66,12 @@ class Service:
         r = self.robots[jid]
         r.update(attrs, inner)
 
+        # base de carga: cuando esta cargando/en base, su posicion ES la de la base
+        if r.status in ("charging", "docked") and r.charger is None and r.position:
+            r.charger = r.position
+            self.asm.version += 1  # fuerza re-render con el marcador de la base
+            log.info("base de carga fijada en %s", (r.charger.x, r.charger.y))
+
         # spec de mapa (respuesta GetMapM: geometria + crcs por pieza)
         if attrs.get("m") and attrs.get("i") and attrs.get("w"):
             map_id = attrs["i"]

@@ -36,6 +36,23 @@ ORIGIN_ROW = 400
 ORIGIN_COL = 390
 
 
+# Colocacion empirica de piezas (validada por el usuario contra su piso):
+# el robot indexa las piezas en su marco INTERNO (inclinado), que no
+# corresponde a filas/columnas axis-aligned. Tabla pid → (fila, columna)
+# de pieza. Los pids fuera de la tabla caen en fallback row-major.
+PIECE_PLACEMENT = {
+    18: (0, 0), 19: (0, 1), 20: (0, 2), 28: (0, 3),
+    26: (1, 0), 27: (1, 2), 36: (1, 3),
+    34: (2, 0), 35: (2, 1),
+}
+
+
+def piece_slot(pid: int) -> tuple[int, int]:
+    if pid in PIECE_PLACEMENT:
+        return PIECE_PLACEMENT[pid]
+    return (pid // PIECES_PER_ROW, pid % PIECES_PER_ROW)
+
+
 def decode_piece(p_b64: str) -> bytes:
     raw = base64.b64decode(p_b64)
     hdr = raw[0:5] + struct.pack("<Q", PIECE_CELLS * PIECE_CELLS)
@@ -77,8 +94,8 @@ class MapAssembler:
         return len(self.maps.get(map_id, {}))
 
     def assemble(self, map_id: str) -> list[list[int]] | None:
-        """Colocacion column-major (validada visualmente contra la app:
-        mapa-con-traza cuadra con el plano del piso)."""
+        """Colocacion column-major — LA VALIDADA (map-con-traza.png).
+        NO cambiar sin validacion visual contra la app."""
         pieces = self.maps.get(map_id)
         if not pieces:
             return None

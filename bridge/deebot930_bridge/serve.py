@@ -38,7 +38,7 @@ HA_STATUS = {
 class Service:
     def __init__(self, cfg: Config, jid_hint: str | None):
         self.cfg = cfg
-        self.jid_hint = jid_hint or KNOWN_JID
+        self.jid_hint = jid_hint  # None = auto-detección por on_event
         self.robots: dict[str, RobotState] = {}
         self.commanders: dict[str, RobotCommander] = {}
         self.asm = MapAssembler()

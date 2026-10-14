@@ -1,25 +1,22 @@
-"""Panel web de control del bridge — imita la app oficial del 930.
+"""Panel web de control del bridge — canvas + WebSocket para tiempo real.
 
-Sirve en http://<host>:8080 — sin HA, standalone.
+Sirve en http://<host>:8181 — sin HA, standalone.
 
-Endpoints:
-  GET /            → SPA (HTML+JS+CSS inline)
-  GET /api/state   → estado JSON consolidado
-  GET /api/map     → PNG del mapa en vivo
-  POST /api/cmd    → {action: "...", value: "..."}
-  GET /api/ws      → WebSocket para updates en tiempo real
+Arquitectura:
+  - Canvas renderiza el mapa (paredes/suelo) desde datos del grid
+  - WebSocket empuja posición del robot en tiempo real (fluído)
+  - WebSocket empuja el mapa completo solo cuando cambian piezas
+  - Robot se mueve suavemente (interpolación entre posiciones)
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 
 from aiohttp import web, WSMsgType
 
-from .robot import RobotCommander, RobotState
-from .map_pieces import render_png
+from .map_pieces import render_png, GRID_CELLS, PIECE_CELLS, ORIGIN_ROW, ORIGIN_COL
 
 log = logging.getLogger(__name__)
 
@@ -30,172 +27,253 @@ INDEX_HTML = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Deebot 930 — Control Local</title>
 <style>
-:root { --bg:#1a1a2e; --card:#16213e; --accent:#0f3460; --text:#e4e6eb; --ok:#4caf50; --warn:#ff9800; --err:#f44336; }
-* { margin:0; padding:0; box-sizing:border-box; }
-body { background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif; min-height:100vh; display:flex; flex-direction:column; align-items:center; }
-h1 { font-size:1.4rem; padding:.8rem; color:var(--ok); }
-#status-bar { display:flex; gap:1rem; padding:.5rem 1rem; background:var(--card); border-radius:8px; margin-bottom:.8rem; font-size:.9rem; flex-wrap:wrap; }
-.status-item { display:flex; align-items:center; gap:.3rem; }
-.status-val { font-weight:bold; }
-#map-container { position:relative; width:min(90vw,600px); }
-#map-img { width:100%; border-radius:8px; background:var(--card); min-height:200px; }
-#controls { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:.6rem; padding:1rem; width:min(90vw,600px); }
-.btn { background:var(--accent); color:var(--text); border:none; border-radius:8px; padding:.8rem 1rem; font-size:1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:.4rem; transition:background .2s; }
-.btn:hover { filter:brightness(1.2); }
-.btn:active { filter:brightness(.8); }
-.btn.start { background:#2e7d32; }
-.btn.pause { background:#e65100; }
-.btn.dock { background:#1565c0; }
-.btn.locate { background:#6a1b9a; }
-.btn.danger { background:#b71c1c; }
-.btn:disabled { opacity:.4; cursor:default; }
-select { background:var(--accent); color:var(--text); border:none; border-radius:6px; padding:.6rem; font-size:.9rem; }
-.section { background:var(--card); border-radius:10px; padding:.8rem; margin:.5rem 0; width:min(90vw,600px); }
-.section h3 { font-size:.95rem; color:var(--accent); margin-bottom:.5rem; text-transform:uppercase; letter-spacing:.05em; }
-.consumables { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:.4rem; }
-.consumable { background:var(--accent); border-radius:6px; padding:.5rem; text-align:center; }
-.consumable .pct { font-size:1.3rem; font-weight:bold; }
-.consumable .label { font-size:.75rem; opacity:.8; }
-.bar { height:4px; border-radius:2px; background:#333; margin-top:.3rem; }
-.bar-fill { height:100%; border-radius:2px; transition:width .3s; }
-#log { font-family:monospace; font-size:.75rem; opacity:.7; max-height:150px; overflow-y:auto; padding:.5rem; background:var(--card); border-radius:8px; width:min(90vw,600px); }
+:root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#c9d1d9;--ok:#3fb950;--warn:#d29922;--err:#f85149;--accent:#58a6ff}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh}
+h1{font-size:1.3rem;padding:.6rem;color:var(--ok)}
+#status-bar{display:flex;gap:1.2rem;padding:.5rem 1rem;background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:.5rem;font-size:.85rem;flex-wrap:wrap}
+.status-item{display:flex;align-items:center;gap:.3rem}
+.status-val{font-weight:600}
+#canvas-wrap{position:relative;background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;width:min(92vw,650px)}
+#map-canvas{display:block;width:100%;cursor:crosshair}
+#map-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#666;font-size:.9rem}
+#controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.5rem;padding:.8rem;width:min(92vw,650px)}
+.btn{background:#21262d;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:.7rem;font-size:.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:.35rem;transition:all .15s}
+.btn:hover{background:var(--border);transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+.btn.start{border-color:#238636;color:#3fb950}
+.btn.pause{border-color:#9e6a03;color:#d29922}
+.btn.dock{border-color:#1f6feb;color:#58a6ff}
+.btn.locate{border-color:#8957e5;color:#bc8cff}
+.btn.danger{border-color:#da3633;color:#f85149}
+select{background:#21262d;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:.5rem;font-size:.85rem}
+select:focus{outline:none;border-color:var(--accent)}
+.section{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:.8rem;margin:.4rem 0;width:min(92vw,650px)}
+.section h3{font-size:.8rem;color:var(--accent);margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.08em}
+.consumables{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:.4rem}
+.consumable{background:#21262d;border-radius:6px;padding:.5rem;text-align:center}
+.consumable .pct{font-size:1.2rem;font-weight:700}
+.consumable .label{font-size:.7rem;opacity:.7}
+.bar{height:3px;border-radius:2px;background:#30363d;margin-top:.3rem}
+.bar-fill{height:100%;border-radius:2px;transition:width .5s}
+#log{font-family:'Cascadia Code',monospace;font-size:.7rem;opacity:.6;max-height:120px;overflow-y:auto;padding:.4rem;background:var(--card);border:1px solid var(--border);border-radius:8px;width:min(92vw,650px);margin-top:.4rem}
 </style>
 </head>
 <body>
 <h1>🤖 Deebot OZMO 930</h1>
 <div id="status-bar">
-  <div class="status-item">🔋 <span class="status-val" id="battery">--%</span></div>
-  <div class="status-item">📍 <span class="status-val" id="status">--</span></div>
-  <div class="status-item">⚡ <span class="status-val" id="fan">--</span></div>
-  <div class="status-item">💧 <span class="status-val" id="water">--</span></div>
-  <div class="status-item">⚠ <span class="status-val" id="error">--</span></div>
+  <div class="status-item">🔋 <span id="battery" style="font-weight:700">--</span></div>
+  <div class="status-item">📍 <span id="status" style="font-weight:700">--</span></div>
+  <div class="status-item">💨 <span id="fan" style="font-weight:700">--</span></div>
+  <div class="status-item">⚠ <span id="error" style="font-weight:700">--</span></div>
 </div>
 
-<div id="map-container">
-  <img id="map-img" src="/api/map" alt="Mapa" style="display:none">
-  <div id="map-loading" style="padding:3rem;text-align:center;color:#666">Esperando datos del mapa...</div>
+<div id="canvas-wrap">
+  <canvas id="map-canvas" width="600" height="450"></canvas>
+  <div id="map-loading">Conectando al robot…</div>
 </div>
 
 <div id="controls">
-  <button class="btn start" onclick="cmd('start')">▶️ Iniciar</button>
-  <button class="btn pause" onclick="cmd('pause')">⏸️ Pausa</button>
+  <button class="btn start" onclick="cmd('start')">▶ Iniciar</button>
+  <button class="btn pause" onclick="cmd('pause')">⏸ Pausa</button>
   <button class="btn dock" onclick="cmd('dock')">🏠 Base</button>
   <button class="btn locate" onclick="cmd('locate')">🔊 Localizar</button>
 </div>
 
 <div class="section">
-  <h3>⚙️ Configuración</h3>
-  <div style="display:flex;gap:1rem;flex-wrap:wrap">
-    <div>
-      <label>Potencia</label>
-      <select id="fan-select" onchange="cmd('fan_speed',this.value)">
-        <option value="silent">Silencioso</option>
-        <option value="standard" selected>Normal</option>
-        <option value="strong">Potente</option>
-      </select>
-    </div>
-    <div>
-      <label>Nivel agua</label>
-      <select id="water-select" onchange="cmd('water_level',this.value)">
-        <option value="1">Bajo</option>
-        <option value="2" selected>Medio</option>
-        <option value="3">Alto</option>
-      </select>
-    </div>
-    <div>
-      <label>Idioma</label>
-      <select id="lang-select" onchange="cmd('set_lang',this.value)">
-        <option value="es-ES">Español</option>
-        <option value="en-US">English</option>
-      </select>
-    </div>
+  <h3>Configuración</h3>
+  <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:end">
+    <div><label style="font-size:.8rem;opacity:.7">Potencia</label><br>
+      <select id="fan-sel" onchange="cmd('fan_speed',this.value)">
+        <option value="silent">Silencioso</option><option value="standard" selected>Normal</option><option value="strong">Potente</option>
+      </select></div>
+    <div><label style="font-size:.8rem;opacity:.7">Agua</label><br>
+      <select onchange="cmd('water_level',this.value)">
+        <option value="1">Bajo</option><option value="2" selected>Medio</option><option value="3">Alto</option>
+      </select></div>
+    <div><label style="font-size:.8rem;opacity:.7">Continuo</label><br>
+      <select onchange="cmd('set_on_off',{'t':'g','on':this.value})">
+        <option value="1">Sí</option><option value="0">No</option>
+      </select></div>
   </div>
 </div>
 
 <div class="section">
-  <h3>🔧 Consumibles</h3>
+  <h3>Consumibles</h3>
   <div class="consumables" id="consumables"></div>
 </div>
 
 <div class="section">
-  <h3>📊 Estadísticas</h3>
-  <div id="stats" style="font-size:.9rem"></div>
-</div>
-
-<div class="section">
-  <h3>🗺️ Mapa</h3>
+  <h3>Mapa</h3>
   <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-    <button class="btn" onclick="cmd('get_map_wifi')">📶 Mapa WiFi</button>
-    <button class="btn danger" onclick="if(confirm('¿Borrar mapa?'))cmd('clear_map')">🗑️ Borrar mapa</button>
+    <button class="btn danger" onclick="if(confirm('¿Borrar mapa?'))cmd('clear_map')">🗑 Borrar</button>
+    <button class="btn" onclick="cmd('recover_map')">♻ Recuperar</button>
   </div>
 </div>
 
 <div id="log"></div>
 
 <script>
-let ws;
+const COLORS = {0:'#0d1117', 1:'#30363d', 2:'#8b949e', 3:'#1f6feb', 4:'#f85149'};
+const CELL_MM = 50;
+const ORIGIN_R = 401, ORIGIN_C = 401;
+
+let ws, gridData = null, gridW = 0, gridH = 0, cropR = 0, cropC = 0;
+let robot = null, charger = null, trace = [], animRobot = null, lastPos = null, lastTime = 0;
+const canvas = document.getElementById('map-canvas');
+const ctx = canvas.getContext('2d');
+
 function connect() {
-  ws = new WebSocket(`ws://${location.host}/api/ws`);
-  ws.onmessage = (e) => update(JSON.parse(e.data));
-  ws.onclose = () => setTimeout(connect, 3000);
-  ws.onopen = () => log('WebSocket conectado');
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/api/ws`);
+  ws.onmessage = (e) => { const d = JSON.parse(e.data); handle(d); };
+  ws.onclose = () => { setTimeout(connect, 3000); log('ws desconectado, reintentando…'); };
+  ws.onopen = () => { log('ws conectado'); };
 }
-function update(d) {
+
+function handle(d) {
+  if (d.type === 'map') {
+    gridData = d.rows.map(r => r.split('').map(Number));
+    gridW = d.w; gridH = d.h; cropR = d.crop_r; cropC = d.crop_c;
+    document.getElementById('map-loading').style.display = 'none';
+    draw();
+  } else if (d.type === 'state') {
+    updateStatus(d);
+    if (d.position) {
+      const np = mmToCell(d.position.x, d.position.y);
+      if (np) {
+        if (lastPos) {
+          // interpolar suavemente
+          animRobot = {from: lastPos, to: np, t: 0, start: performance.now()};
+        } else { lastPos = np; animRobot = null; }
+        trace.push([np[0], np[1]]);
+        if (trace.length > 5000) trace.shift();
+      }
+    }
+    if (d.charger) {
+      charger = mmToCell(d.charger.x, d.charger.y);
+    }
+    draw();
+  }
+}
+
+function mmToCell(x, y) {
+  if (!gridData) return null;
+  const r = Math.floor(y / CELL_MM) + ORIGIN_R - cropR;
+  const c = Math.floor(x / CELL_MM) + ORIGIN_C - cropC;
+  if (r >= 0 && r < gridH && c >= 0 && c < gridW) return [r, c];
+  return null;
+}
+
+function draw() {
+  if (!gridData) return;
+  const cw = canvas.width, ch = canvas.height;
+  const cellSize = Math.max(1, Math.floor(Math.min(cw / gridW, ch / gridH)));
+  const offX = Math.floor((cw - gridW * cellSize) / 2);
+  const offY = Math.floor((ch - gridH * cellSize) / 2);
+  ctx.fillStyle = COLORS[0];
+  ctx.fillRect(0, 0, cw, ch);
+  // mapa
+  for (let r = 0; r < gridH; r++) {
+    const row = gridData[r];
+    for (let c = 0; c < gridW; c++) {
+      const v = row[c];
+      if (v === 0) continue;
+      ctx.fillStyle = COLORS[v] || COLORS[0];
+      ctx.fillRect(offX + c * cellSize, offY + r * cellSize, cellSize, cellSize);
+    }
+  }
+  // traza (limpiado)
+  if (trace.length > 1) {
+    ctx.strokeStyle = 'rgba(63,185,80,0.3)';
+    ctx.lineWidth = Math.max(1, cellSize * 0.3);
+    ctx.beginPath();
+    ctx.moveTo(offX + trace[0][1]*cellSize + cellSize/2, offY + trace[0][0]*cellSize + cellSize/2);
+    for (let i = 1; i < trace.length; i++) {
+      ctx.lineTo(offX + trace[i][1]*cellSize + cellSize/2, offY + trace[i][0]*cellSize + cellSize/2);
+    }
+    ctx.stroke();
+  }
+  // base de carga
+  if (charger) {
+    ctx.fillStyle = '#d29922';
+    const s = cellSize * 2;
+    ctx.beginPath();
+    ctx.roundRect(offX + charger[1]*cellSize - s/4, offY + charger[0]*cellSize - s/4, s, s, 2);
+    ctx.fill();
+    ctx.fillStyle = '#000'; ctx.font = `${cellSize+2}px sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('⚡', offX + charger[1]*cellSize + cellSize/2, offY + charger[0]*cellSize + cellSize/2);
+  }
+  // robot
+  let rp = lastPos;
+  if (animRobot) {
+    const t = Math.min(1, (performance.now() - animRobot.start) / 500);
+    const e = t * t * (3 - 2 * t);
+    rp = [animRobot.from[0] + (animRobot.to[0] - animRobot.from[0]) * e,
+          animRobot.from[1] + (animRobot.to[1] - animRobot.from[1]) * e];
+    if (t >= 1) { lastPos = animRobot.to; animRobot = null; }
+  }
+  if (rp) {
+    const cx = offX + rp[1]*cellSize + cellSize/2;
+    const cy = offY + rp[0]*cellSize + cellSize/2;
+    const rad = Math.max(3, cellSize * 1.2);
+    ctx.fillStyle = '#3fb950';
+    ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+    // dirección
+    if (robot && robot.angle !== undefined) {
+      const a = robot.angle * Math.PI / 180;
+      ctx.strokeStyle = '#3fb950'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(a) * rad * 1.8, cy + Math.sin(a) * rad * 1.8);
+      ctx.stroke();
+    }
+  }
+  if (animRobot) requestAnimationFrame(draw);
+}
+
+function updateStatus(d) {
   document.getElementById('battery').textContent = (d.battery ?? '--') + '%';
+  document.getElementById('battery').style.color = d.battery < 20 ? '#f85149' : d.battery < 50 ? '#d29922' : '#3fb950';
   document.getElementById('status').textContent = d.status_raw || d.status || '--';
   document.getElementById('fan').textContent = d.fan_speed || '--';
   document.getElementById('error').textContent = d.error || 'OK';
-  document.getElementById('water').textContent = d.water_level || '--';
-  if (d.battery != null) document.getElementById('battery').parentElement.style.color = d.battery < 20 ? '#f44336' : '#4caf50';
+  robot = d.position;
   let c = '';
-  for (const [k,v] of Object.entries(d.consumables || {})) {
+  for (const [k, v] of Object.entries(d.consumables || {})) {
     const pct = Math.round(v.left / v.total * 100);
-    const color = pct < 15 ? '#f44336' : pct < 30 ? '#ff9800' : '#4caf50';
-    c += `<div class="consumable"><div class="pct" style="color:${color}">${pct}%</div><div class="label">${k}</div><div class="bar"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div></div>`;
+    const col = pct < 15 ? '#f85149' : pct < 30 ? '#d29922' : '#3fb950';
+    c += `<div class="consumable"><div class="pct" style="color:${col}">${pct}%</div><div class="label">${k}</div><div class="bar"><div class="bar-fill" style="width:${pct}%;background:${col}"></div></div></div>`;
   }
   document.getElementById('consumables').innerHTML = c;
-  let s = '';
-  if (d.clean_seconds) s += `⏱️ ${(d.clean_seconds/60).toFixed(1)} min`;
-  if (d.position) s += ` 📍(${d.position.x.toFixed(0)}, ${d.position.y.toFixed(0)})@${d.position.angle.toFixed(0)}°`;
-  document.getElementById('stats').textContent = s || 'Sin datos';
-  if (d.has_map) {
-    document.getElementById('map-img').style.display = 'block';
-    document.getElementById('map-loading').style.display = 'none';
-  }
 }
+
 async function cmd(action, value) {
-  log(`> ${action} ${value || ''}`);
-  const r = await fetch('/api/cmd', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action, value})});
-  if (!r.ok) log(`ERROR: ${await r.text()}`);
+  log(`> ${action} ${value ?? ''}`);
+  await fetch('/api/cmd', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action, value})});
 }
 function log(msg) {
   const el = document.getElementById('log');
   el.innerHTML = `[${new Date().toLocaleTimeString()}] ${msg}<br>` + el.innerHTML;
-  if (el.children.length > 20) el.lastChild.remove();
+  if (el.children.length > 15) el.lastChild.remove();
 }
-document.getElementById('map-img').onload = function() {
-  this.style.display='block';
-  document.getElementById('map-loading').style.display='none';
-};
 connect();
-setInterval(() => { document.getElementById('map-img').src = '/api/map?' + Date.now(); }, 5000);
 </script>
 </body>
 </html>"""
 
 
 class WebPanel:
-    def __init__(self, service, port: int = 8080):
+    def __init__(self, service, port: int = 8181):
         self.service = service
         self.port = port
         self.app = web.Application()
         self.app.router.add_get("/", self.index)
         self.app.router.add_get("/api/state", self.api_state)
-        self.app.router.add_get("/api/map", self.api_map)
         self.app.router.add_post("/api/cmd", self.api_cmd)
         self.app.router.add_get("/api/ws", self.api_ws)
         self._ws_clients: list[web.WebSocketResponse] = []
-        self._last_png: bytes | None = None
+        self._last_map_json: str | None = None
 
     async def start(self) -> None:
         runner = web.AppRunner(self.app)
@@ -207,83 +285,47 @@ class WebPanel:
     async def index(self, _: web.Request) -> web.Response:
         return web.Response(text=INDEX_HTML, content_type="text/html")
 
+    def _build_map_data(self) -> dict | None:
+        """Ensambla el grid y lo serializa como filas de caracteres."""
+        svc = self.service
+        if not svc.asm.maps:
+            return None
+        map_id = max(svc.asm.maps, key=lambda m: svc.asm.piece_count(m))
+        grid = svc.asm.assemble(map_id)
+        if not grid:
+            return None
+        # bounding box
+        rows = [r for r in range(len(grid)) if any(grid[r])]
+        if not rows:
+            return None
+        cols = [c for c in range(len(grid[0])) if any(grid[rr][c] for rr in range(len(grid)))]
+        rmin, rmax, cmin, cmax = min(rows), max(rows), min(cols), max(cols)
+        h = rmax - rmin + 1
+        w = cmax - cmin + 1
+        # serializar: cada celda = 1 carácter ('0'-'3')
+        row_strs = ["".join(str(grid[r][c]) for c in range(cmin, cmax + 1)) for r in range(rmin, rmax + 1)]
+        return {
+            "type": "map",
+            "w": w, "h": h,
+            "crop_r": rmin, "crop_c": cmin,
+            "rows": row_strs,
+            "map_id": map_id,
+        }
+
     async def api_state(self, _: web.Request) -> web.Response:
         svc = self.service
         docs = {}
         for jid, r in svc.robots.items():
             docs[r.slug] = {
-                "status": r.status,
-                "status_raw": r.status,
-                "battery": r.battery,
+                "status": r.status, "battery": r.battery,
                 "fan_speed": svc.fan_speeds.get(r.slug, "standard"),
-                "error": r.error,
-                "fw": r.version,
+                "error": r.error, "fw": r.version,
                 "clean_seconds": r.clean_seconds,
                 "position": {"x": r.position.x, "y": r.position.y, "angle": r.position.angle} if r.position else None,
                 "charger": {"x": r.charger.x, "y": r.charger.y} if r.charger else None,
                 "consumables": r.lifespans,
-                "has_map": bool(svc.asm.maps),
             }
         return web.json_response(docs)
-
-    async def api_map(self, _: web.Request) -> web.Response:
-        svc = self.service
-        # intentar render en vivo
-        if svc.asm.maps:
-            map_id = max(svc.asm.maps, key=lambda m: svc.asm.piece_count(m))
-            grid = svc.asm.assemble(map_id)
-            log.debug("api_map: map=%s piezas=%d grid=%s", map_id, svc.asm.piece_count(map_id), "OK" if grid else "None")
-            if grid:
-                try:
-                    robot = next(iter(svc.robots.values()), None)
-                    png = render_png(
-                        grid,
-                        trace=[(p.x, p.y) for p in ([robot.position] if robot and robot.position else [])],
-                        position=(robot.position.x, robot.position.y) if robot and robot.position else None,
-                        dock=(robot.charger.x, robot.charger.y) if robot and robot.charger else None,
-                    )
-                    self._save_cache(png)
-                    log.debug("api_map: render vivo OK (%d bytes)", len(png))
-                    return web.Response(body=png, content_type="image/png")
-                except Exception:  # noqa: BLE001
-                    log.exception("api_map: render falló")
-        # fallback: cache en disco
-        cached = self._load_cache()
-        if cached:
-            log.debug("api_map: sirviendo cache disco (%d bytes)", len(cached))
-            return web.Response(body=cached, content_type="image/png")
-        # último recurso: fichero del corpus
-        try:
-            from pathlib import Path
-            p = Path(__file__).parent.parent.parent / "data" / "captures" / "session-02" / "map-final.png"
-            if p.exists():
-                log.debug("api_map: sirviendo corpus (%d bytes)", p.stat().st_size)
-                return web.Response(body=p.read_bytes(), content_type="image/png")
-        except OSError:
-            pass
-        log.warning("api_map: sin mapa disponible")
-        return web.Response(status=404, text="Sin mapa")
-
-    def _cache_path(self) -> "Path":
-        from pathlib import Path
-        d = Path(__file__).parent.parent.parent / "data"
-        d.mkdir(parents=True, exist_ok=True)
-        return d / "last-map.png"
-
-    def _save_cache(self, png: bytes) -> None:
-        try:
-            self._cache_path().write_bytes(png)
-        except OSError:
-            pass
-
-    def _load_cache(self) -> bytes | None:
-        try:
-            p = self._cache_path()
-            if p.exists():
-                return p.read_bytes()
-        except OSError:
-            pass
-        return None
 
     async def api_cmd(self, request: web.Request) -> web.Response:
         data = await request.json()
@@ -293,30 +335,20 @@ class WebPanel:
         for jid, r in svc.robots.items():
             c = svc.commanders[jid]
             log.info("web cmd: %s %s", action, value or "")
-            if action == "start":
-                c.start_clean(speed=svc.fan_speeds.get(r.slug, "standard"))
-            elif action == "pause":
-                c.pause()
-            elif action == "stop":
-                c.stop()
-            elif action == "dock":
-                c.dock()
-            elif action == "locate":
-                c.play_sound(30)
-            elif action == "fan_speed":
-                svc.fan_speeds[r.slug] = value or "standard"
-            elif action == "water_level":
-                c.set_water_permeability(int(value or 2))
-            elif action == "set_lang":
-                c.set_active_lang(value or "es-ES")
-            elif action == "clear_map":
-                c.clear_map()
-            elif action == "get_map_wifi":
-                c.get_map_wifi()
-            elif action == "recover_map":
-                c.recover_map()
-            elif action.startswith("reset_"):
-                c.reset_life_span(value or "Brush")
+            if action == "start": c.start_clean(speed=svc.fan_speeds.get(r.slug, "standard"))
+            elif action == "pause": c.pause()
+            elif action == "stop": c.stop()
+            elif action == "dock": c.dock()
+            elif action == "locate": c.play_sound(30)
+            elif action == "fan_speed": svc.fan_speeds[r.slug] = value or "standard"
+            elif action == "water_level": c.set_water_permeability(int(value or 2))
+            elif action == "set_lang": c.set_active_lang(value or "es-ES")
+            elif action == "clear_map": c.clear_map()
+            elif action == "recover_map": c.recover_map()
+            elif action == "set_on_off":
+                if isinstance(value, dict): c.set_on_off(value.get("t","g"), value.get("on","1")=="1")
+                else: c.set_on_off("g", str(value)=="1")
+            elif action.startswith("reset_"): c.reset_life_span(value or "Brush")
             return web.json_response({"ok": True})
         return web.json_response({"ok": False, "error": "no robot"}, status=404)
 
@@ -324,16 +356,35 @@ class WebPanel:
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         self._ws_clients.append(ws)
+        # enviar mapa inmediatamente al conectar
+        if self._last_map_json:
+            try: await ws.send_str(self._last_map_json)
+            except ConnectionResetError: pass
         try:
             async for msg in ws:
-                if msg.type == WSMsgType.ERROR:
-                    break
+                if msg.type == WSMsgType.ERROR: break
         finally:
-            self._ws_clients.remove(ws)
+            if ws in self._ws_clients:
+                self._ws_clients.remove(ws)
         return ws
 
+    def build_and_broadcast_map(self) -> None:
+        """Llamado por serve cuando las piezas cambian — construye y difunde el mapa."""
+        data = self._build_map_data()
+        if data:
+            self._last_map_json = json.dumps(data)
+            self.broadcast_raw(self._last_map_json)
+
+    def broadcast_raw(self, msg: str) -> None:
+        for ws in self._ws_clients[:]:
+            try:
+                asyncio.get_event_loop().create_task(ws.send_str(msg))
+            except Exception:
+                self._ws_clients.remove(ws)
+
     async def broadcast(self, data: dict) -> None:
-        """Envía estado a todos los clientes WebSocket conectados."""
+        """Envía estado a todos los WebSocket conectados."""
+        data.setdefault("type", "state")
         msg = json.dumps(data)
         for ws in self._ws_clients[:]:
             try:

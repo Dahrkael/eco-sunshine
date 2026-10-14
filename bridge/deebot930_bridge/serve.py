@@ -132,7 +132,6 @@ class Service:
                 await self.pub.publish_consumable(r.slug, key, round(life["left"] / life["total"] * 100))
         await self.pub.publish_attributes(r.slug, doc)
         await self.panel.broadcast(doc)
-        self.panel._last_png = None  # invalidar cache del mapa
 
     # ---------- comandos MQTT ----------
 
@@ -223,10 +222,8 @@ class Service:
 
     def _load_map_from_log(self) -> None:
         """Carga las últimas piezas MapP del log de Bumper al arrancar.
-        Usa solo piezas CRC-válidas y se queda con la última versión por pid."""
-        import base64
+        Sin validación CRC (eso se hace en vivo) — última versión por pid."""
         import re
-        import zlib
         from pathlib import Path
 
         log_path = Path(__file__).parent.parent.parent / "data" / "captures" / "pairing-session.log"
@@ -234,35 +231,56 @@ class Service:
             log.debug("sin log de Bumper para precargar mapa")
             return
 
-        # spec más reciente
-        spec = None
-        best = {}
+        # pasada 1: spec más reciente (para saber qué mapa es el actual)
+        latest_mapid = None
         for line in open(log_path, errors="replace"):
-            m = re.search(r'<ctl c="(\d+)" h="(\d+)" i="(\d+)" id="[0-9a-f]+" m="([^"]+)" p="(\d+)" r="(\d+)" w="(\d+)"', line)
+            m = re.search(r'<ctl c="\d+" h="\d+" i="(\d+)" id="[0-9a-f]+" m="[^"]+" p="\d+" r="\d+" w="\d+"', line)
             if m:
-                spec = dict(mapid=m.group(3), crcs=[int(x) for x in m.group(4).split(",")])
+                latest_mapid = m.group(1)
+        if not latest_mapid:
+            return
+
+        # pasada 2: última pieza por pid del mapa actual
+        best: dict[int, str] = {}
+        for line in open(log_path, errors="replace"):
             if 'td="MapP"' not in line:
                 continue
-            m2 = re.search(r'i="(\d+)"[^>]*p="([A-Za-z0-9+/=]{20,})"[^>]*pid="(\d+)"', line)
-            if not m2:
+            m = re.search(r'i="(\d+)"[^>]*p="([A-Za-z0-9+/=]{20,})"[^>]*pid="(\d+)"', line)
+            if not m or m.group(1) != latest_mapid:
                 continue
-            map_id, p_b64, pid = m2.group(1), m2.group(2), int(m2.group(3))
-            if spec and map_id == spec["mapid"] and pid < len(spec["crcs"]):
-                try:
-                    from .map_pieces import decode_piece
-                    decoded = decode_piece(p_b64)
-                    if zlib.crc32(decoded) == spec["crcs"][pid]:
-                        best[(map_id, pid)] = p_b64
-                except Exception:
-                    pass
+            pid = int(m.group(3))
+            try:
+                from .map_pieces import decode_piece
+                decode_piece(m.group(2))  # validar que decodifica
+                best[pid] = m.group(2)  # nos quedamos con la última
+            except Exception:
+                pass
 
         loaded = 0
-        for (map_id, pid), p_b64 in best.items():
-            if self.asm.add_piece(map_id, pid, p_b64):
-                loaded += 1
+        for pid, p_b64 in best.items():
+            try:
+                if self.asm.add_piece(latest_mapid, pid, p_b64):
+                    loaded += 1
+            except Exception:
+                pass
         if loaded:
-            log.info("precargadas %d piezas del mapa %s desde log", loaded, spec["mapid"] if spec else "?")
-            self.asm.version += 1  # forzar publicación inicial
+            log.info("precargadas %d piezas del mapa %s", loaded, latest_mapid)
+            self.asm.version += 1
+        else:
+            log.warning("precarga: 0 piezas validas para mapa %s", latest_mapid)
+
+    def _render_map_png(self, map_id: str) -> bytes:
+        """Render PNG del mapa para MQTT/HA."""
+        grid = self.asm.assemble(map_id)
+        if not grid:
+            return b""
+        robot = next(iter(self.robots.values()), None)
+        return render_png(
+            grid,
+            trace=[(p.x, p.y) for p in ([robot.position] if robot and robot.position else [])],
+            position=(robot.position.x, robot.position.y) if robot and robot.position else None,
+            dock=(robot.charger.x, robot.charger.y) if robot and robot.charger else None,
+        )
 
     async def _pull_walk(self, map_id: str) -> None:
         """Repone las piezas emitidas antes de arrancar: PullMP 0..63 (como la app)."""
@@ -309,21 +327,14 @@ class Service:
                 last_version, last_pub = self.asm.version, now
                 map_id = max(self.asm.maps, key=lambda m: self.asm.piece_count(m))
                 try:
-                    grid = self.asm.assemble(map_id)
-                    if grid is None:
-                        continue  # sin piezas para este mapa todavía
+                    # mapa al panel (canvas por WebSocket)
+                    self.panel.build_and_broadcast_map()
+                    # mapa a HA (PNG via MQTT)
                     for jid, r in self.robots.items():
-                        trace = [(p.x, p.y) for p in ([r.position] if r.position else [])]
-                        png = render_png(
-                            grid,
-                            trace=trace,
-                            position=(r.position.x, r.position.y) if r.position else None,
-                            dock=(r.charger.x, r.charger.y) if r.charger else None,
-                        )
-                        await self.pub.publish_map(r.slug, png)
+                        await self.pub.publish_map(r.slug, self._render_map_png(map_id))
                     log.info(
                         "mapa %s publicado (v%d, %d piezas)",
                         map_id, self.asm.version, total,
                     )
                 except Exception:  # noqa: BLE001
-                    log.exception("render/publicación de mapa falló")
+                    log.exception("publicación de mapa falló")

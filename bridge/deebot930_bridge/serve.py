@@ -201,6 +201,9 @@ class Service:
         await self.pub.connect()
         self.pub.on_command = self.on_command
 
+        # cargar mapa del log de Bumper (sobrevive a reinicios del serve)
+        self._load_map_from_log()
+
         # adopcion inicial del robot conocido + discovery inmediato
         if self.jid_hint and self.jid_hint not in self.robots:
             self._adopt(self.jid_hint)
@@ -217,6 +220,49 @@ class Service:
             self.poll_loop(),
             self._map_publisher(),
         )
+
+    def _load_map_from_log(self) -> None:
+        """Carga las últimas piezas MapP del log de Bumper al arrancar.
+        Usa solo piezas CRC-válidas y se queda con la última versión por pid."""
+        import base64
+        import re
+        import zlib
+        from pathlib import Path
+
+        log_path = Path(__file__).parent.parent.parent / "data" / "captures" / "pairing-session.log"
+        if not log_path.exists():
+            log.debug("sin log de Bumper para precargar mapa")
+            return
+
+        # spec más reciente
+        spec = None
+        best = {}
+        for line in open(log_path, errors="replace"):
+            m = re.search(r'<ctl c="(\d+)" h="(\d+)" i="(\d+)" id="[0-9a-f]+" m="([^"]+)" p="(\d+)" r="(\d+)" w="(\d+)"', line)
+            if m:
+                spec = dict(mapid=m.group(3), crcs=[int(x) for x in m.group(4).split(",")])
+            if 'td="MapP"' not in line:
+                continue
+            m2 = re.search(r'i="(\d+)"[^>]*p="([A-Za-z0-9+/=]{20,})"[^>]*pid="(\d+)"', line)
+            if not m2:
+                continue
+            map_id, p_b64, pid = m2.group(1), m2.group(2), int(m2.group(3))
+            if spec and map_id == spec["mapid"] and pid < len(spec["crcs"]):
+                try:
+                    from .map_pieces import decode_piece
+                    decoded = decode_piece(p_b64)
+                    if zlib.crc32(decoded) == spec["crcs"][pid]:
+                        best[(map_id, pid)] = p_b64
+                except Exception:
+                    pass
+
+        loaded = 0
+        for (map_id, pid), p_b64 in best.items():
+            if self.asm.add_piece(map_id, pid, p_b64):
+                loaded += 1
+        if loaded:
+            log.info("precargadas %d piezas del mapa %s desde log", loaded, spec["mapid"] if spec else "?")
+            self.asm.version += 1  # forzar publicación inicial
 
     async def _pull_walk(self, map_id: str) -> None:
         """Repone las piezas emitidas antes de arrancar: PullMP 0..63 (como la app)."""

@@ -232,6 +232,7 @@ class WebPanel:
         if svc.asm.maps:
             map_id = max(svc.asm.maps, key=lambda m: svc.asm.piece_count(m))
             grid = svc.asm.assemble(map_id)
+            log.debug("api_map: map=%s piezas=%d grid=%s", map_id, svc.asm.piece_count(map_id), "OK" if grid else "None")
             if grid:
                 try:
                     robot = next(iter(svc.robots.values()), None)
@@ -241,23 +242,26 @@ class WebPanel:
                         position=(robot.position.x, robot.position.y) if robot and robot.position else None,
                         dock=(robot.charger.x, robot.charger.y) if robot and robot.charger else None,
                     )
-                    self._last_png = png
                     self._save_cache(png)
+                    log.debug("api_map: render vivo OK (%d bytes)", len(png))
                     return web.Response(body=png, content_type="image/png")
                 except Exception:  # noqa: BLE001
-                    log.exception("render de mapa falló")
+                    log.exception("api_map: render falló")
         # fallback: cache en disco
         cached = self._load_cache()
         if cached:
+            log.debug("api_map: sirviendo cache disco (%d bytes)", len(cached))
             return web.Response(body=cached, content_type="image/png")
         # último recurso: fichero del corpus
         try:
             from pathlib import Path
             p = Path(__file__).parent.parent.parent / "data" / "captures" / "session-02" / "map-final.png"
             if p.exists():
+                log.debug("api_map: sirviendo corpus (%d bytes)", p.stat().st_size)
                 return web.Response(body=p.read_bytes(), content_type="image/png")
         except OSError:
             pass
+        log.warning("api_map: sin mapa disponible")
         return web.Response(status=404, text="Sin mapa")
 
     def _cache_path(self) -> "Path":

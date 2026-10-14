@@ -80,7 +80,8 @@ class BumperXMPPClient:
         self.writer: asyncio.StreamWriter | None = None
         self._buf = ""
         self.ready = asyncio.Event()
-        self._pending: dict[str, str] = {}  # iq_id -> td esperado (correlacion)
+        self._pending: dict[str, str] = {}
+        self._iq_counter: int = 2600  # iq_id -> td esperado (correlacion)
 
     # ---------- transporte ----------
 
@@ -204,26 +205,24 @@ class BumperXMPPClient:
 
     # ---------- comandos ----------
 
-    def send_ctl(self, bot_jid: str, ctl_inner: str, td: str = "") -> str:
-        """Comando con hijos: <ctl id><clean .../></ctl>"""
-        iq_id, ctl_id = uuid.uuid4().hex[:12], uuid.uuid4().hex[:8]
+    def send_command(self, bot_jid: str, ctl_template: str, td: str = "") -> str:
+        """Envuelve un ctl plantilla (con {ctl_id}) en el iq EXACTO de la app.
+
+        Formato corpus: <iq xmlns:ns0="com:ctl" from=... id=<decimal> to=...
+        type="set"><query>{ctl}</query></iq>
+        """
+        iq_id = str(self._iq_counter)
+        self._iq_counter += 1
+        ctl_id = uuid.uuid4().hex[:8]
         if td:
             self._pending[iq_id] = td
         stanza = (
-            f'<iq type="set" id="{iq_id}" from="{self.jid}" to="{bot_jid}">'
-            f'<query xmlns="com:ctl"><ctl id="{ctl_id}">{ctl_inner}</ctl></iq></iq>'
+            f'<iq xmlns:ns0="com:ctl" from="{self.jid}" id="{iq_id}" to="{bot_jid}" type="set">'
+            f"<query>{ctl_template.format(ctl_id=ctl_id)}</query></iq>"
         )
         self._send(stanza)
         return iq_id
 
-    def send_ctl_td(self, bot_jid: str, td: str, extra_attrs: str = "") -> str:
-        """Comando auto-cerrado: <ctl id td="GetPos" .../>"""
-        iq_id, ctl_id = uuid.uuid4().hex[:12], uuid.uuid4().hex[:8]
-        self._pending[iq_id] = td
-        stanza = (
-            f'<iq type="set" id="{iq_id}" from="{self.jid}" to="{bot_jid}">'
-            f'<query xmlns="com:ctl"><ctl id="{ctl_id}" td="{td}"{extra_attrs}/></query></iq>'
-        )
-        self._send(stanza)
-        return iq_id
+    def reply_ping(self, iq_id: str) -> None:
+        self._send(f'<iq type="result" id="{iq_id}" to="ecouser.net"/>')
 

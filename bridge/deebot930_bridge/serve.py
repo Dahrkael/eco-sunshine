@@ -113,7 +113,7 @@ class Service:
             elif action == "dock":
                 c.dock()
             elif action == "locate":
-                c.client.send_ctl_td(jid, "PlaySound", ' sid="30"')
+                c.play_sound(30)
             return
 
     # ---------- poll read-only ----------
@@ -122,6 +122,7 @@ class Service:
         while True:
             for jid, c in self.commanders.items():
                 try:
+                    c.set_map_autoreport(True)  # la app lo re-arma constantemente
                     c.get_pos()
                     c.get_clean_state()
                     c.get_charge_state()
@@ -146,6 +147,7 @@ class Service:
             self._adopt(self.jid_hint)
             await self.pub.publish_discovery(self.robots[self.jid_hint].slug)
             c = self.commanders[self.jid_hint]
+            c.set_map_autoreport(True)
             c.get_pos(); c.get_clean_state(); c.get_charge_state()
 
         log.info("serve operativo (poll cada %ds)", POLL_SECONDS)

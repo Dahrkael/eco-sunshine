@@ -11,7 +11,6 @@ Por robot (slug):
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
 
@@ -68,19 +67,28 @@ class MqttPublisher:
 
     async def publish_discovery(self, slug: str, name: str = "Deebot") -> None:
         assert self.client
+        device = {
+            "identifiers": [slug],
+            "name": name,
+            "manufacturer": "Ecovacs (cloud-free)",
+            "model": "OZMO 930 via deebot930-bridge",
+        }
+        # schema 'state' de HA: claves payload_turn_on/off/etc (NO payload_start)
         vac = {
+            "schema": "state",
             "name": name,
             "unique_id": slug,
+            "device": device,
             "command_topic": f"{self.base}/{slug}/command",
             "state_topic": f"{self.base}/{slug}/state",
             "json_attributes_topic": f"{self.base}/{slug}/attributes",
-            "fan_speed_command_topic": f"{self.base}/{slug}/command",
-            "fan_speed_list": ["eco", "standard", "strong"],
-            "payload_start": "start",
+            "payload_turn_on": "start",
+            "payload_turn_off": "pause",
             "payload_pause": "pause",
+            "payload_stop": "pause",
             "payload_return_to_base": "dock",
             "payload_locate": "locate",
-            "payload_stop": "pause",
+            "payload_clean_spot": "spot",
         }
         await self.client.publish(
             f"homeassistant/vacuum/{slug}/config", json.dumps(vac), retain=True
@@ -88,6 +96,7 @@ class MqttPublisher:
         cam = {
             "name": f"{name} map",
             "unique_id": f"{slug}_map",
+            "device": device,
             "topic": f"{self.base}/{slug}/map",
             "content_type": "image/png",
         }
@@ -110,9 +119,7 @@ class MqttPublisher:
 
     async def publish_map(self, slug: str, png: bytes) -> None:
         if self.client:
+            # el MQTT camera de HA espera los bytes crudos de la imagen
             await self.client.publish(
-                f"{self.base}/{slug}/map",
-                base64.b64encode(png).decode(),
-                retain=True,
-                qos=0,
+                f"{self.base}/{slug}/map", png, retain=True, qos=0
             )

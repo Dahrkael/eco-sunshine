@@ -8,14 +8,6 @@ from dataclasses import dataclass, field
 
 log = logging.getLogger(__name__)
 
-# ---- comandos (contenido interno del <ctl>) ----
-CMD_CLEAN_START = '<clean act="s" speed="standard" type="auto"/>'
-CMD_CLEAN_PAUSE = '<clean act="p" speed="standard" type="auto"/>'
-CMD_CHARGE_GO = '<charge type="go"/>'
-CMD_GET_POS = None  # sin hijos: usar send_ctl_td
-CMD_SET_MAP_AUTOREPORT = None
-
-
 @dataclass
 class Position:
     x: float  # mm
@@ -94,42 +86,47 @@ class RobotState:
 
 
 class RobotCommander:
-    """Envuelve el cliente XMPP con el vocabulario del 930."""
+    """Comandos 1:1 con los stanzas reales de la app (corpus sesiones 1-2)."""
 
     def __init__(self, client, robot: RobotState):
         self.client = client
         self.robot = robot
 
+    def _cmd(self, ctl: str, td: str = "") -> str:
+        return self.client.send_command(self.robot.jid, ctl, td)
+
     def start_clean(self) -> str:
-        return self.client.send_ctl(self.robot.jid, CMD_CLEAN_START, td="Clean")
+        return self._cmd('<ctl id="{ctl_id}" td="Clean"><clean act="s" speed="standard" type="auto" /></ctl>', "Clean")
 
     def pause(self) -> str:
-        return self.client.send_ctl(self.robot.jid, CMD_CLEAN_PAUSE, td="Clean")
+        return self._cmd('<ctl id="{ctl_id}" td="Clean"><clean act="p" speed="standard" type="auto" /></ctl>', "Clean")
 
     def dock(self) -> str:
-        return self.client.send_ctl(self.robot.jid, CMD_CHARGE_GO, td="Charge")
+        return self._cmd('<ctl id="{ctl_id}" td="Charge"><charge type="go" /></ctl>', "Charge")
 
     def get_pos(self) -> str:
-        return self.client.send_ctl_td(self.robot.jid, "GetPos")
+        return self._cmd('<ctl id="{ctl_id}" td="GetPos" />', "GetPos")
 
     def get_clean_state(self) -> str:
-        return self.client.send_ctl_td(self.robot.jid, "GetCleanState")
+        return self._cmd('<ctl id="{ctl_id}" td="GetCleanState" />', "GetCleanState")
 
     def get_charge_state(self) -> str:
-        return self.client.send_ctl_td(self.robot.jid, "GetChargeState")
+        return self._cmd('<ctl id="{ctl_id}" td="GetChargeState" />', "GetChargeState")
 
     def get_lifespan(self, kind: str = "Brush") -> str:
-        return self.client.send_ctl_td(self.robot.jid, "GetLifeSpan", f' type="{kind}"')
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="GetLifeSpan" type="{kind}" />', "GetLifeSpan")
 
     def get_version(self) -> str:
-        return self.client.send_ctl_td(self.robot.jid, "GetVersion", ' name="FW"')
+        return self._cmd('<ctl id="{ctl_id}" name="FW" td="GetVersion" />', "GetVersion")
 
     def set_map_autoreport(self, on: bool = True) -> str:
-        return self.client.send_ctl_td(self.robot.jid, "SetMapAutoReport", f' on="{int(on)}"')
+        return self._cmd(f'<ctl id="{{ctl_id}}" on="{int(on)}" td="SetMapAutoReport" />', "SetMapAutoReport")
 
     def pull_map_piece(self, pid: int) -> str:
-        return self.client.send_ctl_td(self.robot.jid, "PullMP", f' pid="{pid}"')
+        return self._cmd(f'<ctl id="{{ctl_id}}" pid="{pid}" td="PullMP" />', "PullMP")
 
-    def get_trace_page(self, page: int) -> str:
-        return self.client.send_ctl_td(self.robot.jid, "GetTr", f' tf="0" tt="{page}"')
+    def get_trace_page(self, tt: int, trid: int = 605959, tf: int = 0) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="GetTr" tf="{tf}" trid="{trid}" tt="{tt}" />', "GetTr")
 
+    def play_sound(self, sid: int = 30) -> str:
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="PlaySound" sid="{sid}" />', "PlaySound")

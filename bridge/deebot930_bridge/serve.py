@@ -41,6 +41,7 @@ class Service:
         self.robots: dict[str, RobotState] = {}
         self.commanders: dict[str, RobotCommander] = {}
         self.asm = MapAssembler()
+        self.fan_speeds: dict[str, str] = {}
         self.pub = MqttPublisher(
             cfg.mqtt.host, cfg.mqtt.port, cfg.mqtt.user, cfg.mqtt.password,
             cfg.mqtt.base_topic,
@@ -104,14 +105,30 @@ class Service:
             return
         self._last_publish[jid] = now
         self._last_status[jid] = r.status
-        await self.pub.publish_state(r.slug, HA_STATUS.get(r.status, "idle"))
-        await self.pub.publish_attributes(r.slug, {
+        doc = {
+            "status": HA_STATUS.get(r.status, "idle"),
             "status_raw": r.status,
             "battery": r.battery,
+            "fan_speed": self.fan_speeds.get(r.slug, "standard"),
+            "error": r.error,
+            "fw": r.version,
+            "clean_seconds": r.clean_seconds,
             "position": {"x": r.position.x, "y": r.position.y, "angle": r.position.angle}
             if r.position else None,
-            "consumibles": r.lifespans,
-        })
+            "charger": {"x": r.charger.x, "y": r.charger.y, "angle": r.charger.angle}
+            if r.charger else None,
+            "consumables": r.lifespans,
+        }
+        await self.pub.publish_state_doc(r.slug, doc)
+        await self.pub.publish_battery(r.slug, r.battery)
+        await self.pub.publish_fan_speed(r.slug, doc["fan_speed"])
+        await self.pub.publish_error(r.slug, r.error)
+        for key, comp in {"brush": "Brush", "sidebrush": "SideBrush",
+                          "dustcase": "DustCaseHeap", "airfilter": "AirFilter"}.items():
+            life = r.lifespans.get(comp)
+            if life and life.get("total"):
+                await self.pub.publish_consumable(r.slug, key, round(life["left"] / life["total"] * 100))
+        await self.pub.publish_attributes(r.slug, doc)
 
     # ---------- comandos MQTT ----------
 
@@ -120,15 +137,29 @@ class Service:
             if r.slug != slug:
                 continue
             c = self.commanders[jid]
-            log.info("comando %s → %s", slug, action)
+            log.info("comando %s → %s %s", slug, action, val or "")
             if action == "start":
-                c.start_clean()
+                speed = self.fan_speeds.get(slug, "standard")
+                c.start_clean(speed=speed)
+                await self.pub.publish_state(slug, "cleaning")
             elif action in ("pause", "stop"):
-                c.pause()
+                (c.pause() if action == "pause" else c.stop())
             elif action == "dock":
                 c.dock()
+                await self.pub.publish_state(slug, "returning")
             elif action == "locate":
                 c.play_sound(30)
+            elif action == "fan_speed":
+                self.fan_speeds[slug] = val
+                await self.pub.publish_fan_speed(slug, val)
+            elif action == "reset_life_span":
+                c.reset_life_span(val or "Brush")
+            elif action == "dnd":
+                await self.pub.publish_switch_state(slug, "dnd", val == "ON")
+                c.set_block_time_state(val == "ON")
+            elif action == "silent":
+                await self.pub.publish_switch_state(slug, "silent", val == "ON")
+                c.set_silent_mode_state(val == "ON")
             return
 
     # ---------- poll read-only ----------
@@ -144,6 +175,12 @@ class Service:
                     c.get_charger_pos()
                     c.get_battery_info()
                     c.get_map_m()
+                    c.get_life_span("Brush")
+                    c.get_life_span("SideBrush")
+                    c.get_life_span("DustCaseHeap")
+                    c.get_life_span("AirFilter")
+                    c.get_error()
+                    c.get_version()
                 except Exception:  # noqa: BLE001
                     log.exception("poll falló para %s", jid)
             await asyncio.sleep(POLL_SECONDS)

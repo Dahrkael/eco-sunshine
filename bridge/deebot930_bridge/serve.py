@@ -48,7 +48,7 @@ class Service:
             cfg.mqtt.base_topic,
         )
         self.client: BumperXMPPClient | None = None
-        self.panel = WebPanel(self, port=8080)
+        self.panel = WebPanel(self, port=8181)
         self._last_publish: dict[str, float] = {}
         self._last_status: dict[str, str] = {}
 

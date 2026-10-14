@@ -200,11 +200,12 @@ class Service:
                 map_id = max(self.asm.maps, key=lambda m: self.asm.piece_count(m))
 
                 async def walk() -> None:
-                    nonlocal walking
+                    nonlocal walking, last_version
                     try:
                         await self._pull_walk(map_id)
                     finally:
                         walking = False
+                        last_version = -1  # fuerza republicación tras cada walk
 
                 asyncio.create_task(walk())
 

@@ -114,7 +114,7 @@ select:focus{outline:none;border-color:var(--accent)}
 <div id="log"></div>
 
 <script>
-const COLORS = {0:'#0d1117', 1:'#30363d', 2:'#8b949e', 3:'#1f6feb', 4:'#f85149'};
+const COLORS = {0:'#0d1117', 1:'#30363d', 2:'#8b949e', 3:'#6b5b3e', 4:'#f85149'};
 const CELL_MM = 50;
 const ORIGIN_R = 401, ORIGIN_C = 401;
 

@@ -264,6 +264,8 @@ class Service:
                 map_id = max(self.asm.maps, key=lambda m: self.asm.piece_count(m))
                 try:
                     grid = self.asm.assemble(map_id)
+                    if grid is None:
+                        continue  # sin piezas para este mapa todavía
                     for jid, r in self.robots.items():
                         trace = [(p.x, p.y) for p in ([r.position] if r.position else [])]
                         png = render_png(

@@ -144,7 +144,7 @@ def detect_model(jid: str) -> ModelInfo:
     """Detecta el modelo desde el JID (SERIAL@CLASE.ecorobot.net/atom)."""
     parts = jid.split("@")
     if len(parts) >= 2:
-        sub = parts[1].split(".")[0]
+        sub = parts[1].split("/")[0].split(".")[0]
         if sub in MODELS:
             return MODELS[sub]
     return DEFAULT_MODEL

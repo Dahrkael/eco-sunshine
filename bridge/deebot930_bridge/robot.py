@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 log = logging.getLogger(__name__)
@@ -56,11 +57,20 @@ class RobotState:
             self.lifespans[attrs.get("type", "?")] = {
                 "left": int(attrs["left"]), "total": int(attrs["total"])
             }
-        if td in ("CleanSt", "CleanReport"):
-            self.status = self._map_clean_status(attrs, inner)
-        elif td == "ChargeState":
-            if attrs.get("report", "1") == "1" or "charg" in inner:
+        if td in ("CleanSt", "CleanReport", "GetCleanState"):
+            st = attrs.get("st")
+            if not st:
+                m = re.search(r'st="([a-z])"', inner)
+                st = m.group(1) if m else None
+            if st:
+                self.status = self._map_clean_status({"st": st}, inner)
+        elif td in ("ChargeState", "GetChargeState") or "SlotCharging" in inner:
+            if "SlotCharging" in inner or "WireCharging" in inner:
                 self.status = "charging"
+            elif "Going" in inner:
+                self.status = "returning"
+            elif "Idle" in inner and self.status not in ("cleaning", "paused"):
+                self.status = "idle"
         elif td == "BatteryInfo" or any("battery" in k.lower() for k in attrs):
             for k, v in attrs.items():
                 if "battery" in k.lower() or k == "power":

@@ -11,3 +11,4 @@ __pycache__/
 .idea/
 .vscode/
 .DS_Store
+bridge/config.toml

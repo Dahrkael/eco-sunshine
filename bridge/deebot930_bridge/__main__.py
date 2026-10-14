@@ -170,7 +170,22 @@ def cmd_replay(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
-    print("TODO(fase 4): servicio XMPP -> MQTT")
+    """Servicio vivo: XMPP (Bumper) ⇄ MQTT (Home Assistant)."""
+    import logging
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
+    from .config import load_config
+    from .serve import Service
+
+    cfg = load_config(args.config)
+    jid = args.jid or (cfg.robots[0] if cfg.robots else None)
+    try:
+        import asyncio
+
+        asyncio.run(Service(cfg, jid).run())
+    except KeyboardInterrupt:
+        print("adiós")
     return 0
 
 
@@ -198,7 +213,10 @@ def main() -> int:
     p_replay.add_argument("--listen", type=int, default=10, help="segundos escuchando comandos")
     p_replay.set_defaults(fn=cmd_replay)
 
-    sub.add_parser("serve").set_defaults(fn=cmd_serve)
+    p_serve = sub.add_parser("serve", help="servicio vivo XMPP → MQTT")
+    p_serve.add_argument("--config", "-c", default=None)
+    p_serve.add_argument("--jid", default=None)
+    p_serve.set_defaults(fn=cmd_serve)
 
     args = parser.parse_args()
     return args.fn(args)

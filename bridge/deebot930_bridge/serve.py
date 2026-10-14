@@ -1,0 +1,178 @@
+"""Modo servicio: XMPP (Bumper) ⇄ MQTT (Home Assistant), por robot.
+
+- Login en Bumper como cliente (mismo uid que la app → recibe los pushes)
+- Poll suave read-only cada POLL_SECONDS (no despierta al robot en base)
+- MapP pushes → MapAssembler → PNG → topic de la cámara
+- Comandos MQTT → vocabulario XMPP del robot
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+
+from .config import Config
+from .map_pieces import MapAssembler, render_png
+from .mqtt_pub import MqttPublisher
+from .robot import RobotCommander, RobotState
+from .xmpp_client import BumperXMPPClient
+
+log = logging.getLogger(__name__)
+
+POLL_SECONDS = 30
+KNOWN_JID = "E000105701860607AB7@115.ecorobot.net/atom"
+
+HA_STATUS = {
+    "docked": "docked",
+    "charging": "docked",
+    "cleaning": "cleaning",
+    "paused": "paused",
+    "returning": "returning",
+    "idle": "idle",
+    "unknown": "idle",
+    "error": "error",
+}
+
+
+class Service:
+    def __init__(self, cfg: Config, jid_hint: str | None):
+        self.cfg = cfg
+        self.jid_hint = jid_hint or KNOWN_JID
+        self.robots: dict[str, RobotState] = {}
+        self.commanders: dict[str, RobotCommander] = {}
+        self.asm = MapAssembler()
+        self.pub = MqttPublisher(
+            cfg.mqtt.host, cfg.mqtt.port, cfg.mqtt.user, cfg.mqtt.password,
+            cfg.mqtt.base_topic,
+        )
+        self.client: BumperXMPPClient | None = None
+        self._last_publish: dict[str, float] = {}
+        self._last_status: dict[str, str] = {}
+
+    # ---------- eventos XMPP ----------
+
+    def _adopt(self, jid: str) -> None:
+        r = RobotState.from_jid(jid)
+        self.robots[jid] = r
+        self.commanders[jid] = RobotCommander(self.client, r)  # type: ignore[arg-type]
+        log.info("robot adoptado: %s (%s)", jid, r.slug)
+
+    async def on_event(self, jid: str, attrs: dict, inner: str) -> None:
+        if "ecorobot.net" not in jid:
+            return
+        if jid not in self.robots:
+            self._adopt(jid)
+            await self.pub.publish_discovery(self.robots[jid].slug)
+        r = self.robots[jid]
+        r.update(attrs, inner)
+
+        # piezas de mapa en pushes (pid secuencial por map id)
+        p = attrs.get("p", "")
+        if p.startswith("XQ") and attrs.get("i"):
+            map_id = attrs["i"]
+            pid = self.asm.piece_count(map_id)
+            try:
+                self.asm.add_piece(map_id, pid, p)
+                log.info("pieza mapa %s#%d", map_id, pid)
+            except Exception:  # noqa: BLE001
+                log.exception("pieza de mapa ilegible")
+
+        await self._publish_state(jid)
+
+    async def _publish_state(self, jid: str, force: bool = False) -> None:
+        import time
+
+        r = self.robots[jid]
+        now = time.monotonic()
+        changed = self._last_status.get(jid) != r.status
+        if not force and not changed and now - self._last_publish.get(jid, 0) < 2:
+            return
+        self._last_publish[jid] = now
+        self._last_status[jid] = r.status
+        await self.pub.publish_state(r.slug, HA_STATUS.get(r.status, "idle"))
+        await self.pub.publish_attributes(r.slug, {
+            "status_raw": r.status,
+            "battery": r.battery,
+            "position": {"x": r.position.x, "y": r.position.y, "angle": r.position.angle}
+            if r.position else None,
+            "consumibles": r.lifespans,
+        })
+
+    # ---------- comandos MQTT ----------
+
+    async def on_command(self, slug: str, action: str, val) -> None:
+        for jid, r in self.robots.items():
+            if r.slug != slug:
+                continue
+            c = self.commanders[jid]
+            log.info("comando %s → %s", slug, action)
+            if action == "start":
+                c.start_clean()
+            elif action in ("pause", "stop"):
+                c.pause()
+            elif action == "dock":
+                c.dock()
+            elif action == "locate":
+                c.client.send_ctl_td(jid, "PlaySound", ' sid="30"')
+            return
+
+    # ---------- poll read-only ----------
+
+    async def poll_loop(self) -> None:
+        while True:
+            for jid, c in self.commanders.items():
+                try:
+                    c.get_pos()
+                    c.get_clean_state()
+                    c.get_charge_state()
+                except Exception:  # noqa: BLE001
+                    log.exception("poll falló para %s", jid)
+            await asyncio.sleep(POLL_SECONDS)
+
+    # ---------- bucle principal ----------
+
+    async def run(self) -> None:
+        b = self.cfg.bumper
+        self.client = BumperXMPPClient(
+            host=b.host, port=b.port, uid=b.uid, resource=b.resource,
+            ca_file=b.ca_file, on_event=self.on_event,
+        )
+        await self.client.connect()
+        await self.pub.connect()
+        self.pub.on_command = self.on_command
+
+        # adopcion inicial del robot conocido + discovery inmediato
+        if self.jid_hint and self.jid_hint not in self.robots:
+            self._adopt(self.jid_hint)
+            await self.pub.publish_discovery(self.robots[self.jid_hint].slug)
+            c = self.commanders[self.jid_hint]
+            c.get_pos(); c.get_clean_state(); c.get_charge_state()
+
+        log.info("serve operativo (poll cada %ds)", POLL_SECONDS)
+        await asyncio.gather(
+            self.client.listen(),
+            self.pub.listen_commands(),
+            self.poll_loop(),
+            self._map_publisher(),
+        )
+
+    async def _map_publisher(self) -> None:
+        """Publica el mapa cuando llegan piezas nuevas (throttle 10s)."""
+        import time
+
+        last_count, last_pub = -1, 0.0
+        while True:
+            await asyncio.sleep(5)
+            total = sum(self.asm.piece_count(m) for m in self.asm.maps)
+            now = time.monotonic()
+            if total > last_count and now - last_pub > 10 and self.asm.maps:
+                last_count, last_pub = total, now
+                map_id = max(self.asm.maps, key=lambda m: self.asm.piece_count(m))
+                try:
+                    grid = self.asm.assemble(map_id)
+                    png = render_png(grid)
+                    for r in self.robots.values():
+                        await self.pub.publish_map(r.slug, png)
+                    log.info("mapa %s publicado (%d piezas)", map_id, total)
+                except Exception:  # noqa: BLE001
+                    log.exception("render/publicacion de mapa falló")

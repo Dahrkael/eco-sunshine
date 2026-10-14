@@ -59,8 +59,9 @@ class MapAssembler:
             return None
         grid = [[0] * GRID_CELLS for _ in range(GRID_CELLS)]
         for pid, piece in pieces.items():
-            r0 = (pid // PIECES_PER_ROW) * PIECE_CELLS
-            c0 = (pid % PIECES_PER_ROW) * PIECE_CELLS
+            # orden COLUMN-major validado visualmente: pid 0-7 apilan en vertical
+            r0 = (pid % PIECES_PER_ROW) * PIECE_CELLS
+            c0 = (pid // PIECES_PER_ROW) * PIECE_CELLS
             for r in range(PIECE_CELLS):
                 base = r * PIECE_CELLS
                 row = grid[r0 + r]

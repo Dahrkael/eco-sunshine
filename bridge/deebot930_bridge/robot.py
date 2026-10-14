@@ -22,6 +22,7 @@ class RobotState:
     status: str = "unknown"  # docked/charging/cleaning/paused/returning/error/idle
     battery: int | None = None
     position: Position | None = None
+    charger: Position | None = None
     trace_points: list[tuple[float, float]] = field(default_factory=list)
     map_pieces: list[bytes] = field(default_factory=list)
     lifespans: dict[str, dict] = field(default_factory=dict)
@@ -49,6 +50,18 @@ class RobotState:
             self.lifespans[attrs.get("type", "?")] = {
                 "left": int(attrs["left"]), "total": int(attrs["total"])
             }
+        # base de carga: respuesta GetChargerPos (<charge p="x,y" a="ang"/>)
+        if "p" in attrs and "," in str(attrs.get("p", "")) and "type" not in attrs and td == "GetChargerPos":
+            try:
+                x, y = (float(v) for v in attrs["p"].split(","))
+                self.charger = Position(x, y, float(attrs.get("a", 0)))
+            except ValueError:
+                pass
+        elif self.charger is None and td == "GetChargerPos":
+            m = re.search(r'p="(-?\d+),(-?\d+)"', inner)
+            if m:
+                self.charger = Position(float(m.group(1)), float(m.group(2)),
+                                        float(re.search(r'a="(-?\d+)"', inner).group(1)) if re.search(r'a="(-?\d+)"', inner) else 0)
         if td in ("CleanSt", "CleanReport", "GetCleanState"):
             st = attrs.get("st")
             if not st:
@@ -127,6 +140,9 @@ class RobotCommander:
 
     def get_trace_page(self, tt: int, trid: int = 605959, tf: int = 0) -> str:
         return self._cmd(f'<ctl id="{{ctl_id}}" td="GetTr" tf="{tf}" trid="{trid}" tt="{tt}" />', "GetTr")
+
+    def get_charger_pos(self) -> str:
+        return self._cmd('<ctl id="{ctl_id}" td="GetChargerPos" />', "GetChargerPos")
 
     def play_sound(self, sid: int = 30) -> str:
         return self._cmd(f'<ctl id="{{ctl_id}}" td="PlaySound" sid="{sid}" />', "PlaySound")

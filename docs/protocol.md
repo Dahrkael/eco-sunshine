@@ -87,6 +87,19 @@ Capturas: `data/captures/pairing-session.log` (texto), `*.pcap` (binario).
    (Nota: en el corpus los pid de respuesta no viajan explicitos — el bridge
    hara PullMP por pid y colocara cada pieza por su pid conocido.)
 
+## Mapeo resuelto (2026-10-14, correlacion 82% con 23k posiciones)
+
+- Colocacion de piezas: **fila-major** (rowStart=pid//8, colStart=pid%8) —
+  como privacy-control. El experimento column-major era un espejismo visual.
+- **Ejes intercambiados**: celda_fila = x_mm/50 + ORIGIN_ROW(400);
+  celda_columna = y_mm/50 + ORIGIN_COL(390). El marco mm del robot tiene X/Y
+  permutados respecto al grid y origen desplazado (constantes en
+  map_pieces.py).
+- Validacion: 82% de 23k posiciones caen en celdas con datos (el resto:
+  rayos LDS sobre celdas aun desconocidas — normal).
+- Espejos: confunden al LDS (rayos fantasma en el mapa) — artefacto conocido
+  tambien visible en la app.
+
 ## Intel importada de repos externos (revision 2026-10-13)
 
 - **kushagharahi/ecovacs-privacy-control**: pipeline de mapa LZMA (arriba),

@@ -30,6 +30,11 @@ TRACE_COLOR = (255, 255, 255)   # limpiado
 ROBOT_COLOR = (76, 175, 80)
 DOCK_COLOR = (255, 152, 0)
 
+# Origen del grid respecto al marco mm del robot (resuelto empiricamente:
+# correlacion traza/suelo 82% — ver tools/corr_offset.py)
+ORIGIN_ROW = 400
+ORIGIN_COL = 390
+
 
 def decode_piece(p_b64: str) -> bytes:
     raw = base64.b64decode(p_b64)
@@ -72,19 +77,19 @@ class MapAssembler:
         return len(self.maps.get(map_id, {}))
 
     def assemble(self, map_id: str) -> list[list[int]] | None:
+        """Colocacion EXACTA de ecovacs-privacy-control (responses.go):
+        rowStart = pieceId / rowPiece; columnStart = pieceId % columnPiece.
+        Cada pieza = 100x100 celdas (row-major dentro de la pieza)."""
         pieces = self.maps.get(map_id)
         if not pieces:
             return None
         grid = [[0] * GRID_CELLS for _ in range(GRID_CELLS)]
         for pid, piece in pieces.items():
-            # orden COLUMN-major validado visualmente: pid 0-7 apilan en vertical
-            r0 = (pid % PIECES_PER_ROW) * PIECE_CELLS
-            c0 = (pid // PIECES_PER_ROW) * PIECE_CELLS
+            row_start = pid // PIECES_PER_ROW
+            col_start = pid % PIECES_PER_ROW
             for r in range(PIECE_CELLS):
-                base = r * PIECE_CELLS
-                row = grid[r0 + r]
                 for c in range(PIECE_CELLS):
-                    row[c0 + c] = piece[base + c]
+                    grid[row_start * PIECE_CELLS + r][col_start * PIECE_CELLS + c] = piece[r * PIECE_CELLS + c]
         return grid
 
 
@@ -107,12 +112,13 @@ def render_png(
     rmin, cmin = min(rows), min(cols)
     canvas = [list(grid[r][cmin : cmin + w]) for r in range(rmin, rmin + h)]
 
-    # overlay de traza: mm → celdas (origen del grid = esquina NO del bounding)
+    # overlay: mm → celda del grid completo (ejes intercambiados + origen),
+    # luego restar el recorte
     def to_cell(x_mm: float, y_mm: float) -> tuple[int, int] | None:
-        c = int(x_mm // cell_mm) - cmin
-        r = int(y_mm // cell_mm) - rmin
-        if 0 <= r < h and 0 <= c < w:
-            return r, c
+        row = int(x_mm // cell_mm) + ORIGIN_ROW - rmin
+        col = int(y_mm // cell_mm) + ORIGIN_COL - cmin
+        if 0 <= row < h and 0 <= col < w:
+            return row, col
         return None
 
     if trace:

@@ -123,7 +123,7 @@ class MqttTransport:
         self.identifier = identifier
         self.client: aiomqtt.Client | None = None
         self._pending: dict[str, asyncio.Future] = {}
-        self.connected = asyncio.Event()
+        self._fire_tasks: set[asyncio.Task] = set()  # refs anti-GC (S7)
 
     async def connect(self) -> None:
         kwargs: dict[str, Any] = {
@@ -142,7 +142,6 @@ class MqttTransport:
         # (todos los eco-ng son tipo UUID). '#' funciona bien y el filtrado
         # exacto lo hacemos aquí — robusto ante cualquier broker.
         await self.client.subscribe("iot/#", qos=0)
-        self.connected.set()
         log.info("MQTT bumper conectado: %s:%d como %s", self.host, self.port, self.identifier)
 
     async def listen(self) -> None:
@@ -161,7 +160,6 @@ class MqttTransport:
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
-                self.connected.clear()
                 log.warning("MQTT bumper desconectado (%s) — reintento en %.0fs", e, delay)
                 try:
                     if self.client is not None:
@@ -179,6 +177,11 @@ class MqttTransport:
         if routed is None:
             return
         kind, key, name, reqid = routed
+        # (O2) requests p2p que vemos por iot/# = comandos en tránsito (los
+        # nuestros propios o de otra app): no son reports ni respuestas —
+        # procesarlos solo contamina el estado con el envelope.
+        if kind == "request":
+            return
         try:
             payload = json.loads(msg.payload)
         except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
@@ -235,6 +238,8 @@ class MqttTransport:
                 log.exception("fire %s falló", command)
 
         try:
-            asyncio.get_running_loop().create_task(_run())
+            task = asyncio.get_running_loop().create_task(_run())
+            self._fire_tasks.add(task)  # (S7) referencia anti-GC
+            task.add_done_callback(self._fire_tasks.discard)
         except RuntimeError:
             log.error("fire fuera de event loop: %s", command)

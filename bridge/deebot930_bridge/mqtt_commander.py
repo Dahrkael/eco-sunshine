@@ -23,6 +23,17 @@ CLEAN_TYPE_JSON = {"auto": "auto", "spot": "spotArea", "spot_area": "spotArea",
                    "custom_area": "customArea", "single_room": "spotArea"}
 
 
+# reset/getLifeSpan: nombre HA/930 → componente eco-ng (spec §4.2)
+LIFESPAN_CMD_JSON = {"Brush": "brush", "SideBrush": "sideBrush",
+                     "DustCaseHeap": "unitCare", "AirFilter": "heap",
+                     "IonSterilize": "dModule",
+                     # tolerantes a minúsculas desde HA/panel
+                     **{k.lower(): v for k, v in {
+                         "Brush": "brush", "SideBrush": "sideBrush",
+                         "DustCaseHeap": "unitCare", "AirFilter": "heap",
+                         "IonSterilize": "dModule"}.items()}}
+
+
 class MqttCommander:
     """API espejo de RobotCommander sobre el transporte MQTT de Bumper."""
 
@@ -111,16 +122,16 @@ class MqttCommander:
         self._fire("getLifeSpan", list(LIFESPAN_JSON.values()))
 
     def reset_life_span(self, kind: str = "Brush") -> None:
-        comp = LIFESPAN_JSON.get(kind.lower() if kind.lower() in LIFESPAN_JSON
-                                 else {"Brush": "brush", "SideBrush": "sideBrush",
-                                       "DustCaseHeap": "unitCare",
-                                       "AirFilter": "heap"}.get(kind, "brush"))
-        self._fire("resetLifeSpan", {"component": comp})
+        self._fire("resetLifeSpan", {"component": LIFESPAN_CMD_JSON.get(kind, "brush")})
 
     # ---- mapa ----
 
     def get_major_map(self) -> None:
         self._fire("getMajorMap")
+
+    def get_map_info(self, mtype: str = "ol") -> None:
+        """Mapa chunked (T8/N8): el robot responde con N chunks getMapInfo."""
+        self._fire("getMapInfo", {"type": mtype})
 
     def get_minor_map(self, piece_index: int, mid: str = "0", mtype: str = "ol") -> None:
         self._fire("getMinorMap", {"type": mtype, "mid": mid, "pieceIndex": piece_index})

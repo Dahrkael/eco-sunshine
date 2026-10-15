@@ -43,7 +43,8 @@ LIFESPAN_TOTALS = {"brush": 10800, "sideBrush": 7200, "heap": 9000,
                    "unitCare": 10800, "dModule": 10800}
 # velocidad numérica eco-ng ↔ nombre HA
 SPEED_JSON = {0: "silent", 1: "standard", 2: "strong", 3: "strong"}
-SPEED_JSON_REV = {v: k for k, v in SPEED_JSON.items()}
+# inverso EXPLÍCITO: sin él, el dict-comp haría last-wins y strong→3 (fuera de spec)
+SPEED_JSON_REV = {"silent": 0, "standard": 1, "strong": 2}
 
 
 @dataclass
@@ -68,6 +69,9 @@ class RobotState:
     lifespans: dict[str, dict] = field(default_factory=dict)
     cleaned_map_pieces: dict[str, str] = field(default_factory=dict)
     did: DeviceId | None = None
+    clean_seconds: int = 0
+    # última velocidad numérica reportada por robots MQTT (onSpeed/getSpeed)
+    fan_speed_json: int | None = None
 
     @staticmethod
     def from_jid(jid: str) -> "RobotState":
@@ -81,7 +85,7 @@ class RobotState:
     def from_device_id(did: DeviceId) -> "RobotState":
         model = detect_model_for(did)
         serial = did.sn
-        return RobotState(jid=did.key, slug=f"{model.slug}-{serial[-6:].lower()}".replace("-", "-"),
+        return RobotState(jid=did.key, slug=f"{model.slug}-{serial[-6:].lower()}",
                           model=model, did=did)
 
     # ---- ingesta de eventos y respuestas ----
@@ -154,10 +158,6 @@ class RobotState:
             elif "Idle" in inner and self.status not in ("cleaning", "paused"):
                 self.status = "idle"
 
-    clean_seconds: int = 0
-    # última velocidad numérica reportada por robots MQTT (onSpeed/getSpeed)
-    fan_speed_json: int | None = None
-
     @staticmethod
     def _map_clean_status(attrs: dict, inner: str) -> str:
         st = attrs.get("st", "")
@@ -170,6 +170,15 @@ class RobotState:
 
     # ---- ingesta de reports/respuestas JSON (robots MQTT, spec §3-§5) ----
 
+    @staticmethod
+    def _canon_name(name: str) -> str:
+        """onBattery / getBattery / getBattery_V2 / onCleanInfo_V2 → battery / cleanInfo."""
+        n = name.removeprefix("on")
+        if n[:3].lower() == "get":
+            n = n[3:]
+        n = n.replace("_V2", "")
+        return n[0].lower() + n[1:] if n else name
+
     def update_report(self, name: str, data: dict) -> None:
         """Aplica un report iot/atr o respuesta p2p JSON al estado.
 
@@ -181,8 +190,7 @@ class RobotState:
         if data.get("ret") == "fail":
             log.debug("report %s fail: errno=%s", name, data.get("errno"))
             return
-        n = name.removeprefix("on").replace("_V2", "")
-        n = n[0].lower() + n[1:] if n else name  # onBattery → battery
+        n = self._canon_name(name)
 
         # batería: {value, isLow}
         if "value" in data and isinstance(data["value"], (int, float)) and (

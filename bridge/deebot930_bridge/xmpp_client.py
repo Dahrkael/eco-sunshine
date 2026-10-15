@@ -230,6 +230,3 @@ class BumperXMPPClient:
         self._send(stanza)
         return iq_id
 
-    def reply_ping(self, iq_id: str) -> None:
-        self._send(f'<iq type="result" id="{iq_id}" to="ecouser.net"/>')
-

@@ -26,6 +26,15 @@ GRID_CELLS = PIECE_CELLS * PIECES_PER_ROW  # 800
 
 ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
 
+
+def log_geometry_warning(map_id: str, geo: "MapGeometry") -> None:
+    """Geometría fuera de rango (payload corrupto o formato desconocido)."""
+    import logging
+
+    logging.getLogger(__name__).warning(
+        "mapa %s: geometría implausible %dx%d (%d celdas) — chunked descartado",
+        map_id, geo.total_cols, geo.total_rows, geo.total_rows * geo.total_cols)
+
 # estilo tipo app: plano gris = pendiente, traza blanca = limpiado
 COLORS = {
     0: (247, 247, 245),    # sin datos (fondo claro)
@@ -90,9 +99,9 @@ def decode_piece_auto(p_b64: str, size_hint: int = PIECE_CELLS * PIECE_CELLS) ->
 def _lzma_stream(raw: bytes) -> bytes:
     """LZMA-alone estándar (13B de cabecera: props+dict+size u64).
 
-    Los robots mandan la traza como LZMA-alone estándar (a diferencia de las
-    piezas, que recortan el size a u32). Fallback: cabecera de 9 bytes con
-    size reinyectado como desconocido (modo marcador EOS).
+    Los robots mandan traza y mapas chunked como LZMA-alone estándar (a
+    diferencia de las piezas, que recortan el size a u32). Fallback:
+    cabecera de 9 bytes con size reinyectado como desconocido (EOS).
     """
     try:
         return lzma.LZMADecompressor(format=lzma.FORMAT_ALONE).decompress(raw)
@@ -104,19 +113,23 @@ def _lzma_stream(raw: bytes) -> bytes:
         )
 
 
-def decode_trace_mqtt(trace_b64: str) -> list[tuple[float, float, bool]]:
-    """Traza de robots MQTT (spec §6.3): 5 bytes/punto.
-
-    base64 → LZMA → registros: int16_be y+2000, int16_be x+2000, flags
-    (bit7 = discontinuidad). Devuelve [(x_mm, y_mm, discontinuo)].
-    """
-    raw = base64.b64decode(trace_b64)
+def decompress_stream_auto(raw: bytes, max_out: int = 1 << 26) -> bytes:
+    """Descomprime un stream estándar (traza getMapTrace, mapa chunked
+    getMapInfo) detectando zstd por magic — LZMA sin tocar la cabecera."""
     if raw[:4] == ZSTD_MAGIC:
         import zstandard
 
-        data = zstandard.ZstdDecompressor().decompress(raw, max_output_size=1 << 22)
-    else:
-        data = _lzma_stream(raw)
+        return zstandard.ZstdDecompressor().decompress(raw, max_output_size=max_out)
+    return _lzma_stream(raw)
+
+
+def decode_trace_mqtt(trace_b64: str) -> list[tuple[float, float, bool]]:
+    """Traza de robots MQTT (spec §6.3): 5 bytes/punto.
+
+    base64 → LZMA estándar → registros: int16_be y+2000, int16_be x+2000,
+    flags (bit7 = discontinuidad). Devuelve [(x_mm, y_mm, discontinuo)].
+    """
+    data = decompress_stream_auto(base64.b64decode(trace_b64))
     pts: list[tuple[float, float, bool]] = []
     for i in range(0, len(data) - 4, 5):
         y = struct.unpack_from(">h", data, i)[0] - 2000
@@ -172,7 +185,7 @@ class MapGeometry:
 
     @classmethod
     def from_major_map_json(cls, data: dict) -> "MapGeometry":
-        """getMajorMap/getMapInfo JSON → geometría con origen centrado y y-up."""
+        """getMajorMap JSON → geometría con origen centrado y y-up."""
         try:
             cells_x = int(data.get("cellWidth", PIECE_CELLS))
             cells_y = int(data.get("cellHeight", PIECE_CELLS))
@@ -183,6 +196,26 @@ class MapGeometry:
             return cls()
         geo = cls(cells_x=cells_x, cells_y=cells_y, piece_cols=piece_cols,
                   piece_rows=piece_rows, cell_mm=cell_mm)
+        geo.set_centered_origin()
+        return geo
+
+    @classmethod
+    def from_chunked_json(cls, data: dict) -> "MapGeometry":
+        """getMapInfo chunked (T8/N8, spec §4.5): el blob concatenado ES el
+        grid completo — totalWidth/totalHeight en celdas, sin piezas.
+
+        Los chunks traen width/height (celdas del chunk) y totalWidth/
+        totalHeight (grid completo); usar from_major_map_json aquí montaría
+        un grid gigante (width=100 → 100 piezas por eje → 100M celdas).
+        """
+        try:
+            total_cols = int(data.get("totalWidth") or data.get("width") or PIECE_CELLS)
+            total_rows = int(data.get("totalHeight") or data.get("height") or PIECE_CELLS)
+            cell_mm = int(data.get("pixel", 50))
+        except (TypeError, ValueError):
+            return cls()
+        geo = cls(cells_x=total_cols, cells_y=total_rows,
+                  piece_cols=1, piece_rows=1, cell_mm=cell_mm)
         geo.set_centered_origin()
         return geo
 
@@ -292,18 +325,30 @@ class MapAssembler:
         chunks = self._chunks.setdefault(map_id, {})
         if value_b64:
             chunks[index] = value_b64
-        if len(chunks) < total_count:
+        if total_count < 1 or len(chunks) < total_count:
             return False
         joined = "".join(chunks[i] for i in range(total_count) if i in chunks)
         if len(chunks) != total_count:
             return False  # faltan chunks intermedios
         if data:
-            self.geometry[map_id] = MapGeometry.from_major_map_json(data)
+            self.geometry[map_id] = MapGeometry.from_chunked_json(data)
         geo = self.geo(map_id)
-        grid = decompress_auto(base64.b64decode(joined), geo.total_rows * geo.total_cols)
+        # salvaguarda (B9): un payload con geometría absurda no debe montar
+        # un grid de 100M celdas — limitar a 2000x2000
+        if geo.total_rows * geo.total_cols > 2000 * 2000:
+            log_geometry_warning(map_id, geo)
+            self._chunks.pop(map_id, None)
+            return False
+        # el blob chunked es un stream LZMA/zstd ESTÁNDAR (no formato pieza)
+        grid = decompress_stream_auto(base64.b64decode(joined),
+                                      max_out=geo.total_rows * geo.total_cols * 4)
+        if len(grid) < geo.total_rows * geo.total_cols:
+            self._chunks.pop(map_id, None)
+            return False
         # el chunked NO viene por piezas: una sola "pieza" = grid completo,
-        # indexada como pid -1 para no chocar con el ensamblado por piezas
+        # indexada como pid -1 (B15: descarta piezas viejas del mismo mid)
         pieces = self.maps.setdefault(map_id, {})
+        pieces.clear()
         pieces[-1] = grid
         if self.crcs.get(map_id) is None:
             self.crcs[map_id] = []
@@ -324,6 +369,7 @@ class MapAssembler:
             return None
         geo = self.geo(map_id)
         grid = [[0] * geo.total_cols for _ in range(geo.total_rows)]
+        expected = geo.cells_x * geo.cells_y
         for pid, piece in pieces.items():
             if pid < 0:  # mapa chunked: el grid ya viene montado
                 for r in range(geo.total_rows):
@@ -331,6 +377,8 @@ class MapAssembler:
                     base = r * geo.total_cols
                     for c in range(geo.total_cols):
                         row[c] = piece[base + c]
+                continue
+            if len(piece) < expected:  # (B10) pieza truncada/corrupta: se salta
                 continue
             r0 = (pid // geo.piece_cols) * geo.cells_y
             c0 = (pid % geo.piece_cols) * geo.cells_x
@@ -392,8 +440,9 @@ def render_png(
             canvas[dcell[0]][dcell[1]] = -3  # marcador base
 
     lut = {-1: trace_color, -2: ROBOT_COLOR, -3: DOCK_COLOR, **COLORS}
+    bg = COLORS[0]
     px = b"".join(
-        b"\x00" + b"".join(bytes(lut.get(v, COLORS[0])) for v in row) for row in canvas
+        b"\x00" + b"".join(bytes(lut.get(v, bg)) for v in row) for row in canvas
     )
 
     def chunk(tag: bytes, data: bytes) -> bytes:

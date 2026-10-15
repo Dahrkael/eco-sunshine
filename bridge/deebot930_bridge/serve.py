@@ -64,7 +64,9 @@ class Service:
         self._last_publish: dict[str, float] = {}
         self._last_status: dict[str, str] = {}
         self._last_trace_fetch: dict[str, float] = {}
+        self._last_poll: dict[str, float] = {}  # (C3) separado del throttle de estado
         self._walking = False
+        self._pending_walks: set[str] = set()
         # map_id → robot key: cada robot renderiza SU mapa (evita colisión
         # de mids entre protocolos — el 930 y un eco-ng pueden usar ambos "0")
         self._map_owner: dict[str, str] = {}
@@ -141,8 +143,11 @@ class Service:
         p = attrs.get("p", "")
         if p.startswith("XQ") and attrs.get("i") and attrs.get("pid"):
             map_id, pid = attrs["i"], int(attrs["pid"])
-            if self.asm.add_piece(map_id, pid, p):
-                log.info("pieza mapa %s#%d aceptada", map_id, pid)
+            try:
+                if self.asm.add_piece(map_id, pid, p):
+                    log.info("pieza mapa %s#%d aceptada", map_id, pid)
+            except Exception:  # noqa: BLE001  (B13: pieza corrupta no tira el handler)
+                log.exception("pieza mapa %s#%d ilegible", map_id, pid)
 
         await self._publish_state(jid)
 
@@ -157,7 +162,15 @@ class Service:
             return
 
         # ---- mapa: spec (geometría + CRCs) → walk de piezas cambiadas
-        if name in MAJOR_MAP_NAMES and "value" in data:
+        if name in MAJOR_MAP_NAMES:
+            if data.get("ret") == "fail":
+                # la familia T8/N8 no tiene getMajorMap: formato chunked
+                c = self.commanders.get(key)
+                if c is not None and hasattr(c, "get_map_info"):
+                    c.get_map_info()
+                return
+            if "value" not in data:
+                return
             # namespace por robot: los mids no son únicos entre protocolos
             map_id = f"{r.did.sn}:{data.get('mid', '0')}" if r.did else str(data.get("mid", "0"))
             self._map_owner.setdefault(map_id, key)
@@ -173,6 +186,7 @@ class Service:
         if name in MINOR_MAP_NAMES and "pieceValue" in data:
             raw_mid = str(data.get("mid", "0"))
             map_id = f"{r.did.sn}:{raw_mid}" if r.did else raw_mid
+            self._map_owner.setdefault(map_id, key)
             pid = int(data.get("pieceIndex", -1))
             if pid >= 0 and self.asm.add_piece_json(map_id, pid, data["pieceValue"]):
                 log.debug("pieza JSON mapa %s#%d aceptada", map_id, pid)
@@ -188,13 +202,23 @@ class Service:
                 log.info("mapa chunked %s montado", map_id)
             return
 
-        # ---- traza real (5 bytes/punto)
+        # ---- traza real (5 bytes/punto) + paginación (B14)
         if name in TRACE_NAMES and "traceValue" in data:
             try:
                 pts = decode_trace_mqtt(data["traceValue"])
+                total = int(data.get("totalCount", 0) or 0)
+                start = int(data.get("traceStart", 0) or 0)
                 if pts:
-                    r.trace_points = [(x, y) for x, y, _ in pts]
-                    log.debug("traza %s: %d puntos", key, len(pts))
+                    page = [(x, y) for x, y, _ in pts]
+                    # primera página reemplaza; las siguientes se añaden
+                    r.trace_points = page if start == 0 else r.trace_points + page
+                    log.debug("traza %s: %d puntos en [%d..%d) de %d",
+                              key, len(pts), start, start + len(pts), total)
+                # ¿quedan más páginas? pedir la siguiente
+                if total and start + len(pts) < total:
+                    c = self.commanders.get(key)
+                    if c is not None:
+                        c.get_map_trace(start + len(pts), 1500)
             except Exception:  # noqa: BLE001
                 log.exception("traza MQTT no decodificó")
             return
@@ -267,6 +291,8 @@ class Service:
                 await self.pub.publish_state(slug, "returning")
             elif action == "locate":
                 c.play_sound(30)
+            elif action == "spot":
+                c.start_clean(clean_type="spot")
             elif action == "fan_speed":
                 self.fan_speeds[slug] = val
                 c.set_clean_speed(val)
@@ -285,8 +311,10 @@ class Service:
 
     async def poll_loop(self) -> None:
         while True:
-            for key, c in self.commanders.items():
-                r = self.robots[key]
+            for key, c in list(self.commanders.items()):  # snapshot: adopciones concurrentes
+                r = self.robots.get(key)
+                if r is None:
+                    continue
                 try:
                     if r.did and r.did.protocol == "mqtt":
                         await self._poll_mqtt_robot(key, c)
@@ -313,10 +341,9 @@ class Service:
 
     async def _poll_mqtt_robot(self, key: str, c) -> None:
         now = time.monotonic()
-        last = self._last_publish.get(f"{key}::poll", 0)
-        if now - last < POLL_MQTT_SECONDS:
+        if now - self._last_poll.get(key, 0) < POLL_MQTT_SECONDS:
             return
-        self._last_publish[f"{key}::poll"] = now
+        self._last_poll[key] = now
         c.get_battery_info()
         c.get_pos()
         c.get_clean_state()
@@ -327,10 +354,55 @@ class Service:
 
     # ---------- walks de mapa ----------
 
+    def _commander_for_map(self, map_id: str):
+        """Commander del robot dueño del mapa (B6): los walks multi-robot
+        no deben salir por el primer commander del protocolo que haya."""
+        owner = self._map_owner.get(map_id)
+        c = self.commanders.get(owner) if owner else None
+        if c is not None:
+            return c
+        # sin owner conocido → primer commander del protocolo afín
+        is_mqtt = ":" in map_id  # los mids eco-ng van con namespace sn:mid
+        for key, cmd in self.commanders.items():
+            r = self.robots.get(key)
+            if r and r.did and (r.did.protocol == "mqtt") == is_mqtt:
+                return cmd
+        return None
+
+    async def _minor_walk(self, map_id: str) -> None:
+        """Pide getMinorMap de las piezas cuyo CRC cambió (robots eco-ng).
+
+        Cola por mapa (B7): si llega un walk mientras otro está en curso,
+        queda pendiente y se procesa al terminar — nada se descarta.
+        El mid del wire es el CRUDO: el namespace sn: es solo interno (B2).
+        """
+        self._pending_walks.add(map_id)
+        if self._walking:
+            return
+        self._walking = True
+        try:
+            while self._pending_walks:
+                map_id = self._pending_walks.pop()
+                c = self._commander_for_map(map_id)
+                if c is None:
+                    continue
+                raw_mid = map_id.split(":", 1)[1] if ":" in map_id else map_id
+                crcs = self.asm.crcs.get(map_id, [])
+                missing = [pid for pid, crc in enumerate(crcs)
+                           if crc and self.asm.piece_crc(map_id, pid) != crc]
+                log.info("minor walk mapa %s: %d piezas a pedir", map_id, len(missing))
+                for pid in missing:
+                    try:
+                        c.get_minor_map(pid, mid=raw_mid)
+                    except Exception:  # noqa: BLE001
+                        log.exception("getMinorMap %d falló", pid)
+                    await asyncio.sleep(0.25)
+        finally:
+            self._walking = False
+
     async def _pull_walk(self, map_id: str) -> None:
         """Repone las piezas emitidas antes de arrancar: PullMP 0..63 (como la app)."""
-        c = next((c for j, c in self.commanders.items()
-                  if not (self.robots[j].did and self.robots[j].did.protocol == "mqtt")), None)
+        c = self._commander_for_map(map_id)
         if not c:
             return
         log.info("pull walk mapa %s", map_id)
@@ -340,29 +412,6 @@ class Service:
             except Exception:  # noqa: BLE001
                 return
             await asyncio.sleep(0.25)
-
-    async def _minor_walk(self, map_id: str) -> None:
-        """Pide getMinorMap de las piezas cuyo CRC cambió (robots eco-ng)."""
-        if self._walking:
-            return
-        c = next((c for j, c in self.commanders.items()
-                  if self.robots[j].did and self.robots[j].did.protocol == "mqtt"), None)
-        if not c:
-            return
-        self._walking = True
-        try:
-            crcs = self.asm.crcs.get(map_id, [])
-            missing = [pid for pid, crc in enumerate(crcs)
-                       if crc and self.asm.piece_crc(map_id, pid) != crc]
-            log.info("minor walk mapa %s: %d piezas a pedir", map_id, len(missing))
-            for pid in missing:
-                try:
-                    c.get_minor_map(pid, mid=map_id)
-                except Exception:  # noqa: BLE001
-                    log.exception("getMinorMap %d falló", pid)
-                await asyncio.sleep(0.25)
-        finally:
-            self._walking = False
 
     # ---------- bucle principal ----------
 
@@ -379,14 +428,19 @@ class Service:
         tasks = [self.client.listen(), self.pub.listen_commands(),
                  self.poll_loop(), self._map_publisher()]
 
-        # transporte MQTT (robots eco-ng T8+) — opcional
+        # transporte MQTT (robots eco-ng T8+) — opcional. Si el broker no
+        # responde al arranque NO tumbamos el serve (B5): listen() reintenta
+        # y send_command degrada con {"ret":"fail"}.
         bm = self.cfg.bumper_mqtt
         if bm.enabled:
             from .mqtt_transport import MqttTransport
 
             self.mqtt_transport = MqttTransport(
                 bm.host, bm.port, ca_file=bm.ca_file, on_data=self.on_report)
-            await self.mqtt_transport.connect()
+            try:
+                await self.mqtt_transport.connect()
+            except Exception:  # noqa: BLE001
+                log.exception("broker eco-ng no conectó al arranque — reintentando en background")
             tasks.append(self.mqtt_transport.listen())
             # robots conocidos estáticos (dormidos no emiten reports)
             for key in bm.robots:
@@ -412,8 +466,8 @@ class Service:
                 log.exception("adopción inicial de %s falló", self.jid_hint)
 
         await self.panel.start()
-        log.info("serve operativo (poll cada %ds, panel en :8080, mqtt eco-ng %s)",
-                 POLL_SECONDS, "on" if bm.enabled else "off")
+        log.info("serve operativo (poll cada %ds, panel en :%d, mqtt eco-ng %s)",
+                 POLL_SECONDS, self.panel.port, "on" if bm.enabled else "off")
         await asyncio.gather(*tasks)
 
     def _load_map_from_log(self) -> None:
@@ -465,9 +519,13 @@ class Service:
         else:
             log.warning("precarga: 0 piezas validas para mapa %s", latest_mapid)
 
-    def _render_map_png(self, map_id: str, robot: RobotState | None = None) -> bytes:
-        """Render PNG del mapa para MQTT/HA (overlay del robot indicado)."""
-        grid = self.asm.assemble(map_id)
+    def _render_map_png(self, map_id: str, robot: RobotState | None = None,
+                        grid: list[list[int]] | None = None) -> bytes:
+        """Render PNG del mapa para MQTT/HA (overlay del robot indicado).
+
+        grid: opcional, ya ensamblado por el publisher (O1).
+        """
+        grid = grid if grid is not None else self.asm.assemble(map_id)
         if not grid:
             return b""
         r = robot or next(iter(self.robots.values()), None)
@@ -480,6 +538,12 @@ class Service:
             dock=(r.charger.x, r.charger.y) if r.charger else None,
             geo=self.asm.geo(map_id),
         )
+
+    def _robot_map_id_by_slug(self, slug: str) -> str | None:
+        for key, r in self.robots.items():
+            if r.slug == slug:
+                return self._robot_map_id(key)
+        return None
 
     def _robot_map_id(self, key: str) -> str | None:
         """Mapa propio del robot; fallback con afinidad de protocolo.
@@ -530,17 +594,22 @@ class Service:
             if self.asm.version != last_version and now - last_pub > 10 and self.asm.maps:
                 last_version, last_pub = self.asm.version, now
                 try:
+                    # (O1) ensamblar cada mapa UNA vez y reutilizar para
+                    # panel y renders PNG (evita 2 grids de 640k celdas/robot)
+                    grids = {mid: self.asm.assemble(mid)
+                             for mid in self.asm.maps if self.asm.piece_count(mid)}
                     # mapa al panel (canvas por WebSocket, uno por robot)
-                    self.panel.build_and_broadcast_map()
+                    self.panel.build_and_broadcast_map(grids)
                     # mapa a HA (PNG via MQTT) — cada robot con SU mapa
-                    for key, r in self.robots.items():
+                    for key, r in list(self.robots.items()):
                         map_id = self._robot_map_id(key)
-                        if map_id:
+                        grid = grids.get(map_id) if map_id else None
+                        if grid:
                             await self.pub.publish_map(r.slug,
-                                                       self._render_map_png(map_id, r))
-                    log.info("mapas publicados (v%d, %d piezas en %d mapas)",
-                             self.asm.version,
-                             sum(self.asm.piece_count(m) for m in self.asm.maps),
-                             len(self.asm.maps))
+                                                       self._render_map_png(map_id, r, grid))
+                    log.debug("mapas publicados (v%d, %d piezas en %d mapas)",
+                              self.asm.version,
+                              sum(self.asm.piece_count(m) for m in self.asm.maps),
+                              len(self.asm.maps))
                 except Exception:  # noqa: BLE001
                     log.exception("publicación de mapa falló")

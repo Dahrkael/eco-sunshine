@@ -11,12 +11,11 @@ Arquitectura:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
 from aiohttp import web, WSMsgType
-
-from .map_pieces import render_png, GRID_CELLS, PIECE_CELLS, ORIGIN_ROW, ORIGIN_COL
 
 log = logging.getLogger(__name__)
 
@@ -119,7 +118,7 @@ const COLORS = {0:'#0d1117', 1:'#30363d', 2:'#8b949e', 3:'#6b5b3e', 4:'#f85149'}
 let CELL_MM = 50, ORIGIN_R = 401, ORIGIN_C = 401, Y_DOWN = true;
 
 let ws, gridData = null, currentRobot = null, robots = {}, gridW = 0, gridH = 0, cropR = 0, cropC = 0;
-let robot = null, charger = null, trace = [], animRobot = null, lastPos = null, lastTime = 0;
+let robot = null, charger = null, trace = [], animRobot = null, lastPos = null;
 let mapCache = {};   // slug → último payload de mapa (restaura al cambiar de robot)
 const canvas = document.getElementById('map-canvas');
 const ctx = canvas.getContext('2d');
@@ -132,7 +131,7 @@ function applyMap(d) {
   draw();
 }
 
-function switchRobot(slug) { currentRobot = slug; gridData = null; trace = []; lastPos = null; robot = null; charger = null; document.getElementById('map-loading').style.display='flex'; if (mapCache[slug]) applyMap(mapCache[slug]); if(ws) ws.close(); }
+function switchRobot(slug) { currentRobot = slug; gridData = null; trace = []; lastPos = null; robot = null; charger = null; animRobot = null; document.getElementById('map-loading').style.display='flex'; if (mapCache[slug]) applyMap(mapCache[slug]); if(ws) ws.close(); }
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${proto}//${location.host}/api/ws`);
@@ -301,6 +300,7 @@ class WebPanel:
         self.app.router.add_get("/api/ws", self.api_ws)
         self._ws_clients: list[web.WebSocketResponse] = []
         self._last_maps: dict[str, str] = {}  # slug → último mapa JSON
+        self._send_tasks: set[asyncio.Task] = set()  # refs anti-GC de envíos
 
     async def start(self) -> None:
         runner = web.AppRunner(self.app)
@@ -312,23 +312,26 @@ class WebPanel:
     async def index(self, _: web.Request) -> web.Response:
         return web.Response(text=INDEX_HTML, content_type="text/html")
 
-    def _build_map_data(self, slug: str | None = None) -> dict | None:
+    def _build_map_data(self, slug: str | None = None,
+                        map_id: str | None = None,
+                        grid: list[list[int]] | None = None) -> dict | None:
         """Ensambla el grid y lo serializa como filas de caracteres.
 
-        slug: mapa del robot indicado; None = el más poblado (compat).
+        slug/map_id/grid opcionales: si el serve ya resolvió el mapa del
+        robot (y lo ensambló), se reutilizan; si no, se resuelven aquí.
         """
         svc = self.service
         if not svc.asm.maps:
             return None
-        map_id = None
-        if slug:
-            for key, r in svc.robots.items():
-                if r.slug == slug:
-                    map_id = svc._robot_map_id(key)
-                    break
-        if not map_id:
-            map_id = max(svc.asm.maps, key=lambda m: svc.asm.piece_count(m))
-        grid = svc.asm.assemble(map_id)
+        if map_id is None:
+            if slug:
+                for key, r in svc.robots.items():
+                    if r.slug == slug:
+                        map_id = svc._robot_map_id(key)
+                        break
+            if not map_id:
+                map_id = max(svc.asm.maps, key=lambda m: svc.asm.piece_count(m))
+        grid = grid if grid is not None else svc.asm.assemble(map_id)
         if not grid:
             return None
         # bounding box
@@ -391,7 +394,9 @@ class WebPanel:
             elif action == "stop": c.stop()
             elif action == "dock": c.dock()
             elif action == "locate": c.play_sound(30)
-            elif action == "fan_speed": svc.fan_speeds[r.slug] = value or "standard"
+            elif action == "fan_speed":
+                svc.fan_speeds[r.slug] = value or "standard"
+                self._call(c, "set_clean_speed", value or "standard")
             elif action == "water_level": self._call(c, "set_water_permeability", int(value or 2))
             elif action == "set_lang": self._call(c, "set_active_lang", value or "es-ES")
             elif action == "clear_map": self._call(c, "clear_map")
@@ -434,38 +439,62 @@ class WebPanel:
                 self._ws_clients.remove(ws)
         return ws
 
-    def build_and_broadcast_map(self) -> None:
+    def build_and_broadcast_map(self, grids: dict[str, list[list[int]]] | None = None) -> None:
         """Llamado por serve cuando las piezas cambian — construye y difunde
-        el mapa de cada robot (con su slug) a todos los WebSocket."""
+        el mapa de cada robot (con su slug) a todos los WebSocket.
+
+        grids: cache {map_id: grid} ya ensamblados por el serve (evita
+        re-ensamblar por robot); si es None se ensamblan aquí (compat).
+        """
         svc = self.service
         for r in svc.robots.values():
-            data = self._build_map_data(r.slug)
+            map_id = svc._robot_map_id_by_slug(r.slug)
+            if not map_id:
+                continue
+            grid = (grids or {}).get(map_id)
+            data = self._build_map_data(r.slug, map_id, grid)
             if data:
                 msg = json.dumps(data)
                 self._last_maps[r.slug] = msg
                 self.broadcast_raw(msg)
         # robots aún sin mapa propio → el más poblado (compat con 1 robot)
         if not self._last_maps:
-            data = self._build_map_data(None)
+            data = self._build_map_data(None, None, None)
             if data:
                 self._last_maps[""] = json.dumps(data)
                 self.broadcast_raw(self._last_maps[""])
 
     def broadcast_raw(self, msg: str) -> None:
+        """Envío no bloqueante a todos los WS. La excepción de un cliente
+        roto llega DENTRO de su task (no en create_task): se captura en el
+        wrapper y se le expulsa de la lista."""
+
+        async def _send_to(ws) -> None:
+            try:
+                await ws.send_str(msg)
+            except Exception:  # noqa: BLE001
+                if ws in self._ws_clients:
+                    self._ws_clients.remove(ws)
+
         for ws in self._ws_clients[:]:
             try:
-                asyncio.get_event_loop().create_task(ws.send_str(msg))
-            except Exception:
-                self._ws_clients.remove(ws)
+                task = asyncio.get_running_loop().create_task(_send_to(ws))
+                self._send_tasks.add(task)  # (S7) referencia anti-GC
+                task.add_done_callback(self._send_tasks.discard)
+            except RuntimeError:
+                log.warning("broadcast_raw sin event loop — mensaje perdido")
 
     async def broadcast(self, data: dict, slug: str = "") -> None:
-        """Envía estado a todos los WebSocket conectados."""
+        """Envía estado a todos los WebSocket conectados (sin orden garantizado)."""
         data.setdefault("type", "state")
         if slug:
             data["slug"] = slug
         msg = json.dumps(data)
-        for ws in self._ws_clients[:]:
-            try:
-                await ws.send_str(msg)
-            except ConnectionResetError:
+        if not self._ws_clients:
+            return
+        results = await asyncio.gather(
+            *(ws.send_str(msg) for ws in self._ws_clients[:]), return_exceptions=True
+        )
+        for ws, res in zip(self._ws_clients[:], results):
+            if isinstance(res, Exception) and ws in self._ws_clients:
                 self._ws_clients.remove(ws)

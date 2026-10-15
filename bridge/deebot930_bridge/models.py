@@ -16,7 +16,6 @@ Protocolos:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from collections import Counter
 
 
 @dataclass
@@ -225,21 +224,3 @@ def detect_model_for(did: DeviceId) -> ModelInfo:
     if did.protocol == "mqtt":
         return detect_model_mqtt(did.device_class)
     return detect_model(did.jid)
-
-
-def detect_from_version(version_str: str) -> ModelInfo | None:
-    """Intenta detectar el modelo desde la string de firmware."""
-    v = version_str.lower()
-    for pattern, cls in [("930", "115"), ("920", "116"), ("950", "113"),
-                         ("960", "118"), ("980", "117"), ("720", "119"),
-                         ("726", "130"), ("622", "126")]:
-        if pattern in v:
-            return MODELS.get(cls)
-    return None
-
-
-def model_summary() -> str:
-    c = Counter(m.driver for m in MODELS.values())
-    lines = [f"  {d:14s}: {n} modelos" for d, n in c.most_common()]
-    lines.append(f"  MQTT (eco-ng) : {len(MQTT_MODELS)} class ids registrados")
-    return "\n".join(lines)

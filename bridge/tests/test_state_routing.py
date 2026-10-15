@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from deebot930_bridge.models import DeviceId, detect_model_for
 from deebot930_bridge.mqtt_transport import build_envelope, command_topic, route_topic
-from deebot930_bridge.robot import RobotState
+from deebot930_bridge.robot import SPEED_JSON_REV, RobotState
 
 
 class TestDeviceId:
@@ -38,6 +38,12 @@ class TestUpdateReport:
         r.update_report("onBattery", {"ret": "ok", "value": 85, "isLow": False})
         assert r.battery == 85
 
+    def test_battery_response_get(self):
+        """getBattery (respuesta p2p) debe actualizarse igual que onBattery."""
+        r = self._robot()
+        r.update_report("getBattery", {"ret": "ok", "value": 42, "isLow": True})
+        assert r.battery == 42
+
     def test_pos_and_charger(self):
         r = self._robot()
         r.update_report("onPos", {"ret": "ok", "mid": "0",
@@ -63,6 +69,25 @@ class TestUpdateReport:
                            "content": {"type": "auto", "total": 1234}}})
         assert r.status == "cleaning"
         assert r.clean_seconds == 1234
+
+    def test_clean_info_response_get(self):
+        """getCleanInfo_V2 (respuesta del poll) — bug B3: el prefijo get
+        debe quitarse al normalizar o 4 polls no actualizan estado."""
+        r = self._robot()
+        r.update_report("getCleanInfo_V2", {
+            "ret": "ok",
+            "cleanState": {"motionState": "working"}})
+        assert r.status == "cleaning"
+
+    def test_charge_state_response_get(self):
+        r = self._robot()
+        r.update_report("getChargeState", {"ret": "ok", "mode": "slot_charging"})
+        assert r.status == "charging"
+
+    def test_error_response_get(self):
+        r = self._robot()
+        r.update_report("getError", {"ret": "ok", "error": [{"errno": 4}]})
+        assert r.error == "4" and r.status == "error"
 
     def test_error_list(self):
         r = self._robot()
@@ -95,6 +120,10 @@ class TestUpdateReport:
         r = self._robot()
         r.update_report("onSpeed", {"ret": "ok", "speed": 2})
         assert r.fan_speed_json == 2
+
+    def test_speed_rev_in_spec(self):
+        """B4: el inverso debe mandar strong=2 (3 no existe en la spec)."""
+        assert SPEED_JSON_REV == {"silent": 0, "standard": 1, "strong": 2}
 
 
 class TestRouteTopic:

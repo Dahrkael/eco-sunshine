@@ -22,6 +22,7 @@ Topics:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -58,10 +59,13 @@ class MqttPublisher:
             kwargs["password"] = self.password
         self.client = aiomqtt.Client(**kwargs)
         await self.client.__aenter__()
-        for t in (f"{self.base}/+/command", f"{self.base}/+/fan_speed/set",
-                  f"{self.base}/+/reset_life_span", f"{self.base}/+/dnd/set",
-                  f"{self.base}/+/silent/set"):
-            await self.client.subscribe(t)
+        # (O4) una sola llamada con todas las suscripciones
+        subs = [(f"{self.base}/+/command", 0),
+                (f"{self.base}/+/fan_speed/set", 0),
+                (f"{self.base}/+/reset_life_span", 0),
+                (f"{self.base}/+/dnd/set", 0),
+                (f"{self.base}/+/silent/set", 0)]
+        await self.client.subscribe(subs)
         log.info("MQTT conectado a %s:%s", self.host, self.port)
 
     async def _pub(self, topic: str, payload, retain: bool = True) -> None:
@@ -90,7 +94,7 @@ class MqttPublisher:
             "battery_level_template": "{{ value | int }}",
             "fan_speed_topic": f"{b}/fan_speed",
             "fan_speed_command_topic": f"{b}/fan_speed/set",
-            "fan_speed_list": list(CLEAN_SPEEDS.keys()) if False else ["silent", "standard", "strong"],
+            "fan_speed_list": ["silent", "standard", "strong"],
             "json_attributes_topic": f"{b}/attributes",
             "payload_turn_on": "start",
             "payload_turn_off": "pause",
@@ -169,7 +173,7 @@ class MqttPublisher:
             }
             await self._pub(f"homeassistant/switch/{slug}_{key}/config", json.dumps(sw))
 
-        log.info("discovery publicado para %s (vacuum+camera+7 sensores+4 botones+2 switches)", slug)
+        log.info("discovery publicado para %s (vacuum+camera+5 sensores+4 botones+2 switches)", slug)
 
     # ---------- estado ----------
 
@@ -207,13 +211,33 @@ class MqttPublisher:
     # ---------- bucle de comandos ----------
 
     async def listen_commands(self) -> None:
-        if not self.client:
-            return
-        async for msg in self.client.messages:
+        """Bucle de comandos con reconexión (B16): si mosquitto corta, el
+        serve no debe morir — reintenta como hace MqttTransport.listen."""
+        delay = 3.0
+        while True:
             try:
-                await self._dispatch(msg)
-            except Exception:  # noqa: BLE001
-                log.exception("error despachando comando MQTT (mensaje ignorado)")
+                if self.client is None:
+                    await self.connect()
+                assert self.client is not None
+                async for msg in self.client.messages:
+                    try:
+                        await self._dispatch(msg)
+                    except Exception:  # noqa: BLE001
+                        log.exception("error despachando comando MQTT (mensaje ignorado)")
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                log.warning("MQTT HA desconectado (%s) — reintento en %.0fs", e, delay)
+                try:
+                    if self.client is not None:
+                        await self.client.__aexit__(type(e), e, None)
+                except Exception:  # noqa: BLE001
+                    pass
+                self.client = None
+                await asyncio.sleep(delay)
+                delay = min(delay * 1.5, 30)
+            else:
+                delay = 3.0
 
     async def _dispatch(self, msg) -> None:
         topic = str(msg.topic)

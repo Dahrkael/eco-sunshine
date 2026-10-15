@@ -117,6 +117,10 @@ class MockRobot:
         self.trace: list[tuple[float, float]] = [DOCK_MM]
         self.grid = build_grid()
         self.pieces, self.crcs = split_pieces(self.grid)
+        # mapa chunked (getMapInfo): b64 del stream LZMA estándar del grid
+        comp = lzma.compress(bytes(self.grid), format=lzma.FORMAT_ALONE,
+                             filters=[{"id": lzma.FILTER_LZMA1, "preset": 6}])
+        self._chunked_b64 = base64.b64encode(comp).decode()
         log.info("mapa sintético: %d piezas, grid %dx%d", len(self.pieces), TOTAL_COLS, TOTAL_ROWS)
 
     # ---------- conexión ----------
@@ -217,6 +221,28 @@ class MockRobot:
                 "totalCount": len(pts),
                 "traceValue": base64.b64encode(comp).decode()}
 
+    # ---- formato chunked (T8/N8): getMapInfo divide el b64 en N partes ----
+
+    def _chunked_response(self, data) -> dict:
+        """Responde UN chunk por llamada (index), como un T8/N8 real.
+
+        Spec §4.5: concatenar `value` por index → base64 → LZMA estándar →
+        grid totalWidth×totalHeight. Los chunks son TROZOS del b64.
+        """
+        mtype = data.get("type", "ol") if isinstance(data, dict) else "ol"
+        b64 = self._chunked_b64
+        chunk_chars = 4000
+        total_chunks = (len(b64) + chunk_chars - 1) // chunk_chars
+        idx = int(data.get("index", 0)) if isinstance(data, dict) else 0
+        if idx >= total_chunks:
+            return {"ret": "fail", "errno": 2, "error": "index fuera de rango"}
+        return {"ret": "ok", "mid": MAP_ID, "type": mtype, "index": idx,
+                "totalCount": total_chunks,
+                "value": b64[idx * chunk_chars:(idx + 1) * chunk_chars],
+                "pixel": PIXEL, "width": TOTAL_COLS, "height": TOTAL_ROWS,
+                "totalWidth": TOTAL_COLS, "totalHeight": TOTAL_ROWS,
+                "startX": 0, "startY": 0}
+
     def handle(self, cmd: str, data) -> dict:
         if cmd in ("getBattery",):
             return {"ret": "ok", "value": self.battery, "isLow": self.battery < 15}
@@ -225,11 +251,22 @@ class MockRobot:
         if cmd in ("getMajorMap",):
             return {"ret": "ok", **self._major_map()}
         if cmd in ("getMinorMap",):
-            idx = int(data.get("pieceIndex", 0)) if isinstance(data, dict) else 0
-            if 0 <= idx < len(self.pieces):
-                return {"ret": "ok", "mid": MAP_ID, "type": "ol", "pieceIndex": idx,
-                        "pieceValue": self.pieces[idx]}
-            return {"ret": "fail", "errno": 2, "error": "pieceIndex fuera de rango"}
+            # endurecido: valida type/mid como haría un robot real — el
+            # bridge debe mandar el mid CRUDO (sin namespace interno)
+            if not isinstance(data, dict):
+                return {"ret": "fail", "errno": 3, "error": "payload inválido"}
+            if data.get("type") not in ("ol", "st", "wa"):
+                return {"ret": "fail", "errno": 3, "error": f"type inválido: {data.get('type')}"}
+            if str(data.get("mid", "")) != MAP_ID:
+                return {"ret": "fail", "errno": 3,
+                        "error": f"mid desconocido: {data.get('mid')} (esperado {MAP_ID})"}
+            idx = data.get("pieceIndex", -1)
+            if not isinstance(idx, int) or not (0 <= idx < len(self.pieces)):
+                return {"ret": "fail", "errno": 2, "error": f"pieceIndex fuera de rango: {idx}"}
+            return {"ret": "ok", "mid": MAP_ID, "type": "ol", "pieceIndex": idx,
+                    "pieceValue": self.pieces[idx]}
+        if cmd in ("getMapInfo",):
+            return self._chunked_response(data)
         if cmd in ("getMapTrace",):
             start = int(data.get("traceStart", 0)) if isinstance(data, dict) else 0
             count = int(data.get("pointCount", 400)) if isinstance(data, dict) else 400

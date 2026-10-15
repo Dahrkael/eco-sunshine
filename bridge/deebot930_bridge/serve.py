@@ -456,14 +456,17 @@ class Service:
         # cargar mapa del log de Bumper (sobrevive a reinicios del serve)
         self._load_map_from_log()
 
-        # adopción inicial del robot conocido: un robot en base no emite
+        # adopción inicial de robots conocidos: un robot en base no emite
         # frames por sí solo — el sondeo inicial (con NUESTRO jid como from)
         # fuerza respuestas que llegan a esta sesión
-        if self.jid_hint and self.jid_hint not in self.robots:
+        known = [j for j in [self.jid_hint, *self.cfg.robots] if j]
+        for jid in dict.fromkeys(known):  # sin duplicados, orden estable
+            if jid in self.robots:
+                continue
             try:
-                await self._adopt_and_discover(self.jid_hint, mqtt=False)
+                await self._adopt_and_discover(jid, mqtt=False)
             except Exception:  # noqa: BLE001
-                log.exception("adopción inicial de %s falló", self.jid_hint)
+                log.exception("adopción inicial de %s falló", jid)
 
         await self.panel.start()
         log.info("serve operativo (poll cada %ds, panel en :%d, mqtt eco-ng %s)",

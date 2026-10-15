@@ -1,26 +1,31 @@
-"""Modo servicio: XMPP (Bumper) ⇄ MQTT (Home Assistant), por robot.
+"""Modo servicio: XMPP + MQTT (Bumper) ⇄ MQTT (Home Assistant), por robot.
 
-- Login en Bumper como cliente (mismo uid que la app → recibe los pushes)
+- Login en Bumper como cliente XMPP (robots era 930) y, si está activado,
+  como cliente MQTT del broker (robots eco-ng T8+, spec mqtt-json-spec.md)
 - Poll suave read-only cada POLL_SECONDS (no despierta al robot en base)
-- MapP pushes → MapAssembler → PNG → topic de la cámara
-- Comandos MQTT → vocabulario XMPP del robot
+- MapP pushes / getMinorMap → MapAssembler → PNG → topic de la cámara
+- Comandos MQTT → vocabulario XMPP o JSON según el protocolo del robot
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from .config import Config
-from .map_pieces import MapAssembler, render_png
+from .map_pieces import MapAssembler, decode_trace_mqtt, render_png
+from .models import DeviceId
 from .mqtt_pub import MqttPublisher
-from .robot import RobotCommander, RobotState
+from .robot import SPEED_JSON, RobotCommander, RobotState
 from .webpanel import WebPanel
 from .xmpp_client import BumperXMPPClient
 
 log = logging.getLogger(__name__)
 
 POLL_SECONDS = 30
+POLL_MQTT_SECONDS = 60
+TRACE_FETCH_SECONDS = 30
 # robots se detectan automáticamente al recibir su primer frame
 
 HA_STATUS = {
@@ -34,13 +39,19 @@ HA_STATUS = {
     "error": "error",
 }
 
+# respuestas/reportes que disparan fetch del mapa completo
+MAJOR_MAP_NAMES = ("getMajorMap", "onMajorMap")
+MINOR_MAP_NAMES = ("getMinorMap", "onMinorMap")
+MAP_INFO_NAMES = ("getMapInfo", "onMapInfo")
+TRACE_NAMES = ("getMapTrace", "onMapTrace")
+
 
 class Service:
     def __init__(self, cfg: Config, jid_hint: str | None):
         self.cfg = cfg
         self.jid_hint = jid_hint  # None = auto-detección por on_event
         self.robots: dict[str, RobotState] = {}
-        self.commanders: dict[str, RobotCommander] = {}
+        self.commanders: dict[str, object] = {}
         self.asm = MapAssembler()
         self.fan_speeds: dict[str, str] = {}
         self.pub = MqttPublisher(
@@ -48,25 +59,54 @@ class Service:
             cfg.mqtt.base_topic,
         )
         self.client: BumperXMPPClient | None = None
-        self.panel = WebPanel(self, port=8181)
+        self.mqtt_transport = None  # MqttTransport (eco-ng), si está activado
+        self.panel = WebPanel(self, port=cfg.panel_port, host=cfg.panel_host)
         self._last_publish: dict[str, float] = {}
         self._last_status: dict[str, str] = {}
+        self._last_trace_fetch: dict[str, float] = {}
+        self._walking = False
 
-    # ---------- eventos XMPP ----------
+    # ---------- adopción ----------
 
-    def _adopt(self, jid: str) -> None:
+    def _adopt_xmpp(self, jid: str) -> None:
         r = RobotState.from_jid(jid)
         self.robots[jid] = r
         self.commanders[jid] = RobotCommander(self.client, r)  # type: ignore[arg-type]
-        log.info("robot adoptado: %s (%s)", jid, r.slug)
+        log.info("robot XMPP adoptado: %s (%s)", jid, r.slug)
+
+    def _adopt_mqtt(self, key: str) -> RobotState:
+        did = DeviceId.from_key(key, protocol="mqtt")
+        r = RobotState.from_device_id(did)
+        self.robots[key] = r
+        from .mqtt_commander import MqttCommander
+
+        self.commanders[key] = MqttCommander(self.mqtt_transport, r)  # type: ignore[arg-type]
+        log.info("robot eco-ng adoptado: %s (%s)", key, r.slug)
+        return r
+
+    async def _adopt_and_discover(self, key: str, mqtt: bool) -> None:
+        r = self._adopt_mqtt(key) if mqtt else (self._adopt_xmpp(key) or self.robots[key])
+        await self.pub.publish_discovery(r.slug, r.model.display, r.model.ha_model)
+        if mqtt:
+            c = self.commanders[key]
+            # sincronización inicial (el resto llega por reports)
+            c.get_battery_info()
+            c.get_pos()
+            c.get_clean_state()
+            c.get_charge_state()
+            c.get_life_span()
+            c.get_error()
+            c.get_version()
+            c.get_major_map()
+            await self._publish_state(key, force=True)
+
+    # ---------- eventos XMPP (robots era 930) ----------
 
     async def on_event(self, jid: str, attrs: dict, inner: str) -> None:
         if "ecorobot.net" not in jid:
             return
         if jid not in self.robots:
-            self._adopt(jid)
-            r = self.robots[jid]
-            await self.pub.publish_discovery(r.slug, r.model.display, r.model.ha_model)
+            await self._adopt_and_discover(jid, mqtt=False)
         r = self.robots[jid]
         r.update(attrs, inner)
 
@@ -98,16 +138,77 @@ class Service:
 
         await self._publish_state(jid)
 
-    async def _publish_state(self, jid: str, force: bool = False) -> None:
-        import time
+    # ---------- eventos MQTT (robots eco-ng T8+) ----------
 
-        r = self.robots[jid]
-        now = time.monotonic()
-        changed = self._last_status.get(jid) != r.status
-        if not force and not changed and now - self._last_publish.get(jid, 0) < 2:
+    async def on_report(self, key: str, name: str, data: dict) -> None:
+        """Reports iot/atr y respuestas p2p — misma forma de payload."""
+        if key not in self.robots:
+            await self._adopt_and_discover(key, mqtt=True)
+        r = self.robots.get(key)
+        if r is None:
             return
-        self._last_publish[jid] = now
-        self._last_status[jid] = r.status
+
+        # ---- mapa: spec (geometría + CRCs) → walk de piezas cambiadas
+        if name in MAJOR_MAP_NAMES and "value" in data:
+            map_id = str(data.get("mid", "0"))
+            before = self.asm.spec_changes
+            self.asm.set_geometry_json(map_id, data)
+            if self.asm.spec_changes > before:
+                log.info("spec mapa JSON %s: %d crcs — lanzando minor walk",
+                         map_id, len(self.asm.crcs.get(map_id, [])))
+                asyncio.create_task(self._minor_walk(map_id))
+            return
+
+        # ---- mapa: pieza individual
+        if name in MINOR_MAP_NAMES and "pieceValue" in data:
+            map_id = str(data.get("mid", "0"))
+            pid = int(data.get("pieceIndex", -1))
+            if pid >= 0 and self.asm.add_piece_json(map_id, pid, data["pieceValue"]):
+                log.debug("pieza JSON mapa %s#%d aceptada", map_id, pid)
+            return
+
+        # ---- mapa: formato chunked (T8/N8)
+        if name in MAP_INFO_NAMES and "value" in data and "totalCount" in data:
+            map_id = str(data.get("mid", "0"))
+            if self.asm.add_chunk_json(map_id, int(data.get("index", 0)),
+                                       data["value"], int(data["totalCount"]), data):
+                log.info("mapa chunked %s montado", map_id)
+            return
+
+        # ---- traza real (5 bytes/punto)
+        if name in TRACE_NAMES and "traceValue" in data:
+            try:
+                pts = decode_trace_mqtt(data["traceValue"])
+                if pts:
+                    r.trace_points = [(x, y) for x, y, _ in pts]
+                    log.debug("traza %s: %d puntos", key, len(pts))
+            except Exception:  # noqa: BLE001
+                log.exception("traza MQTT no decodificó")
+            return
+
+        r.update_report(name, data)
+
+        # traza en vivo mientras limpia (la traza completa llega por getMapTrace)
+        if r.status == "cleaning" and r.did and r.did.protocol == "mqtt":
+            now = time.monotonic()
+            if now - self._last_trace_fetch.get(key, 0) > TRACE_FETCH_SECONDS:
+                self._last_trace_fetch[key] = now
+                self.commanders[key].get_map_trace(0, 1500)  # type: ignore[attr-defined]
+
+        await self._publish_state(key)
+
+    # ---------- estado → HA + panel ----------
+
+    async def _publish_state(self, key: str, force: bool = False) -> None:
+        r = self.robots[key]
+        now = time.monotonic()
+        changed = self._last_status.get(key) != r.status
+        if not force and not changed and now - self._last_publish.get(key, 0) < 2:
+            return
+        self._last_publish[key] = now
+        self._last_status[key] = r.status
+        if r.fan_speed_json is not None:
+            self.fan_speeds[r.slug] = SPEED_JSON.get(r.fan_speed_json, "standard")
         doc = {
             "status": HA_STATUS.get(r.status, "idle"),
             "status_raw": r.status,
@@ -126,21 +227,21 @@ class Service:
         await self.pub.publish_battery(r.slug, r.battery)
         await self.pub.publish_fan_speed(r.slug, doc["fan_speed"])
         await self.pub.publish_error(r.slug, r.error)
-        for key, comp in {"brush": "Brush", "sidebrush": "SideBrush",
-                          "dustcase": "DustCaseHeap", "airfilter": "AirFilter"}.items():
+        for key2, comp in {"brush": "Brush", "sidebrush": "SideBrush",
+                           "dustcase": "DustCaseHeap", "airfilter": "AirFilter"}.items():
             life = r.lifespans.get(comp)
             if life and life.get("total"):
-                await self.pub.publish_consumable(r.slug, key, round(life["left"] / life["total"] * 100))
+                await self.pub.publish_consumable(r.slug, key2, round(life["left"] / life["total"] * 100))
         await self.pub.publish_attributes(r.slug, doc)
-        await self.panel.broadcast(doc)
+        await self.panel.broadcast(doc, slug=r.slug)
 
-    # ---------- comandos MQTT ----------
+    # ---------- comandos MQTT (HA/panel) ----------
 
     async def on_command(self, slug: str, action: str, val) -> None:
-        for jid, r in self.robots.items():
+        for key, r in self.robots.items():
             if r.slug != slug:
                 continue
-            c = self.commanders[jid]
+            c = self.commanders[key]
             log.info("comando %s → %s %s", slug, action, val or "")
             if action == "start":
                 speed = self.fan_speeds.get(slug, "standard")
@@ -155,6 +256,7 @@ class Service:
                 c.play_sound(30)
             elif action == "fan_speed":
                 self.fan_speeds[slug] = val
+                c.set_clean_speed(val)
                 await self.pub.publish_fan_speed(slug, val)
             elif action == "reset_life_span":
                 c.reset_life_span(val or "Brush")
@@ -166,28 +268,88 @@ class Service:
                 c.set_silent_mode_state(val == "ON")
             return
 
-    # ---------- poll read-only ----------
+    # ---------- polls ----------
 
     async def poll_loop(self) -> None:
         while True:
-            for jid, c in self.commanders.items():
+            for key, c in self.commanders.items():
+                r = self.robots[key]
                 try:
-                    c.set_map_autoreport(True)  # la app lo re-arma constantemente
-                    c.get_pos()
-                    c.get_clean_state()
-                    c.get_charge_state()
-                    c.get_charger_pos()
-                    c.get_battery_info()
-                    c.get_map_m()
-                    c.get_life_span("Brush")
-                    c.get_life_span("SideBrush")
-                    c.get_life_span("DustCaseHeap")
-                    c.get_life_span("AirFilter")
-                    c.get_error()
-                    c.get_version()
+                    if r.did and r.did.protocol == "mqtt":
+                        await self._poll_mqtt_robot(key, c)
+                    else:
+                        self._poll_xmpp_robot(c)
                 except Exception:  # noqa: BLE001
-                    log.exception("poll falló para %s", jid)
+                    log.exception("poll falló para %s", key)
             await asyncio.sleep(POLL_SECONDS)
+
+    def _poll_xmpp_robot(self, c) -> None:
+        c.set_map_autoreport(True)  # la app lo re-arma constantemente
+        c.get_pos()
+        c.get_clean_state()
+        c.get_charge_state()
+        c.get_charger_pos()
+        c.get_battery_info()
+        c.get_map_m()
+        c.get_life_span("Brush")
+        c.get_life_span("SideBrush")
+        c.get_life_span("DustCaseHeap")
+        c.get_life_span("AirFilter")
+        c.get_error()
+        c.get_version()
+
+    async def _poll_mqtt_robot(self, key: str, c) -> None:
+        now = time.monotonic()
+        last = self._last_publish.get(f"{key}::poll", 0)
+        if now - last < POLL_MQTT_SECONDS:
+            return
+        self._last_publish[f"{key}::poll"] = now
+        c.get_battery_info()
+        c.get_pos()
+        c.get_clean_state()
+        c.get_charge_state()
+        c.get_life_span()
+        c.get_error()
+        c.get_major_map()
+
+    # ---------- walks de mapa ----------
+
+    async def _pull_walk(self, map_id: str) -> None:
+        """Repone las piezas emitidas antes de arrancar: PullMP 0..63 (como la app)."""
+        c = next((c for j, c in self.commanders.items()
+                  if not (self.robots[j].did and self.robots[j].did.protocol == "mqtt")), None)
+        if not c:
+            return
+        log.info("pull walk mapa %s", map_id)
+        for pid in range(64):
+            try:
+                c.pull_map_piece(pid)
+            except Exception:  # noqa: BLE001
+                return
+            await asyncio.sleep(0.25)
+
+    async def _minor_walk(self, map_id: str) -> None:
+        """Pide getMinorMap de las piezas cuyo CRC cambió (robots eco-ng)."""
+        if self._walking:
+            return
+        c = next((c for j, c in self.commanders.items()
+                  if self.robots[j].did and self.robots[j].did.protocol == "mqtt"), None)
+        if not c:
+            return
+        self._walking = True
+        try:
+            crcs = self.asm.crcs.get(map_id, [])
+            missing = [pid for pid, crc in enumerate(crcs)
+                       if crc and self.asm.piece_crc(map_id, pid) != crc]
+            log.info("minor walk mapa %s: %d piezas a pedir", map_id, len(missing))
+            for pid in missing:
+                try:
+                    c.get_minor_map(pid, mid=map_id)
+                except Exception:  # noqa: BLE001
+                    log.exception("getMinorMap %d falló", pid)
+                await asyncio.sleep(0.25)
+        finally:
+            self._walking = False
 
     # ---------- bucle principal ----------
 
@@ -201,6 +363,26 @@ class Service:
         await self.pub.connect()
         self.pub.on_command = self.on_command
 
+        tasks = [self.client.listen(), self.pub.listen_commands(),
+                 self.poll_loop(), self._map_publisher()]
+
+        # transporte MQTT (robots eco-ng T8+) — opcional
+        bm = self.cfg.bumper_mqtt
+        if bm.enabled:
+            from .mqtt_transport import MqttTransport
+
+            self.mqtt_transport = MqttTransport(
+                bm.host, bm.port, ca_file=bm.ca_file, on_data=self.on_report)
+            await self.mqtt_transport.connect()
+            tasks.append(self.mqtt_transport.listen())
+            # robots conocidos estáticos (dormidos no emiten reports)
+            for key in bm.robots:
+                if key not in self.robots:
+                    try:
+                        await self._adopt_and_discover(key, mqtt=True)
+                    except Exception:  # noqa: BLE001
+                        log.exception("adopción estática falló para %s", key)
+
         # cargar mapa del log de Bumper (sobrevive a reinicios del serve)
         self._load_map_from_log()
 
@@ -208,13 +390,9 @@ class Service:
         # los robots se adoptan automáticamente en on_event al primer frame
 
         await self.panel.start()
-        log.info("serve operativo (poll cada %ds, panel en :8080)", POLL_SECONDS)
-        await asyncio.gather(
-            self.client.listen(),
-            self.pub.listen_commands(),
-            self.poll_loop(),
-            self._map_publisher(),
-        )
+        log.info("serve operativo (poll cada %ds, panel en :8080, mqtt eco-ng %s)",
+                 POLL_SECONDS, "on" if bm.enabled else "off")
+        await asyncio.gather(*tasks)
 
     def _load_map_from_log(self) -> None:
         """Carga las últimas piezas MapP del log de Bumper al arrancar.
@@ -265,57 +443,48 @@ class Service:
         else:
             log.warning("precarga: 0 piezas validas para mapa %s", latest_mapid)
 
-    def _render_map_png(self, map_id: str) -> bytes:
-        """Render PNG del mapa para MQTT/HA."""
+    def _render_map_png(self, map_id: str, robot: RobotState | None = None) -> bytes:
+        """Render PNG del mapa para MQTT/HA (overlay del robot indicado)."""
         grid = self.asm.assemble(map_id)
         if not grid:
             return b""
-        robot = next(iter(self.robots.values()), None)
+        r = robot or next(iter(self.robots.values()), None)
+        if r is None:
+            return render_png(grid, geo=self.asm.geo(map_id))
         return render_png(
             grid,
-            trace=[(p.x, p.y) for p in ([robot.position] if robot and robot.position else [])],
-            position=(robot.position.x, robot.position.y) if robot and robot.position else None,
-            dock=(robot.charger.x, robot.charger.y) if robot and robot.charger else None,
+            trace=r.trace_points[-2000:] or None,
+            position=(r.position.x, r.position.y) if r.position else None,
+            dock=(r.charger.x, r.charger.y) if r.charger else None,
+            geo=self.asm.geo(map_id),
         )
-
-    async def _pull_walk(self, map_id: str) -> None:
-        """Repone las piezas emitidas antes de arrancar: PullMP 0..63 (como la app)."""
-        c = next((c for j, c in self.commanders.items()), None)
-        if not c:
-            return
-        log.info("pull walk mapa %s", map_id)
-        for pid in range(64):
-            try:
-                c.pull_map_piece(pid)
-            except Exception:  # noqa: BLE001
-                return
-            await asyncio.sleep(0.25)
 
     async def _map_publisher(self) -> None:
         """Publica el mapa cuando cambie contenido; re-walk periódico de piezas."""
-        import time
-
         last_version, last_pub, last_walk = -1, 0.0, 0.0
         walking = False
         while True:
             await asyncio.sleep(5)
             now = time.monotonic()
 
-            # re-walk: reponer piezas cada 60s (la app hace lo mismo al abrir el mapa)
+            # re-walk XMPP: reponer piezas cada 60s (la app hace lo mismo al abrir el mapa)
             if not walking and now - last_walk > 60 and self.asm.maps:
-                walking = True
-                last_walk = now
-                map_id = max(self.asm.maps, key=lambda m: self.asm.piece_count(m))
+                has_xmpp = any(r.did and r.did.protocol == "xmpp"
+                               for r in self.robots.values()) or not self.robots
+                if has_xmpp:
+                    walking = True
+                    last_walk = now
+                    map_id = max(self.asm.maps, key=lambda m: self.asm.piece_count(m))
 
-                async def walk() -> None:
-                    nonlocal walking, last_version
-                    try:
-                        await self._pull_walk(map_id)
-                    finally:
-                        walking = False
-                        last_version = -1  # fuerza republicación tras cada walk
+                    async def walk() -> None:
+                        nonlocal walking, last_version
+                        try:
+                            await self._pull_walk(map_id)
+                        finally:
+                            walking = False
+                            last_version = -1  # fuerza republicación tras cada walk
 
-                asyncio.create_task(walk())
+                    asyncio.create_task(walk())
 
             # publicar si el contenido del mapa cambió (no solo si crece)
             total = sum(self.asm.piece_count(m) for m in self.asm.maps)
@@ -325,9 +494,9 @@ class Service:
                 try:
                     # mapa al panel (canvas por WebSocket)
                     self.panel.build_and_broadcast_map()
-                    # mapa a HA (PNG via MQTT)
-                    for jid, r in self.robots.items():
-                        await self.pub.publish_map(r.slug, self._render_map_png(map_id))
+                    # mapa a HA (PNG via MQTT) — un render por robot (overlay propio)
+                    for key, r in self.robots.items():
+                        await self.pub.publish_map(r.slug, self._render_map_png(map_id, r))
                     log.info(
                         "mapa %s publicado (v%d, %d piezas)",
                         map_id, self.asm.version, total,

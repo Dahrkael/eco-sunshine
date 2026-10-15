@@ -176,6 +176,10 @@ class MqttPublisher:
     async def publish_state_doc(self, slug: str, doc: dict) -> None:
         await self._pub(f"{self.base}/{slug}/state", json.dumps(doc))
 
+    async def publish_state(self, slug: str, status: str) -> None:
+        """Estado optimista tras un comando (el doc completo lo sobreescribe en <2s)."""
+        await self._pub(f"{self.base}/{slug}/state", json.dumps({"status": status}))
+
     async def publish_battery(self, slug: str, battery: int | None) -> None:
         if battery is not None:
             await self._pub(f"{self.base}/{slug}/battery", battery)
@@ -206,22 +210,28 @@ class MqttPublisher:
         if not self.client:
             return
         async for msg in self.client.messages:
-            topic = str(msg.topic)
-            parts = topic.split("/")
-            if len(parts) < 3 or parts[0] != self.base:
-                continue
-            last = parts[-1]
-            slug = parts[-3] if last == "set" else parts[-2]
-            payload = msg.payload.decode(errors="replace").strip()
-            if not self.on_command:
-                continue
-            if last == "command":
-                await self.on_command(slug, payload, None)
-            elif last == "set" and parts[-2] == "fan_speed":
-                await self.on_command(slug, "fan_speed", payload)
-            elif last == "reset_life_span":
-                await self.on_command(slug, "reset_life_span", payload)
-            elif last == "set" and parts[-2] == "dnd":
-                await self.on_command(slug, "dnd", payload)
-            elif last == "set" and parts[-2] == "silent":
-                await self.on_command(slug, "silent", payload)
+            try:
+                await self._dispatch(msg)
+            except Exception:  # noqa: BLE001
+                log.exception("error despachando comando MQTT (mensaje ignorado)")
+
+    async def _dispatch(self, msg) -> None:
+        topic = str(msg.topic)
+        parts = topic.split("/")
+        if len(parts) < 3 or parts[0] != self.base:
+            return
+        last = parts[-1]
+        slug = parts[-3] if last == "set" else parts[-2]
+        payload = msg.payload.decode(errors="replace").strip()
+        if not self.on_command:
+            return
+        if last == "command":
+            await self.on_command(slug, payload, None)
+        elif last == "set" and parts[-2] == "fan_speed":
+            await self.on_command(slug, "fan_speed", payload)
+        elif last == "reset_life_span":
+            await self.on_command(slug, "reset_life_span", payload)
+        elif last == "set" and parts[-2] == "dnd":
+            await self.on_command(slug, "dnd", payload)
+        elif last == "set" and parts[-2] == "silent":
+            await self.on_command(slug, "silent", payload)

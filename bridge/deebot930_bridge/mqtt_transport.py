@@ -135,10 +135,13 @@ class MqttTransport:
             kwargs["tls_context"] = _tls_context(self.ca_file)
         self.client = aiomqtt.Client(**kwargs)
         await self.client.__aenter__()
-        # reports de TODOS los robots + respuestas a NUESTROS comandos
-        # (qos 0, como el helperbot de Bumper)
-        await self.client.subscribe("iot/atr/+/+/+/+/+", qos=0)
-        await self.client.subscribe("iot/p2p/+/+/+/+/bridge/bumper/bridge/+/+/+", qos=0)
+        # Suscripción amplia + filtrado estructural en route_topic.
+        #
+        # NO usamos filtros con '+' : el hbmqtt de Bumper compila '+' como la
+        # clase [/\$\s\w\d]+ (sin '-'), así que no matchea dids con guión
+        # (todos los eco-ng son tipo UUID). '#' funciona bien y el filtrado
+        # exacto lo hacemos aquí — robusto ante cualquier broker.
+        await self.client.subscribe("iot/#", qos=0)
         self.connected.set()
         log.info("MQTT bumper conectado: %s:%d como %s", self.host, self.port, self.identifier)
 

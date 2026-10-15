@@ -229,7 +229,12 @@ class MapAssembler:
             self.spec_changes += 1
 
     def set_geometry_json(self, map_id: str, data: dict) -> None:
-        """Geometría+CRCs desde getMajorMap JSON (robots MQTT, spec §4.5)."""
+        """Geometría+CRCs desde getMajorMap JSON (robots MQTT, spec §4.5).
+
+        A diferencia del camino XML (las piezas llegan por push), aquí la
+        primera spec también cuenta como cambio: sin walk inicial no hay
+        piezas (getMinorMap es la única fuente).
+        """
         old = self.crcs.get(map_id)
         self.geometry[map_id] = MapGeometry.from_major_map_json(data)
         crcs_new = []
@@ -241,7 +246,7 @@ class MapAssembler:
                 except ValueError:
                     pass
         self.crcs[map_id] = crcs_new
-        if old is not None and old != crcs_new:
+        if crcs_new and old != crcs_new:
             self.spec_changes += 1
 
     def geo(self, map_id: str) -> MapGeometry:
@@ -351,9 +356,10 @@ def render_png(
     geo: geometría del mapa (transform mm→celda). Si es None se usa la del
     930 (cell_mm, ORIGIN_ROW/COL con y hacia abajo).
     """
-    size = len(grid)
-    rows = [r for r in range(size) if any(grid[r])]
-    cols = [c for c in range(size) if any(grid[rr][c] for rr in range(size))]
+    size_r = len(grid)
+    size_c = len(grid[0]) if grid else 0
+    rows = [r for r in range(size_r) if any(grid[r])]
+    cols = [c for c in range(size_c) if any(grid[rr][c] for rr in range(size_r))]
     if not rows:
         raise ValueError("grid vacío")
     w = max(cols) - min(cols) + 1

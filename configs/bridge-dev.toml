@@ -1,0 +1,20 @@
+panel_port = 8282
+# Config de desarrollo (WSL): Bumper y mosquitto en docker del host
+[bumper]
+host = "localhost"
+port = 5223
+uid = "fuid_tmpuser"
+resource = "bridge"
+ca_file = "/mnt/t/ecovacs/data/certs/ca.crt"
+
+[mqtt]
+host = "localhost"
+port = 1883
+base_topic = "deebot"
+
+[bumper_mqtt]
+host = "localhost"
+port = 8883
+ca_file = "/mnt/t/ecovacs/data/certs/ca.crt"
+enabled = true
+

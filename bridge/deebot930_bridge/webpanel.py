@@ -279,9 +279,10 @@ connect();
 
 
 class WebPanel:
-    def __init__(self, service, port: int = 8181):
+    def __init__(self, service, port: int = 8181, host: str = "0.0.0.0"):
         self.service = service
         self.port = port
+        self.host = host
         self.app = web.Application()
         self.app.router.add_get("/", self.index)
         self.app.router.add_get("/api/state", self.api_state)
@@ -293,9 +294,9 @@ class WebPanel:
     async def start(self) -> None:
         runner = web.AppRunner(self.app)
         await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", self.port)
+        site = web.TCPSite(runner, self.host, self.port)
         await site.start()
-        log.info("panel web en http://0.0.0.0:%d", self.port)
+        log.info("panel web en http://%s:%d", self.host, self.port)
 
     async def index(self, _: web.Request) -> web.Response:
         return web.Response(text=INDEX_HTML, content_type="text/html")
@@ -369,16 +370,25 @@ class WebPanel:
             elif action == "dock": c.dock()
             elif action == "locate": c.play_sound(30)
             elif action == "fan_speed": svc.fan_speeds[r.slug] = value or "standard"
-            elif action == "water_level": c.set_water_permeability(int(value or 2))
-            elif action == "set_lang": c.set_active_lang(value or "es-ES")
-            elif action == "clear_map": c.clear_map()
-            elif action == "recover_map": c.recover_map()
+            elif action == "water_level": self._call(c, "set_water_permeability", int(value or 2))
+            elif action == "set_lang": self._call(c, "set_active_lang", value or "es-ES")
+            elif action == "clear_map": self._call(c, "clear_map")
+            elif action == "recover_map": self._call(c, "recover_map")
             elif action == "set_on_off":
-                if isinstance(value, dict): c.set_on_off(value.get("t","g"), value.get("on","1")=="1")
-                else: c.set_on_off("g", str(value)=="1")
-            elif action.startswith("reset_"): c.reset_life_span(value or "Brush")
+                if isinstance(value, dict): self._call(c, "set_on_off", value.get("t", "g"), value.get("on", "1") == "1")
+                else: self._call(c, "set_on_off", "g", str(value) == "1")
+            elif action.startswith("reset_"): self._call(c, "reset_life_span", value or "Brush")
             return web.json_response({"ok": True})
         return web.json_response({"ok": False, "error": "no robot"}, status=404)
+
+    @staticmethod
+    def _call(commander, method: str, *args) -> None:
+        """Duck typing tolerante: XMPP y MQTT no comparten el 100% del vocabulario."""
+        fn = getattr(commander, method, None)
+        if fn is None:
+            log.info("comando %s no disponible para este robot", method)
+            return
+        fn(*args)
 
     async def api_ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()

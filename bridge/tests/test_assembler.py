@@ -84,9 +84,16 @@ class TestAssembler:
         asm = MapAssembler()
         p = bytes([1]) * 10000
         v1 = str(zlib.crc32(p))
+        # primera spec con crcs → cuenta (dispara el minor walk inicial)
         asm.set_geometry_json("0", {"value": v1, "pieceWidth": 4, "pieceHeight": 5,
                                     "cellWidth": 100, "cellHeight": 100, "pixel": 50})
+        assert asm.spec_changes == 1
+        # idéntica → no cuenta
+        asm.set_geometry_json("0", {"value": v1, "pieceWidth": 4, "pieceHeight": 5,
+                                    "cellWidth": 100, "cellHeight": 100, "pixel": 50})
+        assert asm.spec_changes == 1
+        # cambia → cuenta
         asm.set_geometry_json("0", {"value": v1 + "," + str(zlib.crc32(bytes([2]) * 10000)),
                                     "pieceWidth": 4, "pieceHeight": 5,
                                     "cellWidth": 100, "cellHeight": 100, "pixel": 50})
-        assert asm.spec_changes == 1
+        assert asm.spec_changes == 2

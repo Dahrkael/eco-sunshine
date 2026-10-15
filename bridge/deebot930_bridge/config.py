@@ -49,6 +49,8 @@ class Config:
     bumper_mqtt: BumperMQTTConfig = field(default_factory=BumperMQTTConfig)
     # vacío = auto-descubrir cualquier bot que envíe frames
     robots: list[str] = field(default_factory=list)
+    panel_port: int = 8181
+    panel_host: str = "0.0.0.0"
 
 
 def load_config(path: str | None) -> Config:
@@ -63,5 +65,7 @@ def load_config(path: str | None) -> Config:
         setattr(cfg.mqtt, k, v)
     for k, v in raw.get("bumper_mqtt", {}).items():
         setattr(cfg.bumper_mqtt, k, v)
-    cfg.robots = raw.get("robots", [])
+    for k in ("robots", "panel_port", "panel_host"):
+        if k in raw:
+            setattr(cfg, k, raw[k])
     return cfg

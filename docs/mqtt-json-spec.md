@@ -472,7 +472,7 @@ El robot publica a `iot/atr/{nombre}/...` sin que nadie lo pida:
 
 ## 6. Formato de mapa — detalle técnico
 
-### 6.1 Codificación LZMA (idéntica a XMPP era)
+### 6.1 Codificación LZMA (era XMPP + MQTT gen 1-2)
 
 ```
 base64(pieceValue) → bytes:
@@ -483,6 +483,31 @@ base64(pieceValue) → bytes:
 ```
 
 Nuestro `map_pieces.decode_piece()` ya implementa esto.
+
+### 6.1b Codificación zstd (T80/T80S/X8 OMNI — gen 3)
+
+Los modelos más recientes (2024+) usan **zstd** en vez de LZMA:
+```
+base64(pieceValue) → bytes:
+  [0:4]   zstd magic: 28 B5 2F FD
+  [4:]    stream zstd
+→ zstd decompress → mismo grid bytes (1 byte/celda)
+```
+
+Detección automática por magic number:
+```python
+def decode_piece_auto(data: bytes) -> bytes:
+    if data[:4] == b'\x28\xB5\x2F\xFD':  # zstd magic
+        import zstandard
+        return zstandard.ZstdDecompressor().decompress(data)
+    else:  # LZMA (header 5D 00 00 04 00)
+        return lzma.decompress(data[0:5] + struct.pack('<Q', 10000) + data[9:],
+                              format=lzma.FORMAT_ALONE)
+```
+
+Referencia: ecovacs-deebot.js issue #592 (T80S OMNI, zstd map data).
+La APK v3.16.1 NO contiene zstd — es posterior. El formato del grid
+descomprimido es idéntico, solo cambia el algoritmo.
 
 ### 6.2 Ensamblado de piezas (igual que 930)
 

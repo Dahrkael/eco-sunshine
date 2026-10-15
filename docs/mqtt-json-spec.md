@@ -706,3 +706,29 @@ class MqttCommander:
 2. El bridge arranca ambos transportes (XMPP :5223 + MQTT :8883)
 3. Un solo serve.py maneja ambos tipos de robot simultáneamente
 4. Panel web y MQTT a HA funcionan igual para ambos
+
+---
+
+## Estado: CERRADA — 15 de octubre de 2026
+
+Esta especificación ha sido verificada contra las siguientes fuentes y se
+considera completa para implementación:
+
+- ✅ Decompile APK Ecovacs (v1.4.9) — protocolo XMPP/XML, 100+ tds, mapa LZMA
+- ✅ Decompile APK Ecovacs Home (v3.16.1) — protocolo MQTT/JSON, 50+ comandos, 3 sistemas de mapa
+- ✅ Bumper source code — helperbot MQTT, transporte p2p, relay de reports
+- ✅ ecovacs-deebot.js — confirmación de formatos, zstd (issue #592), roadmap MQTT-only
+- ✅ ecovacs-stack — confirmación de topics y commands para T9
+- ✅ ecovacs-privacy-control — LZMA decode, estructura de piezas, CRC
+- ✅ Corpus propio (3 sesiones con OZMO 930) — validación empírica
+
+Cobertura:
+- 48 modelos XMPP registrados en el bridge (models.py)
+- 30+ familias MQTT documentadas (home-apk-models.md)
+- 50+ comandos JSON con payloads (esta spec)
+- 3 formatos de mapa + zstd documentados
+- Plan de implementación en 4 fases (§10)
+
+Pendiente para robots gen-3 (T80/X8):
+- Verificar formato zstd con dispositivo real
+- La APK v3.16.1 no lo contiene; referencia: ecovacs-deebot.js #592

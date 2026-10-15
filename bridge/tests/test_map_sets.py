@@ -34,6 +34,17 @@ class TestParseMapSetXml:
         assert (w.x1, w.y1, w.x2, w.y2) == (100.0, 200.0, 800.0, 200.0)
         assert w.mid == "17"
 
+    def test_muro_con_namespace_bumper(self):
+        """Bumper re-serializa y los hijos llegan como <ns0:m …/> — el
+        parser debe ser agnóstico al prefijo ( cazado en E2E )."""
+        ms = parse_mapset_xml(
+            {"td": "MapSet", "tp": "vw", "msid": "0"},
+            '<ns0:m xmlns:ns0="com:ctl" mid="17" n="" p="100,200,800,200" />'
+            '<ns0:m xmlns:ns0="com:ctl" mid="18" n="" p="0,0,400,400" t="mw" />')
+        assert ms is not None and len(ms.entries) == 2
+        assert isinstance(ms.entries[0], VirtualWall)
+        assert isinstance(ms.entries[1], Zone) and ms.entries[1].kind == "mw"
+
     def test_zona_no_fregar_por_tipo(self):
         ms = parse_mapset_xml(
             {"td": "MapSet", "tp": "vw", "msid": "0"},
@@ -152,7 +163,7 @@ class TestCommanders:
         c.add_wall([100, 200, 800, 200])
         cmd = [x for x in t.sent if x[0] == "setMapSubSet"][-1]
         assert cmd[2]["type"] == "vw"
-        assert cmd[2]["value"] == "100,200,800,200"
+        assert cmd[2]["value"] == "100,200;800,200"  # pares de puntos (spec §4.5)
 
     def test_xmpp_clean_room_xml(self):
         from deebot930_bridge.robot import RobotCommander

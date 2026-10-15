@@ -71,6 +71,10 @@ class Mock930:
         self.pos = self.path[0] if self.path else ["0,0", "0"]
         # último cliente que nos habló → destino de los pushes
         self.client_jid: str | None = None
+        # muros/zonas dinámicos (AddM/DelM mutan; el corpus no tenía ninguno)
+        self.walls = [{"mid": "17", "p": "-1000,2000,1000,2000"}]
+        self.zones = [{"mid": "18", "p": "-3500,-4500,-2500,-3500"}]
+        self.stats = {"area": 12345678, "time": 4200, "count": 14}
 
     # ---------- conexión (dialecto bot del 930) ----------
 
@@ -275,6 +279,29 @@ class Mock930:
                     f'<ctl i="{self.map_id}" p="{piece}" pid="{pid}" td="MapP" />')
             else:
                 await self.ack(a.get("id", ctl_id()))
+        elif td == "GetMapSet":
+            # vw = muros + zonas no-fregar; sa/ar = vacío (como el corpus)
+            await self._push_mapset(a.get("tp", "vw"))
+        elif td == "AddM":
+            tp, m_val = a.get("tp", "vw"), a.get("m", "")
+            if m_val:
+                entry = {"mid": str(random.randrange(100, 999)), "p": m_val}
+                (self.walls if tp == "vw" else self.zones).append(entry)
+                await self.ack(a.get("id", ctl_id()))
+                await self._push_mapset(tp)
+            else:
+                await self.ack(a.get("id", ctl_id()), errs="1")
+        elif td == "DelM":
+            tp, mid = a.get("tp", "vw"), a.get("mid", "")
+            lst = self.walls if tp == "vw" else self.zones
+            lst[:] = [e for e in lst if e["mid"] != mid]
+            await self.ack(a.get("id", ctl_id()))
+            await self._push_mapset(tp)
+        elif td in ("GetCleanStatistics", "GetCleanSum"):
+            s = self.stats
+            await self.send_iq(
+                f'<ctl id="{a.get("id", ctl_id())}" ret="ok" td="{td}" '
+                f'a="{s["area"]}" t="{s["time"]}" c="{s["count"]}" />')
         elif td == "GetTr":
             tr = self.corpus.get("trace_varint") or ""
             await self.push_ctl(
@@ -318,6 +345,17 @@ class Mock930:
     async def _push_clean_st(self, st: str) -> None:
         await self.push_ctl(
             f'<ctl a="0" l="1" s="0" t="" td="CleanSt" st="{st}" />')
+
+    async def _push_mapset(self, tp: str) -> None:
+        if tp == "vw":
+            children = "".join(
+                f'<m mid="{w["mid"]}" n="" p="{w["p"]}" />' for w in self.walls)
+            children += "".join(
+                f'<m mid="{z["mid"]}" n="" p="{z["p"]}" t="mw" />' for z in self.zones)
+        else:
+            children = '<m mid="" n="" p="" />'
+        await self.push_ctl(
+            f'<ctl msid="0" td="MapSet" tp="{tp}" ts="{self._ts()}">{children}</ctl>')
 
     # ---------- simulación ----------
 

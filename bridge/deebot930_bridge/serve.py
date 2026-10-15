@@ -103,10 +103,14 @@ class Service:
             c.get_error()
             c.get_version()
             c.get_major_map()
+            c.get_map_set("ar")
+            c.get_map_set("vw")
+            c.get_map_set("mw")
+            c.get_stats()
             await self._publish_state(key, force=True)
         else:
             # sondeo inicial XMPP: fuerza respuestas dirigidas a esta sesión
-            self._poll_xmpp_robot(self.commanders[key])
+            self._poll_xmpp_robot(self.commanders[key], deep=True)
             await self._publish_state(key, force=True)
 
     # ---------- eventos XMPP (robots era 930) ----------
@@ -344,6 +348,7 @@ class Service:
             return
         if r.did and r.did.protocol == "mqtt":
             c.get_map_set("vw")
+            c.get_map_set("mw")
             c.get_map_set("ar")
         else:
             c.get_map_set("vw")
@@ -403,9 +408,10 @@ class Service:
         c.get_life_span()
         c.get_error()
         c.get_major_map()
-        if deep:  # habitaciones + muros + stats (menos frecuentes)
+        if deep:  # habitaciones + muros/zonas + stats (menos frecuentes)
             c.get_map_set("ar")
             c.get_map_set("vw")
+            c.get_map_set("mw")
             c.get_stats()
 
     # ---------- walks de mapa ----------

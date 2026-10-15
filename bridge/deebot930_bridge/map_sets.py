@@ -76,7 +76,8 @@ class MapSetData:
 
     def to_doc(self) -> dict:
         return {"tp": self.tp, "msid": self.msid,
-                "entries": [e.to_doc() for e in self.entries]}
+                "entries": [e.to_doc() if hasattr(e, "to_doc") else dict(e)
+                            for e in self.entries]}
 
 
 # ---------- helpers ----------
@@ -104,7 +105,9 @@ def parse_mapset_xml(attrs: dict, inner: str) -> MapSetData | None:
     if not tp:
         return None
     data = MapSetData(tp=tp, msid=attrs.get("msid", ""))
-    for m in re.finditer(r"<m\s+([^>]*?)/?>", inner):
+    # ns0:-prefijado: Bumper re-serializa los frames y los hijos pueden
+    # llegar con namespace (<ns0:m …/>) — regex agnóstica de prefijo
+    for m in re.finditer(r"<(?:[\w.-]+:)?m\s+([^>]*?)/?>", inner):
         a = dict(ATTR_RE.findall(m.group(1)))
         mid, p = a.get("mid", ""), a.get("p", "")
         if not mid and not p:
@@ -144,8 +147,8 @@ def parse_stats_xml(attrs: dict, inner: str) -> dict:
         out.setdefault("total_time", float(attrs["t"]))
     if attrs.get("c"):
         out.setdefault("total_count", int(attrs["c"]))
-    # hijos
-    for tag in re.finditer(r"<(\w+ [^>]*?)/?>", inner):
+    # hijos (posible prefijo de namespace por la re-serialización de Bumper)
+    for tag in re.finditer(r"<(?:[\w.-]+:)?\w+ ([^>]*?)/?>", inner):
         a = dict(ATTR_RE.findall(tag.group(1)))
         for src_area in ("area", "a"):
             if a.get(src_area) and "total_area" not in out:
@@ -195,6 +198,13 @@ def parse_mapset_json(data: dict) -> MapSetData | None:
     return ms
 
 
+def _entry_mssid(e) -> str | None:
+    """Id de una entrada sea dict pendiente, Room (.mssid) o Wall/Zone (.mid)."""
+    if isinstance(e, dict):
+        return e.get("mssid")
+    return getattr(e, "mssid", None) or getattr(e, "mid", None)
+
+
 def parse_subset_json(data: dict, sets: dict[str, MapSetData]) -> None:
     """Respuesta getMapSubSet: coordina el contorno de un mssId y lo resuelve
     a VirtualWall/Zone dentro del MapSetData correspondiente (muta sets)."""
@@ -203,16 +213,18 @@ def parse_subset_json(data: dict, sets: dict[str, MapSetData]) -> None:
     pts: list[tuple[float, float]] = []
     for pair in str(data.get("value", "")).split(";"):
         c = _coords(pair)
-        if len(c) >= 2:
+        if len(c) >= 4:  # formato plano defensivo: "x1,y1,x2,y2"
+            pts.append((c[0], c[1]))
+            pts.append((c[2], c[3]))
+        elif len(c) >= 2:
             pts.append((c[0], c[1]))
     ms = sets.get(tp)
     if ms is None:
         return
     for i, e in enumerate(ms.entries):
-        entry_mssid = e.mssid if hasattr(e, "mssid") else e.get("mssid")
-        if entry_mssid != mssid:
+        if _entry_mssid(e) != mssid:
             continue
-        if tp == "ar":
+        if tp == "ar" and hasattr(e, "outline"):
             e.outline = pts
             if not e.center and pts:
                 e.center = pts[0]

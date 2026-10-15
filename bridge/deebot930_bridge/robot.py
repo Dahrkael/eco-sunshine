@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from .models import DeviceId, ModelInfo, detect_model, detect_model_for
 from .map_sets import (MapSetData, parse_mapset_json, parse_mapset_xml,
-                       parse_stats_json, parse_stats_xml)
+                       parse_stats_json, parse_stats_xml, parse_subset_json)
 
 log = logging.getLogger(__name__)
 

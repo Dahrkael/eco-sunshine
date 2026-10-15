@@ -150,8 +150,11 @@ class MqttCommander:
 
     @staticmethod
     def _fmt_coords(coords) -> str:
+        """[x1,y1,x2,y2] → "x1,y1;x2,y2" (pares de puntos, spec §4.5)."""
         if isinstance(coords, (list, tuple)):
-            return ",".join(str(int(round(v))) for v in coords)
+            pts = [f"{int(round(coords[i]))},{int(round(coords[i + 1]))}"
+                   for i in range(0, len(coords) - 1, 2)]
+            return ";".join(pts)
         return str(coords)
 
     def clean_room(self, rooms: str | list, mid: str = "0",

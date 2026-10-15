@@ -121,6 +121,18 @@ class MockRobot:
         comp = lzma.compress(bytes(self.grid), format=lzma.FORMAT_ALONE,
                              filters=[{"id": lzma.FILTER_LZMA1, "preset": 6}])
         self._chunked_b64 = base64.b64encode(comp).decode()
+        # mapsets: 3 habitaciones + 1 muro + 1 zona no-fregar (spec §4.5)
+        self.map_msid = "0"
+        self.rooms = [
+            {"mssid": "1", "name": "Salón", "center": "-1500,2000", "index": 0},
+            {"mssid": "2", "name": "Cocina", "center": "2500,1500", "index": 1},
+            {"mssid": "3", "name": "Dormitorio", "center": "500,-3500", "index": 2},
+        ]
+        self.walls = [{"mssid": "7", "name": "muro pasillo",
+                       "value": "0,-500;0,4500"}]
+        self.zones = [{"mssid": "8", "name": "alfombra", "kind": "mw",
+                       "value": "-2500,1000;-1000,2500"}]
+        self.stats = {"time": 3600 * 42, "area": 45_000_000, "count": 17}
         log.info("mapa sintético: %d piezas, grid %dx%d", len(self.pieces), TOTAL_COLS, TOTAL_ROWS)
 
     # ---------- conexión ----------
@@ -243,7 +255,56 @@ class MockRobot:
                 "totalWidth": TOTAL_COLS, "totalHeight": TOTAL_ROWS,
                 "startX": 0, "startY": 0}
 
+    def _mapset_payload(self, tp: str) -> dict:
+        if tp == "ar":
+            return {"ret": "ok", "mid": MAP_ID, "msid": self.map_msid, "type": "ar",
+                    "count": len(self.rooms), "subsets": [dict(r) for r in self.rooms]}
+        entries = self.walls if tp == "vw" else self.zones
+        subs = [{"mssid": e["mssid"], "name": e["name"], "index": i}
+                for i, e in enumerate(entries)]
+        return {"ret": "ok", "mid": MAP_ID, "msid": self.map_msid, "type": tp,
+                "count": len(subs), "subsets": subs}
+
+    def _set_map_subset(self, data: dict) -> dict:
+        """setMapSubSet: value vacío+mssid = borrar; value con coords = crear."""
+        tp = str(data.get("type", "vw"))
+        mssid = str(data.get("mssid", ""))
+        value = str(data.get("value", ""))
+        entries = self.walls if tp == "vw" else self.zones
+        if mssid and not value:  # borrar
+            before = len(entries)
+            entries[:] = [e for e in entries if e["mssid"] != mssid]
+            if len(entries) == before:
+                return {"ret": "fail", "errno": 2, "error": "mssid desconocido"}
+        elif value:  # crear
+            new_id = str(int(max((int(e["mssid"]) for e in entries), default=100)) + 1)
+            entries.append({"mssid": new_id, "name": str(data.get("name", "")),
+                            "kind": tp, "value": value})
+            mssid = new_id
+        else:
+            return {"ret": "fail", "errno": 3, "error": "value o mssid requerido"}
+        return {"ret": "ok", "mid": MAP_ID, "msid": self.map_msid,
+                "mssid": mssid, "type": tp}
+
     def handle(self, cmd: str, data) -> dict:
+        if cmd in ("getMapSet",):
+            tp = data.get("type", "ar") if isinstance(data, dict) else "ar"
+            return self._mapset_payload(tp)
+        if cmd in ("getMapSubSet",):
+            tp = data.get("type", "vw") if isinstance(data, dict) else "vw"
+            mssid = str(data.get("mssid", "")) if isinstance(data, dict) else ""
+            entries = self.walls if tp == "vw" else self.zones
+            for e in entries:
+                if e["mssid"] == mssid:
+                    return {"ret": "ok", "mid": MAP_ID, "msid": self.map_msid,
+                            "mssid": mssid, "type": tp, "value": e["value"]}
+            return {"ret": "fail", "errno": 2, "error": "mssid desconocido"}
+        if cmd in ("setMapSubSet",):
+            return self._set_map_subset(data if isinstance(data, dict) else {})
+        if cmd in ("getTotalStats", "getStats"):
+            return {"ret": "ok", "tid": "1", "type": "auto",
+                    "time": self.stats["time"], "area": self.stats["area"],
+                    "count": self.stats["count"], "mapCount": self.stats["count"]}
         if cmd in ("getBattery",):
             return {"ret": "ok", "value": self.battery, "isLow": self.battery < 15}
         if cmd in ("getPos", "getPos_V2"):

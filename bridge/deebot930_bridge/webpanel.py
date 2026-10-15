@@ -104,11 +104,25 @@ select:focus{outline:none;border-color:var(--accent)}
 </div>
 
 <div class="section">
+  <h3>Habitaciones</h3>
+  <div id="rooms" style="display:flex;gap:.4rem;flex-wrap:wrap"></div>
+</div>
+
+<div class="section">
+  <h3>Estadísticas</h3>
+  <div id="stats" style="display:flex;gap:1.2rem;flex-wrap:wrap;font-size:.9rem"></div>
+</div>
+
+<div class="section">
   <h3>Mapa</h3>
-  <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
     <button class="btn danger" onclick="if(confirm('¿Borrar mapa?'))cmd('clear_map')">🗑 Borrar</button>
     <button class="btn" onclick="cmd('recover_map')">♻ Recuperar</button>
+    <button class="btn" id="btn-wall" onclick="startDraw('wall')">🧱 Muro</button>
+    <button class="btn" id="btn-zone" onclick="startDraw('zone')">⬜ Zona</button>
+    <span id="draw-hint" style="font-size:.75rem;opacity:.7"></span>
   </div>
+  <div id="walls" style="margin-top:.5rem;font-size:.8rem"></div>
 </div>
 
 <div id="log"></div>
@@ -120,8 +134,55 @@ let CELL_MM = 50, ORIGIN_R = 401, ORIGIN_C = 401, Y_DOWN = true;
 let ws, gridData = null, currentRobot = null, robots = {}, gridW = 0, gridH = 0, cropR = 0, cropC = 0;
 let robot = null, charger = null, trace = [], animRobot = null, lastPos = null;
 let mapCache = {};   // slug → último payload de mapa (restaura al cambiar de robot)
+let lastState = {};  // último state doc (habitaciones/muros/stats para overlays)
+let drawMode = null, drawPts = [];  // 'wall' | 'zone' | null
 const canvas = document.getElementById('map-canvas');
 const ctx = canvas.getContext('2d');
+
+function cellToMm(c, r) {
+  // celda del canvas recortado → mm del frame del robot (inversa de mmToCell)
+  const mmX = (c + cropC - ORIGIN_C) * CELL_MM;
+  const drow = r + cropR - ORIGIN_R;
+  const mmY = (Y_DOWN ? drow : -drow) * CELL_MM;
+  return [mmX, mmY];
+}
+
+function startDraw(mode) {
+  if (drawMode === mode) { drawMode = null; drawPts = []; }
+  else { drawMode = mode; drawPts = []; }
+  document.getElementById('btn-wall').style.outline = drawMode === 'wall' ? '2px solid #f85149' : 'none';
+  document.getElementById('btn-zone').style.outline = drawMode === 'zone' ? '2px solid #58a6ff' : 'none';
+  document.getElementById('draw-hint').textContent = drawMode
+    ? (drawMode === 'wall' ? 'clic en 2 puntos para el muro' : 'clic en 2 esquinas de la zona') : '';
+  draw();
+}
+
+canvas.addEventListener('click', e => {
+  if (!drawMode || !gridData) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
+  const cellSize = Math.max(1, Math.floor(Math.min(canvas.width / gridW, canvas.height / gridH)));
+  const offX = Math.floor((canvas.width - gridW * cellSize) / 2);
+  const offY = Math.floor((canvas.height - gridH * cellSize) / 2);
+  const c = Math.floor(((e.clientX - rect.left) * scaleX - offX) / cellSize);
+  const r = Math.floor(((e.clientY - rect.top) * scaleY - offY) / cellSize);
+  if (c < 0 || c >= gridW || r < 0 || r >= gridH) return;
+  drawPts.push(cellToMm(c, r));
+  if (drawPts.length === 2) {
+    const coords = [Math.round(drawPts[0][0]), Math.round(drawPts[0][1]),
+                    Math.round(drawPts[1][0]), Math.round(drawPts[1][1])];
+    cmd(drawMode === 'wall' ? 'add_wall' : 'add_zone', coords);
+    startDraw(drawMode); // limpia el modo (y desactiva)
+    drawMode = null; drawPts = [];
+    document.getElementById('btn-wall').style.outline = 'none';
+    document.getElementById('btn-zone').style.outline = 'none';
+    document.getElementById('draw-hint').textContent = '';
+  } else {
+    document.getElementById('draw-hint').textContent =
+      drawMode === 'wall' ? 'muro: falta el segundo punto' : 'zona: falta la segunda esquina';
+    draw();
+  }
+});
 
 function applyMap(d) {
   gridData = d.rows.map(r => r.split('').map(Number));
@@ -131,7 +192,7 @@ function applyMap(d) {
   draw();
 }
 
-function switchRobot(slug) { currentRobot = slug; gridData = null; trace = []; lastPos = null; robot = null; charger = null; animRobot = null; document.getElementById('map-loading').style.display='flex'; if (mapCache[slug]) applyMap(mapCache[slug]); if(ws) ws.close(); }
+function switchRobot(slug) { currentRobot = slug; gridData = null; trace = []; lastPos = null; robot = null; charger = null; animRobot = null; lastState = {}; drawMode = null; drawPts = []; document.getElementById('map-loading').style.display='flex'; if (mapCache[slug]) applyMap(mapCache[slug]); if(ws) ws.close(); }
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${proto}//${location.host}/api/ws`);
@@ -198,6 +259,48 @@ function draw() {
       ctx.fillRect(offX + c * cellSize, offY + r * cellSize, cellSize, cellSize);
     }
   }
+  // overlays: muros / zonas / habitaciones
+  const sets = lastState.map_sets || {};
+  const mmToPx = (x, y) => {
+    const cell = mmToCell(x, y);
+    if (!cell) return null;
+    return [offX + cell[1] * cellSize + cellSize / 2, offY + cell[0] * cellSize + cellSize / 2];
+  };
+  for (const z of (sets.mw?.entries || []).concat(sets.sa?.entries || [])) {
+    if (z.x1 === undefined) continue;
+    const p1 = mmToPx(z.x1, z.y1), p2 = mmToPx(z.x2, z.y2);
+    if (p1 && p2) {
+      ctx.fillStyle = 'rgba(88,166,255,0.25)';
+      ctx.strokeStyle = 'rgba(88,166,255,0.8)'; ctx.lineWidth = 1.5;
+      const x = Math.min(p1[0], p2[0]), y = Math.min(p1[1], p2[1]);
+      ctx.fillRect(x, y, Math.abs(p2[0] - p1[0]) || cellSize, Math.abs(p2[1] - p1[1]) || cellSize);
+      ctx.strokeRect(x, y, Math.abs(p2[0] - p1[0]) || cellSize, Math.abs(p2[1] - p1[1]) || cellSize);
+    }
+  }
+  for (const w of (sets.vw?.entries || [])) {
+    if (w.x1 === undefined || w.kind) continue; // kind=mw viaja en vw en el 930
+    const p1 = mmToPx(w.x1, w.y1), p2 = mmToPx(w.x2, w.y2);
+    if (p1 && p2) {
+      ctx.strokeStyle = '#f85149'; ctx.lineWidth = Math.max(2, cellSize * 0.4);
+      ctx.beginPath(); ctx.moveTo(p1[0], p1[1]); ctx.lineTo(p2[0], p2[1]); ctx.stroke();
+    }
+  }
+  ctx.fillStyle = '#c9d1d9'; ctx.font = `${Math.max(10, cellSize + 4)}px sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const room of (sets.ar?.entries || [])) {
+    if (room.center) {
+      const p = mmToPx(room.center[0], room.center[1]);
+      if (p) ctx.fillText(room.name || room.mssid, p[0], p[1]);
+    }
+  }
+  // puntos pendientes del editor
+  for (const pt of drawPts) {
+    const p = mmToPx(pt[0], pt[1]);
+    if (p) {
+      ctx.fillStyle = drawMode === 'wall' ? '#f85149' : '#58a6ff';
+      ctx.beginPath(); ctx.arc(p[0], p[1], 6, 0, Math.PI * 2); ctx.fill();
+    }
+  }
   // traza (limpiado)
   if (trace.length > 1) {
     ctx.strokeStyle = 'rgba(63,185,80,0.3)';
@@ -258,6 +361,7 @@ function updateRobotList(list) {
   document.getElementById('title').textContent = '🤖 ' + name;
 }
 function updateStatus(d) {
+  lastState = d;
   document.getElementById('battery').textContent = (d.battery ?? '--') + '%';
   document.getElementById('battery').style.color = d.battery < 20 ? '#f85149' : d.battery < 50 ? '#d29922' : '#3fb950';
   document.getElementById('status').textContent = d.status_raw || d.status || '--';
@@ -271,6 +375,48 @@ function updateStatus(d) {
     c += `<div class="consumable"><div class="pct" style="color:${col}">${pct}%</div><div class="label">${k}</div><div class="bar"><div class="bar-fill" style="width:${pct}%;background:${col}"></div></div></div>`;
   }
   document.getElementById('consumables').innerHTML = c;
+  renderRooms(d);
+  renderStats(d);
+  renderWalls(d);
+}
+
+function renderRooms(d) {
+  const el = document.getElementById('rooms');
+  const rooms = d.map_sets?.ar?.entries || [];
+  if (!rooms.length) { el.innerHTML = '<span style="opacity:.5;font-size:.8rem">sin habitaciones mapeadas</span>'; return; }
+  el.innerHTML = rooms.map(r =>
+    `<button class="btn" style="padding:.4rem .7rem;font-size:.85rem" onclick="cmd('clean_room','${r.mssid}')">🚪 ${r.name || r.mssid}</button>`
+  ).join('');
+}
+
+function renderStats(d) {
+  const el = document.getElementById('stats');
+  const s = d.stats || {};
+  const h = Math.floor((s.total_time || 0) / 3600), m = Math.floor(((s.total_time || 0) % 3600) / 60);
+  const m2 = ((s.total_area || 0) / 1e6).toFixed(0);
+  el.innerHTML =
+    `<div>⏱ <b>${h}h ${m}m</b> <span style="opacity:.6">total</span></div>` +
+    `<div>📐 <b>${m2} m²</b> <span style="opacity:.6">limpiados</span></div>` +
+    `<div>🔁 <b>${s.total_count ?? '—'}</b> <span style="opacity:.6">limpiezas</span></div>`;
+}
+
+function renderWalls(d) {
+  const el = document.getElementById('walls');
+  const sets = d.map_sets || {};
+  const items = [];
+  for (const w of (sets.vw?.entries || [])) {
+    if (w.x1 === undefined) continue;
+    items.push(`<span style="display:inline-flex;gap:.3rem;align-items:center;margin:.15rem">
+      <span style="color:#f85149">🧱</span> muro
+      <button class="btn" style="padding:.1rem .4rem;font-size:.7rem" onclick="cmd('del_wall','${w.mid}')">✕</button></span>`);
+  }
+  for (const z of (sets.mw?.entries || []).concat(sets.sa?.entries || [])) {
+    if (z.x1 === undefined) continue;
+    items.push(`<span style="display:inline-flex;gap:.3rem;align-items:center;margin:.15rem">
+      <span style="color:#58a6ff">⬜</span> ${z.kind === 'mw' ? 'no-fregar' : 'zona'}
+      <button class="btn" style="padding:.1rem .4rem;font-size:.7rem" onclick="cmd('del_zone','${z.mid}')">✕</button></span>`);
+  }
+  el.innerHTML = items.length ? items.join('') : '<span style="opacity:.5">sin muros ni zonas</span>';
 }
 
 async function cmd(action, value) {
@@ -407,6 +553,10 @@ class WebPanel:
                 if isinstance(value, dict): self._call(c, "set_on_off", value.get("t", "g"), value.get("on", "1") == "1")
                 else: self._call(c, "set_on_off", "g", str(value) == "1")
             elif action.startswith("reset_"): self._call(c, "reset_life_span", value or "Brush")
+            elif action in ("clean_room", "add_wall", "del_wall",
+                            "add_zone", "del_zone"):
+                # delega en serve.on_command (resuelve mid del robot, etc.)
+                await svc.on_command(r.slug, action, value)
             return web.json_response({"ok": True})
         return web.json_response({"ok": False, "error": "no robot"}, status=404)
 

@@ -38,9 +38,17 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 # panel: http://localhost:8282 | HA: discovery en mosquitto :1883
 
 .venv/bin/python -m deebot930_bridge probe-mqtt --ca-file ../data/certs/ca.crt   # diagnóstico eco-ng
-python tools/mock_mqtt_robot.py    # robot T9 AIVI sintético para pruebas sin hardware
+python tools/mock_mqtt_robot.py    # robot T9 AIVI sintético (eco-ng/MQTT) sin hardware
+python tools/extract_930_corpus.py && python tools/mock_930_robot.py  # clon XMPP del 930 REAL
 .venv/bin/python -m pytest         # suite (decoders, assembler, estado, routing)
 ```
+
+El **mock 930** reproduce el comportamiento exacto del robot real a partir
+del corpus extraído del log de Bumper (`data/mock930-corpus.json`): misma
+spec de mapa con sus CRCs, piezas LZMA reales del piso, trayectoria real de
+limpieza (replay al limpiar), lifespans y batería reales, y los formatos de
+frame verificados atributo a atributo. Añade su JID a `robots` del config
+para que el serve lo adopte (en base no emite nada, como el real).
 
 Config: sección `[bumper_mqtt]` del TOML (host/puerto/CA del broker de
 Bumper, `enabled`, robots conocidos para adoptar sin esperar report). El

@@ -1,5 +1,5 @@
 panel_port = 8282
-robots = ["E000105701860607AB7@115.ecorobot.net/atom", "E00010570MOCK9301@115.ecorobot.net/atom"]
+robots = ["E000105701860607AB7@115.ecorobot.net/atom"]
 # Config de desarrollo (WSL): Bumper y mosquitto en docker del host
 [bumper]
 host = "localhost"

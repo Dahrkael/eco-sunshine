@@ -143,6 +143,48 @@ class MqttCommander:
         # ar=habitaciones, vw=muros, mw=zonas no-fregar
         self._fire("getMapSet", {"type": tp, "mid": self.mid})
 
+    def get_map_subset(self, mssid: str, tp: str = "vw", msid: str = "0") -> None:
+        """Contorno de un subconjunto (muro/zona/habitación), paginado."""
+        self._fire("getMapSubSet", {"mid": self.mid, "msid": msid, "mssid": mssid,
+                                    "type": tp, "seq": 0, "count": 50, "seqIndex": 0})
+
+    @staticmethod
+    def _fmt_coords(coords) -> str:
+        if isinstance(coords, (list, tuple)):
+            return ",".join(str(int(round(v))) for v in coords)
+        return str(coords)
+
+    def clean_room(self, rooms: str | list, mid: str = "0",
+                   speed: str = "standard") -> None:
+        """Limpieza por habitaciones: clean_V2 spotArea value="mssid1,mssid2"."""
+        if isinstance(rooms, (list, tuple)):
+            rooms = ",".join(str(r) for r in rooms)
+        if speed in SPEED_JSON_REV:
+            self._fire("setSpeed", {"speed": SPEED_JSON_REV[speed]})
+        self._fire("clean_V2", {
+            "act": "start", "mode": "auto", "router": "",
+            "content": {"type": "spotArea", "value": str(rooms),
+                        "count": 1, "donotClean": 0},
+        })
+
+    def add_wall(self, coords) -> None:
+        """Muro virtual: coords [x1,y1,x2,y2] mm → setMapSubSet (provisional)."""
+        self._fire("setMapSubSet", {"mid": self.mid, "msid": "0", "type": "vw",
+                                    "value": self._fmt_coords(coords)})
+
+    def del_wall(self, mssid: str) -> None:
+        self._fire("setMapSubSet", {"mid": self.mid, "msid": "0", "mssid": mssid,
+                                    "type": "vw", "value": ""})
+
+    def add_zone(self, coords) -> None:
+        """Zona no-fregar: coords [x1,y1,x2,y2] mm."""
+        self._fire("setMapSubSet", {"mid": self.mid, "msid": "0", "type": "mw",
+                                    "value": self._fmt_coords(coords)})
+
+    def del_zone(self, mssid: str) -> None:
+        self._fire("setMapSubSet", {"mid": self.mid, "msid": "0", "mssid": mssid,
+                                    "type": "mw", "value": ""})
+
     def clear_map(self) -> None:
         self._fire("clearMap", {"mid": self.mid})
 

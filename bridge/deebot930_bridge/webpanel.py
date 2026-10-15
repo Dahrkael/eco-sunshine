@@ -372,6 +372,8 @@ class WebPanel:
                 "position": {"x": r.position.x, "y": r.position.y, "angle": r.position.angle} if r.position else None,
                 "charger": {"x": r.charger.x, "y": r.charger.y} if r.charger else None,
                 "consumables": r.lifespans,
+                "map_sets": {tp: ms.to_doc() for tp, ms in r.map_sets.items()},
+                "stats": r.stats,
             }
         # lista para el selector del panel
         robot_list = {r.slug: r.model.display for r in svc.robots.values()}

@@ -16,6 +16,8 @@ import re
 from dataclasses import dataclass, field
 
 from .models import DeviceId, ModelInfo, detect_model, detect_model_for
+from .map_sets import (MapSetData, parse_mapset_json, parse_mapset_xml,
+                       parse_stats_json, parse_stats_xml)
 
 log = logging.getLogger(__name__)
 
@@ -72,6 +74,10 @@ class RobotState:
     clean_seconds: int = 0
     # última velocidad numérica reportada por robots MQTT (onSpeed/getSpeed)
     fan_speed_json: int | None = None
+    # muros/zonas/habitaciones por tipo: {"vw": MapSetData, "ar": MapSetData…}
+    map_sets: dict[str, MapSetData] = field(default_factory=dict)
+    # {total_time: s, total_area: mm², total_count: n}
+    stats: dict = field(default_factory=dict)
 
     @staticmethod
     def from_jid(jid: str) -> "RobotState":
@@ -157,6 +163,18 @@ class RobotState:
                 self.status = "charging"
             elif "Idle" in inner and self.status not in ("cleaning", "paused"):
                 self.status = "idle"
+
+        # muros/zonas/habitaciones (respuesta GetMapSet o push)
+        if td == "MapSet":
+            ms = parse_mapset_xml(attrs, inner)
+            if ms is not None:
+                self.map_sets[ms.tp] = ms
+
+        # estadísticas (GetCleanStatistics/GetCleanSum — formato tolerante)
+        if td in ("GetCleanStatistics", "CleanStatistics", "GetCleanSum", "CleanSum"):
+            stats = parse_stats_xml(attrs, inner)
+            if stats:
+                self.stats.update(stats)
 
     @staticmethod
     def _map_clean_status(attrs: dict, inner: str) -> str:
@@ -265,9 +283,23 @@ class RobotState:
         if isinstance(data.get("wkVer"), str):
             self.version = data["wkVer"]
 
-        # stats: {time, area}
-        if isinstance(data.get("time"), (int, float)) and n in ("stats", "totalStats"):
-            self.clean_seconds = int(data["time"])
+        # stats: {time, area, count}
+        if n in ("stats", "totalStats"):
+            st = parse_stats_json(data)
+            if st:
+                self.stats.update(st)
+                if "total_time" in st:
+                    self.clean_seconds = int(st["total_time"])
+
+        # muros/zonas/habitaciones (getMapSet/onMapSet → subsets)
+        if n in ("mapSet",) and "subsets" in data:
+            ms = parse_mapset_json(data)
+            if ms is not None:
+                self.map_sets[ms.tp] = ms
+
+        # contorno de un subconjunto (getMapSubSet → value "x,y;x,y;…")
+        if n in ("mapSubSet",) and "value" in data:
+            parse_subset_json(data, self.map_sets)
 
 
 class RobotCommander:
@@ -304,6 +336,16 @@ class RobotCommander:
     def clean_custom(self, positions: str, speed: str = "standard") -> str:
         return self._cmd(
             f'<ctl id="{{ctl_id}}" td="Clean"><clean act="s" speed="{speed}" type="CustomArea" p="{positions}" /></ctl>',
+            "Clean")
+
+    def clean_room(self, rooms: str | list, mid: str = "0",
+                   speed: str = "standard") -> str:
+        """Limpieza por habitaciones: SpotArea con p="idx,idx" (driver DR930)."""
+        if isinstance(rooms, (list, tuple)):
+            rooms = ",".join(str(r) for r in rooms)
+        return self._cmd(
+            f'<ctl id="{{ctl_id}}" td="Clean"><clean act="s" speed="{speed}" '
+            f'type="SpotArea" mid="{mid}" p="{rooms}" /></ctl>',
             "Clean")
 
     # ---- movimiento ----
@@ -466,6 +508,28 @@ class RobotCommander:
         return self._cmd(
             f'<ctl id="{{ctl_id}}" td="DelM" tp="{tp}" msid="{msid}" mid="{mid}" />',
             "DelM")
+
+    # ---- muros/zonas con nombres unificados (duck typing con MqttCommander) ----
+
+    @staticmethod
+    def _fmt_coords(coords) -> str:
+        if isinstance(coords, (list, tuple)):
+            return ",".join(str(int(round(v))) for v in coords)
+        return str(coords)
+
+    def add_wall(self, coords) -> str:
+        """Muro virtual: coords [x1,y1,x2,y2] mm (AddM tp=vw)."""
+        return self.add_map_set("vw", "0", "", self._fmt_coords(coords))
+
+    def del_wall(self, mid: str) -> str:
+        return self.del_map_set("vw", "0", mid)
+
+    def add_zone(self, coords) -> str:
+        """Zona no-fregar: coords [x1,y1,x2,y2] mm (AddM tp=mw)."""
+        return self.add_map_set("mw", "0", "", self._fmt_coords(coords))
+
+    def del_zone(self, mid: str) -> str:
+        return self.del_map_set("mw", "0", mid)
 
     # ---- volumen / sonido ----
 

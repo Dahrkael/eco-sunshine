@@ -225,6 +225,16 @@ class Service:
 
         r.update_report(name, data)
 
+        # contornos de muros/zonas recién listados (getMapSubSet por entrada)
+        if RobotState._canon_name(name) == "mapSet" and "subsets" in data:
+            ms = r.map_sets.get(str(data.get("type", "")))
+            if ms and ms.tp in ("vw", "mw"):
+                c = self.commanders.get(key)
+                if c is not None:
+                    for e in list(ms.entries):
+                        if isinstance(e, dict) and e.get("_pending_outline"):
+                            c.get_map_subset(e["mssid"], ms.tp, msid=ms.msid or "0")
+
         # traza en vivo mientras limpia (la traza completa llega por getMapTrace)
         if r.status == "cleaning" and r.did and r.did.protocol == "mqtt":
             now = time.monotonic()
@@ -259,6 +269,8 @@ class Service:
             "charger": {"x": r.charger.x, "y": r.charger.y, "angle": r.charger.angle}
             if r.charger else None,
             "consumables": r.lifespans,
+            "map_sets": {tp: ms.to_doc() for tp, ms in r.map_sets.items()},
+            "stats": r.stats,
         }
         await self.pub.publish_state_doc(r.slug, doc)
         await self.pub.publish_battery(r.slug, r.battery)
@@ -297,6 +309,23 @@ class Service:
                 self.fan_speeds[slug] = val
                 c.set_clean_speed(val)
                 await self.pub.publish_fan_speed(slug, val)
+            elif action == "clean_room":
+                # val = "mssid" o "mssid1,mssid2" (eco-ng) / "idx,idx" (930)
+                rooms = str(val or "").strip()
+                mid = self._robot_map_id(key) or "0"
+                c.clean_room(rooms, mid=mid.split(":")[-1])
+            elif action == "add_wall":
+                c.add_wall(val)
+                self._refresh_mapsets(key)
+            elif action == "del_wall":
+                c.del_wall(str(val))
+                self._refresh_mapsets(key)
+            elif action == "add_zone":
+                c.add_zone(val)
+                self._refresh_mapsets(key)
+            elif action == "del_zone":
+                c.del_zone(str(val))
+                self._refresh_mapsets(key)
             elif action == "reset_life_span":
                 c.reset_life_span(val or "Brush")
             elif action == "dnd":
@@ -307,24 +336,42 @@ class Service:
                 c.set_silent_mode_state(val == "ON")
             return
 
+    def _refresh_mapsets(self, key: str) -> None:
+        """Re-pide mapsets tras un cambio (muro/zona añadido o borrado)."""
+        c = self.commanders.get(key)
+        r = self.robots.get(key)
+        if c is None or r is None:
+            return
+        if r.did and r.did.protocol == "mqtt":
+            c.get_map_set("vw")
+            c.get_map_set("ar")
+        else:
+            c.get_map_set("vw")
+            c.get_map_set("sa")
+
     # ---------- polls ----------
 
+    MAPSET_POLL_CYCLES = 5  # mapsets+stats cada N ciclos de poll
+
     async def poll_loop(self) -> None:
+        cycle = 0
         while True:
+            cycle += 1
+            deep = cycle % self.MAPSET_POLL_CYCLES == 0
             for key, c in list(self.commanders.items()):  # snapshot: adopciones concurrentes
                 r = self.robots.get(key)
                 if r is None:
                     continue
                 try:
                     if r.did and r.did.protocol == "mqtt":
-                        await self._poll_mqtt_robot(key, c)
+                        await self._poll_mqtt_robot(key, c, deep)
                     else:
-                        self._poll_xmpp_robot(c)
+                        self._poll_xmpp_robot(c, deep)
                 except Exception:  # noqa: BLE001
                     log.exception("poll falló para %s", key)
             await asyncio.sleep(POLL_SECONDS)
 
-    def _poll_xmpp_robot(self, c) -> None:
+    def _poll_xmpp_robot(self, c, deep: bool = False) -> None:
         c.set_map_autoreport(True)  # la app lo re-arma constantemente
         c.get_pos()
         c.get_clean_state()
@@ -338,8 +385,13 @@ class Service:
         c.get_life_span("AirFilter")
         c.get_error()
         c.get_version()
+        if deep:  # muros/zonas + stats (menos frecuentes)
+            c.get_map_set("vw")
+            c.get_map_set("sa")
+            c.get_clean_statistics()
+            c.get_clean_sum()
 
-    async def _poll_mqtt_robot(self, key: str, c) -> None:
+    async def _poll_mqtt_robot(self, key: str, c, deep: bool = False) -> None:
         now = time.monotonic()
         if now - self._last_poll.get(key, 0) < POLL_MQTT_SECONDS:
             return
@@ -351,6 +403,10 @@ class Service:
         c.get_life_span()
         c.get_error()
         c.get_major_map()
+        if deep:  # habitaciones + muros + stats (menos frecuentes)
+            c.get_map_set("ar")
+            c.get_map_set("vw")
+            c.get_stats()
 
     # ---------- walks de mapa ----------
 

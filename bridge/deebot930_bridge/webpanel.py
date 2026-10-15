@@ -120,10 +120,19 @@ let CELL_MM = 50, ORIGIN_R = 401, ORIGIN_C = 401, Y_DOWN = true;
 
 let ws, gridData = null, currentRobot = null, robots = {}, gridW = 0, gridH = 0, cropR = 0, cropC = 0;
 let robot = null, charger = null, trace = [], animRobot = null, lastPos = null, lastTime = 0;
+let mapCache = {};   // slug → último payload de mapa (restaura al cambiar de robot)
 const canvas = document.getElementById('map-canvas');
 const ctx = canvas.getContext('2d');
 
-function switchRobot(slug) { currentRobot = slug; gridData = null; trace = []; lastPos = null; document.getElementById('map-loading').style.display='flex'; if(ws) ws.close(); }
+function applyMap(d) {
+  gridData = d.rows.map(r => r.split('').map(Number));
+  gridW = d.w; gridH = d.h; cropR = d.crop_r; cropC = d.crop_c;
+  CELL_MM = d.cell_mm ?? 50; ORIGIN_R = d.origin_r ?? 401; ORIGIN_C = d.origin_c ?? 401; Y_DOWN = d.y_down ?? true;
+  document.getElementById('map-loading').style.display = 'none';
+  draw();
+}
+
+function switchRobot(slug) { currentRobot = slug; gridData = null; trace = []; lastPos = null; robot = null; charger = null; document.getElementById('map-loading').style.display='flex'; if (mapCache[slug]) applyMap(mapCache[slug]); if(ws) ws.close(); }
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${proto}//${location.host}/api/ws`);
@@ -134,14 +143,16 @@ function connect() {
 
 function handle(d) {
   if (d.type === 'robots') { updateRobotList(d.robots); return; }
-  if (currentRobot && d.slug && d.slug !== currentRobot) return;
   if (d.type === 'map') {
-    gridData = d.rows.map(r => r.split('').map(Number));
-    gridW = d.w; gridH = d.h; cropR = d.crop_r; cropC = d.crop_c;
-    CELL_MM = d.cell_mm ?? 50; ORIGIN_R = d.origin_r ?? 401; ORIGIN_C = d.origin_c ?? 401; Y_DOWN = d.y_down ?? true;
-    document.getElementById('map-loading').style.display = 'none';
-    draw();
-  } else if (d.type === 'state') {
+    if (d.slug) {
+      mapCache[d.slug] = d;
+      if (currentRobot && d.slug !== currentRobot) return;
+    }
+    applyMap(d);
+    return;
+  }
+  if (currentRobot && d.slug && d.slug !== currentRobot) return;
+  if (d.type === 'state') {
     updateStatus(d);
     if (d.position) {
       const np = mmToCell(d.position.x, d.position.y);
@@ -289,7 +300,7 @@ class WebPanel:
         self.app.router.add_post("/api/cmd", self.api_cmd)
         self.app.router.add_get("/api/ws", self.api_ws)
         self._ws_clients: list[web.WebSocketResponse] = []
-        self._last_map_json: str | None = None
+        self._last_maps: dict[str, str] = {}  # slug → último mapa JSON
 
     async def start(self) -> None:
         runner = web.AppRunner(self.app)
@@ -301,12 +312,22 @@ class WebPanel:
     async def index(self, _: web.Request) -> web.Response:
         return web.Response(text=INDEX_HTML, content_type="text/html")
 
-    def _build_map_data(self) -> dict | None:
-        """Ensambla el grid y lo serializa como filas de caracteres."""
+    def _build_map_data(self, slug: str | None = None) -> dict | None:
+        """Ensambla el grid y lo serializa como filas de caracteres.
+
+        slug: mapa del robot indicado; None = el más poblado (compat).
+        """
         svc = self.service
         if not svc.asm.maps:
             return None
-        map_id = max(svc.asm.maps, key=lambda m: svc.asm.piece_count(m))
+        map_id = None
+        if slug:
+            for key, r in svc.robots.items():
+                if r.slug == slug:
+                    map_id = svc._robot_map_id(key)
+                    break
+        if not map_id:
+            map_id = max(svc.asm.maps, key=lambda m: svc.asm.piece_count(m))
         grid = svc.asm.assemble(map_id)
         if not grid:
             return None
@@ -323,6 +344,7 @@ class WebPanel:
         geo = svc.asm.geo(map_id)
         return {
             "type": "map",
+            "slug": slug or "",
             "w": w, "h": h,
             "crop_r": rmin, "crop_c": cmin,
             "rows": row_strs,
@@ -400,9 +422,9 @@ class WebPanel:
         if robot_list:
             try: await ws.send_str(json.dumps({"type": "robots", "robots": robot_list}))
             except ConnectionResetError: pass
-        # enviar mapa inmediatamente al conectar
-        if self._last_map_json:
-            try: await ws.send_str(self._last_map_json)
+        # enviar el mapa cacheado de cada robot al conectar
+        for msg in self._last_maps.values():
+            try: await ws.send_str(msg)
             except ConnectionResetError: pass
         try:
             async for msg in ws:
@@ -413,11 +435,21 @@ class WebPanel:
         return ws
 
     def build_and_broadcast_map(self) -> None:
-        """Llamado por serve cuando las piezas cambian — construye y difunde el mapa."""
-        data = self._build_map_data()
-        if data:
-            self._last_map_json = json.dumps(data)
-            self.broadcast_raw(self._last_map_json)
+        """Llamado por serve cuando las piezas cambian — construye y difunde
+        el mapa de cada robot (con su slug) a todos los WebSocket."""
+        svc = self.service
+        for r in svc.robots.values():
+            data = self._build_map_data(r.slug)
+            if data:
+                msg = json.dumps(data)
+                self._last_maps[r.slug] = msg
+                self.broadcast_raw(msg)
+        # robots aún sin mapa propio → el más poblado (compat con 1 robot)
+        if not self._last_maps:
+            data = self._build_map_data(None)
+            if data:
+                self._last_maps[""] = json.dumps(data)
+                self.broadcast_raw(self._last_maps[""])
 
     def broadcast_raw(self, msg: str) -> None:
         for ws in self._ws_clients[:]:

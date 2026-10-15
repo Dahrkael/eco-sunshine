@@ -65,6 +65,9 @@ class Service:
         self._last_status: dict[str, str] = {}
         self._last_trace_fetch: dict[str, float] = {}
         self._walking = False
+        # map_id → robot key: cada robot renderiza SU mapa (evita colisión
+        # de mids entre protocolos — el 930 y un eco-ng pueden usar ambos "0")
+        self._map_owner: dict[str, str] = {}
 
     # ---------- adopción ----------
 
@@ -99,6 +102,10 @@ class Service:
             c.get_version()
             c.get_major_map()
             await self._publish_state(key, force=True)
+        else:
+            # sondeo inicial XMPP: fuerza respuestas dirigidas a esta sesión
+            self._poll_xmpp_robot(self.commanders[key])
+            await self._publish_state(key, force=True)
 
     # ---------- eventos XMPP (robots era 930) ----------
 
@@ -119,6 +126,7 @@ class Service:
         # spec de mapa (respuesta GetMapM: geometria + crcs por pieza)
         if attrs.get("m") and attrs.get("i") and attrs.get("w"):
             map_id = attrs["i"]
+            self._map_owner.setdefault(map_id, jid)
             before = self.asm.spec_changes
             self.asm.set_geometry(map_id, attrs)
             if self.asm.spec_changes > before:
@@ -150,7 +158,9 @@ class Service:
 
         # ---- mapa: spec (geometría + CRCs) → walk de piezas cambiadas
         if name in MAJOR_MAP_NAMES and "value" in data:
-            map_id = str(data.get("mid", "0"))
+            # namespace por robot: los mids no son únicos entre protocolos
+            map_id = f"{r.did.sn}:{data.get('mid', '0')}" if r.did else str(data.get("mid", "0"))
+            self._map_owner.setdefault(map_id, key)
             before = self.asm.spec_changes
             self.asm.set_geometry_json(map_id, data)
             if self.asm.spec_changes > before:
@@ -161,7 +171,8 @@ class Service:
 
         # ---- mapa: pieza individual
         if name in MINOR_MAP_NAMES and "pieceValue" in data:
-            map_id = str(data.get("mid", "0"))
+            raw_mid = str(data.get("mid", "0"))
+            map_id = f"{r.did.sn}:{raw_mid}" if r.did else raw_mid
             pid = int(data.get("pieceIndex", -1))
             if pid >= 0 and self.asm.add_piece_json(map_id, pid, data["pieceValue"]):
                 log.debug("pieza JSON mapa %s#%d aceptada", map_id, pid)
@@ -169,7 +180,9 @@ class Service:
 
         # ---- mapa: formato chunked (T8/N8)
         if name in MAP_INFO_NAMES and "value" in data and "totalCount" in data:
-            map_id = str(data.get("mid", "0"))
+            raw_mid = str(data.get("mid", "0"))
+            map_id = f"{r.did.sn}:{raw_mid}" if r.did else raw_mid
+            self._map_owner.setdefault(map_id, key)
             if self.asm.add_chunk_json(map_id, int(data.get("index", 0)),
                                        data["value"], int(data["totalCount"]), data):
                 log.info("mapa chunked %s montado", map_id)
@@ -377,6 +390,9 @@ class Service:
             tasks.append(self.mqtt_transport.listen())
             # robots conocidos estáticos (dormidos no emiten reports)
             for key in bm.robots:
+                if "ecorobot.net" in key or "/" not in key.split("@")[-1]:
+                    log.error("bumper_mqtt.robots espera did@class/res, no JIDs: %r", key)
+                    continue
                 if key not in self.robots:
                     try:
                         await self._adopt_and_discover(key, mqtt=True)
@@ -386,8 +402,14 @@ class Service:
         # cargar mapa del log de Bumper (sobrevive a reinicios del serve)
         self._load_map_from_log()
 
-        # adopcion inicial del robot conocido + discovery inmediato
-        # los robots se adoptan automáticamente en on_event al primer frame
+        # adopción inicial del robot conocido: un robot en base no emite
+        # frames por sí solo — el sondeo inicial (con NUESTRO jid como from)
+        # fuerza respuestas que llegan a esta sesión
+        if self.jid_hint and self.jid_hint not in self.robots:
+            try:
+                await self._adopt_and_discover(self.jid_hint, mqtt=False)
+            except Exception:  # noqa: BLE001
+                log.exception("adopción inicial de %s falló", self.jid_hint)
 
         await self.panel.start()
         log.info("serve operativo (poll cada %ds, panel en :8080, mqtt eco-ng %s)",
@@ -459,8 +481,26 @@ class Service:
             geo=self.asm.geo(map_id),
         )
 
+    def _robot_map_id(self, key: str) -> str | None:
+        """Mapa propio del robot; fallback con afinidad de protocolo.
+
+        Los mids eco-ng van con namespace ("sn:mid", contienen ':'), los
+        XMPP quedan tal cual — el mapa precargado del log del 930 (sin
+        owner conocido) así no se confunde con el de un eco-ng.
+        """
+        r = self.robots.get(key)
+        is_mqtt = bool(r and r.did and r.did.protocol == "mqtt")
+        owned = [m for m, owner in self._map_owner.items()
+                 if owner == key and self.asm.maps.get(m)]
+        if owned:
+            return max(owned, key=lambda m: self.asm.piece_count(m))
+        cands = [m for m in self.asm.maps if (":" in m) == is_mqtt]
+        if not cands:
+            cands = list(self.asm.maps)
+        return max(cands, key=lambda m: self.asm.piece_count(m)) if cands else None
+
     async def _map_publisher(self) -> None:
-        """Publica el mapa cuando cambie contenido; re-walk periódico de piezas."""
+        """Publica cada mapa de cada robot cuando cambia el contenido."""
         last_version, last_pub, last_walk = -1, 0.0, 0.0
         walking = False
         while True:
@@ -474,12 +514,12 @@ class Service:
                 if has_xmpp:
                     walking = True
                     last_walk = now
-                    map_id = max(self.asm.maps, key=lambda m: self.asm.piece_count(m))
 
                     async def walk() -> None:
                         nonlocal walking, last_version
                         try:
-                            await self._pull_walk(map_id)
+                            await self._pull_walk(max(self.asm.maps,
+                                                      key=lambda m: self.asm.piece_count(m)))
                         finally:
                             walking = False
                             last_version = -1  # fuerza republicación tras cada walk
@@ -487,19 +527,20 @@ class Service:
                     asyncio.create_task(walk())
 
             # publicar si el contenido del mapa cambió (no solo si crece)
-            total = sum(self.asm.piece_count(m) for m in self.asm.maps)
             if self.asm.version != last_version and now - last_pub > 10 and self.asm.maps:
                 last_version, last_pub = self.asm.version, now
-                map_id = max(self.asm.maps, key=lambda m: self.asm.piece_count(m))
                 try:
-                    # mapa al panel (canvas por WebSocket)
+                    # mapa al panel (canvas por WebSocket, uno por robot)
                     self.panel.build_and_broadcast_map()
-                    # mapa a HA (PNG via MQTT) — un render por robot (overlay propio)
+                    # mapa a HA (PNG via MQTT) — cada robot con SU mapa
                     for key, r in self.robots.items():
-                        await self.pub.publish_map(r.slug, self._render_map_png(map_id, r))
-                    log.info(
-                        "mapa %s publicado (v%d, %d piezas)",
-                        map_id, self.asm.version, total,
-                    )
+                        map_id = self._robot_map_id(key)
+                        if map_id:
+                            await self.pub.publish_map(r.slug,
+                                                       self._render_map_png(map_id, r))
+                    log.info("mapas publicados (v%d, %d piezas en %d mapas)",
+                             self.asm.version,
+                             sum(self.asm.piece_count(m) for m in self.asm.maps),
+                             len(self.asm.maps))
                 except Exception:  # noqa: BLE001
                     log.exception("publicación de mapa falló")

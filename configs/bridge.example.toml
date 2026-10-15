@@ -1,0 +1,21 @@
+# Config del bridge para docker-compose (montada en /config/bridge.toml)
+[bumper]
+host = "bumper"          # nombre del servicio en la red de compose
+port = 5223
+uid = "fuid_tmpuser"
+resource = "bridge"
+ca_file = "/certs/ca.crt"
+
+[mqtt]
+host = "mosquitto"
+port = 1883
+base_topic = "deebot"
+
+[bumper_mqtt]
+host = "bumper"
+port = 8883
+ca_file = "/certs/ca.crt"
+enabled = true
+# robots eco-ng conocidos (did@class/res) — se adoptan al arrancar sin
+# esperar su primer report (los robots dormidos no emiten nada)
+robots = []

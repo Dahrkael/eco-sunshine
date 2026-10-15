@@ -35,9 +35,11 @@ services:
     build: ./bridge
     container_name: deebot930-bridge
     restart: unless-stopped
-    profiles: ["bridge"]   # activo cuando 'serve' sea funcional
+    profiles: ["bridge"]
     depends_on: [bumper, mosquitto]
     environment:
       TZ: ${TZ:-Europe/Madrid}
     volumes:
       - ./data/certs:/certs:ro
+      - ./configs/bridge.toml:/config/bridge.toml:ro
+    command: ["serve", "-c", "/config/bridge.toml", "--mqtt"]

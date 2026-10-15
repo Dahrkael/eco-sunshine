@@ -16,12 +16,45 @@ bridge (nuevo, Python) ──► decoder mapa → renderer PNG → MQTT (formato
 
 | Fase | Contenido | Estado |
 |---|---|---|
-| 0 | Entorno: compose, DNS, IP fija, app antigua | **en curso** |
-| 1 | Emparejamiento controlado contra Bumper | pendiente |
-| 2 | Captura de trazas XMPP (oráculo: app) | pendiente |
-| 3 | Ingeniería inversa: posición + mapa | pendiente |
-| 4 | Bridge → MQTT Valetudo-compatible | pendiente |
-| 5 | Aislamiento (firewall) + dashboard HA | pendiente |
+| 0 | Entorno: compose, DNS, IP fija, app antigua | **✅ hecho** |
+| 1 | Emparejamiento controlado contra Bumper | **✅ hecho** |
+| 2 | Captura de trazas XMPP (oraculo: app) | **✅ hecho** (corpus sesiones 1-3) |
+| 3 | Ingeniería inversa: posición + mapa | **✅ hecho** (origen 86.8% traza/suelo) |
+| 4 | Bridge → MQTT + discovery HA | **✅ hecho** (14 entidades, panel web, multi-robot) |
+| 5 | Aislamiento (firewall) + dashboard HA | **✅ hecho** |
+| 6 | Transporte MQTT robots T8+ (eco-ng) | **✅ hecho** (spec mqtt-json-spec.md §10) |
+| 7 | Absorción de Bumper en el bridge | plan: `docs/absorcion-bumper.md` |
+
+El bridge soporta **48 modelos XMPP** (detección por JID) y robots **eco-ng
+MQTT** (T8+; class ids conocidos + fallback genérico). Un solo `serve`
+maneja ambos protocolos simultáneamente: mismo panel, mismas entidades HA.
+
+## Bridge (Python ≥3.10, ver `bridge/`)
+
+```bash
+cd bridge
+python -m venv .venv && .venv/bin/pip install -e ".[dev]"
+.venv/bin/python -m deebot930_bridge serve -c ../configs/bridge-dev.toml --mqtt
+# panel: http://localhost:8282 | HA: discovery en mosquitto :1883
+
+.venv/bin/python -m deebot930_bridge probe-mqtt --ca-file ../data/certs/ca.crt   # diagnóstico eco-ng
+python tools/mock_mqtt_robot.py    # robot T9 AIVI sintético para pruebas sin hardware
+.venv/bin/python -m pytest         # suite (decoders, assembler, estado, routing)
+```
+
+Config: sección `[bumper_mqtt]` del TOML (host/puerto/CA del broker de
+Bumper, `enabled`, robots conocidos para adoptar sin esperar report). El
+decoder de mapas detecta **LZMA/zstd por magic number** y la traza eco-ng
+usa el formato de 5 bytes/punto (spec §6).
+
+### Nota hbmqtt (broker de Bumper)
+
+El `matches()` de hbmqtt compila `+` como una clase de caracteres sin `-`,
+con lo que filtros con `+` no matchean dids eco-ng (UUIDs con guión). El
+bridge lo esquiva suscribiendo `iot/#` y filtrando por estructura de topic
+(robusto ante cualquier broker); además `bumper/bumper/mqttserver.py` lleva
+un monkey-patch con matching MQTT-4.7 correcto (aplica al reconstruir la
+imagen de Bumper).
 
 ## Decision pendiente: futuro de Bumper (upstream abandonado)
 

@@ -169,6 +169,66 @@ def cmd_replay(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_probe_mqtt(args: argparse.Namespace) -> int:
+    """Prueba del transporte MQTT: conecta al broker de Bumper, escucha
+    reports y (opcional) manda un getBattery al did indicado."""
+    import asyncio
+    import logging
+
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
+                        format="%(levelname)s %(name)s: %(message)s")
+
+    from .config import load_config
+    from .models import DeviceId
+    from .mqtt_transport import MqttTransport, route_topic
+
+    cfg = load_config(args.config)
+    bm = cfg.bumper_mqtt
+    host = args.host or bm.host
+    port = args.port or bm.port
+    ca = args.ca_file or bm.ca_file
+
+    seen: dict[str, str] = {}
+    t: MqttTransport | None = None
+    done = asyncio.Event()
+
+    async def on_data(key: str, name: str, data: dict) -> None:
+        if key not in seen:
+            seen[key] = name
+            print(f"🤖 robot eco-ng detectado: {key} (vía {name})")
+        print(f"  [{name:>16s}] {data}")
+
+    async def run() -> None:
+        nonlocal t
+        t = MqttTransport(host, port, ca_file=ca, on_data=on_data)
+        await t.connect()
+        print(f"conectado al broker {host}:{port} — escuchando {args.seconds}s")
+        if args.did:
+            did = DeviceId.from_key(args.did)
+            print(f"sondeando {did.key}…")
+            resp = await t.send_command(did, "getBattery", {})
+            print(f"getBattery → {resp}")
+            resp = await t.send_command(did, "getPos_V2", ["chargePos", "deebotPos"])
+            print(f"getPos_V2  → {resp}")
+
+        async def timer() -> None:
+            await asyncio.sleep(args.seconds)
+            done.set()
+
+        asyncio.create_task(timer())
+        listen = asyncio.create_task(t.listen())
+        try:
+            await done.wait()
+        finally:
+            listen.cancel()
+
+    asyncio.run(run())
+    print(f"\nrobots vistos: {len(seen)}")
+    for key, via in seen.items():
+        print(f"  {key} (primer frame: {via})")
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     """Servicio vivo: XMPP (Bumper) ⇄ MQTT (Home Assistant)."""
     import logging
@@ -179,6 +239,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     from .serve import Service
 
     cfg = load_config(args.config)
+    if getattr(args, "mqtt", False):
+        cfg.bumper_mqtt.enabled = True
     jid = args.jid or (cfg.robots[0] if cfg.robots else None)
     try:
         import asyncio
@@ -216,7 +278,19 @@ def main() -> int:
     p_serve = sub.add_parser("serve", help="servicio vivo XMPP → MQTT")
     p_serve.add_argument("--config", "-c", default=None)
     p_serve.add_argument("--jid", default=None)
+    p_serve.add_argument("--mqtt", action="store_true",
+                         help="activar transporte MQTT de Bumper (robots T8+)")
     p_serve.set_defaults(fn=cmd_serve)
+
+    p_pmqtt = sub.add_parser("probe-mqtt", help="probar transporte MQTT del broker Bumper")
+    p_pmqtt.add_argument("--config", "-c", default=None)
+    p_pmqtt.add_argument("--host", default=None, help="host del broker (def: config)")
+    p_pmqtt.add_argument("--port", type=int, default=None, help="puerto (def: 8883)")
+    p_pmqtt.add_argument("--ca-file", default=None, help="CA del broker (def: config)")
+    p_pmqtt.add_argument("--did", default=None, help="did@class/res a sondear con getBattery")
+    p_pmqtt.add_argument("--seconds", type=int, default=10)
+    p_pmqtt.add_argument("-v", "--verbose", action="store_true")
+    p_pmqtt.set_defaults(fn=cmd_probe_mqtt)
 
     args = parser.parse_args()
     return args.fn(args)

@@ -28,9 +28,25 @@ class MQTTConfig:
 
 
 @dataclass
+class BumperMQTTConfig:
+    """Conexión al broker MQTT de Bumper (robots eco-ng / T8+).
+
+    Hoy apunta al contenedor Bumper; cuando Bumper se absorba en el bridge,
+    apuntará a 127.0.0.1 del broker embebido (docs/absorcion-bumper.md).
+    """
+    host: str = "localhost"
+    port: int = 8883
+    ca_file: str = "data/certs/ca.crt"
+    enabled: bool = False
+    # robots conocidos (did@class/res) para adoptar sin esperar su primer report
+    robots: list[str] = field(default_factory=list)
+
+
+@dataclass
 class Config:
     bumper: BumperConfig = field(default_factory=BumperConfig)
     mqtt: MQTTConfig = field(default_factory=MQTTConfig)
+    bumper_mqtt: BumperMQTTConfig = field(default_factory=BumperMQTTConfig)
     # vacío = auto-descubrir cualquier bot que envíe frames
     robots: list[str] = field(default_factory=list)
 
@@ -45,5 +61,7 @@ def load_config(path: str | None) -> Config:
         setattr(cfg.bumper, k, v)
     for k, v in raw.get("mqtt", {}).items():
         setattr(cfg.mqtt, k, v)
+    for k, v in raw.get("bumper_mqtt", {}).items():
+        setattr(cfg.bumper_mqtt, k, v)
     cfg.robots = raw.get("robots", [])
     return cfg

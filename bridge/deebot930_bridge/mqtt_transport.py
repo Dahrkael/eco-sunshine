@@ -136,11 +136,9 @@ class MqttTransport:
         self.client = aiomqtt.Client(**kwargs)
         await self.client.__aenter__()
         # reports de TODOS los robots + respuestas a NUESTROS comandos
-        await self.client.subscribe([
-            # iot/atr/{name}/{sn}/{cls}/{res}/{fmt} — 7 niveles
-            ("iot/atr/+/+/+/+/+", aiomqtt.QoS.AtMostOnce),
-            ("iot/p2p/+/+/+/+/bridge/bumper/bridge/+/+/+", aiomqtt.QoS.AtMostOnce),
-        ])
+        # (qos 0, como el helperbot de Bumper)
+        await self.client.subscribe("iot/atr/+/+/+/+/+", qos=0)
+        await self.client.subscribe("iot/p2p/+/+/+/+/bridge/bumper/bridge/+/+/+", qos=0)
         self.connected.set()
         log.info("MQTT bumper conectado: %s:%d como %s", self.host, self.port, self.identifier)
 
@@ -214,9 +212,7 @@ class MqttTransport:
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[request_id] = fut
         try:
-            await self.client.publish(
-                topic, json.dumps(build_envelope(params)), qos=aiomqtt.QoS.AtMostOnce
-            )
+            await self.client.publish(topic, json.dumps(build_envelope(params)), qos=0)
             log.debug(">> %s %s", command, params or "")
             return await asyncio.wait_for(fut, timeout)
         except asyncio.TimeoutError:

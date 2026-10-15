@@ -4,6 +4,9 @@
 Formatos de comando (todos dentro de <iq type=set><query><ctl .../></query></iq>):
   self-closing: <ctl id=".." [attrs] td="CMD" [attrs]/>
   con hijos:     <ctl id=".." td="Clean"><clean .../></ctl>
+
+Robots MQTT (T8+): la ingesta va por update_report() (spec §5) — reports
+iot/atr y respuestas p2p comparten forma de payload, así que un solo camino.
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-from .models import ModelInfo, detect_model
+from .models import DeviceId, ModelInfo, detect_model, detect_model_for
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +30,20 @@ COMPONENTS = {"brush": "Brush", "sidebrush": "SideBrush", "dustcase": "DustCaseH
               "airfilter": "AirFilter", "ion": "IonSterilize"}
 SOUNDS = {"boot": 0, "wheels": 4, "dustbin": 6, "stuck": 5, "ding": 17, "battery_low": 18,
           "here": 30, "brush_tangled": 31, "returning": 63, "paused": 65, "relocating": 55}
+
+# MQTT: nombre JSON del componente (getLifeSpan array / respuesta)
+LIFESPAN_JSON = {"brush": "brush", "sidebrush": "sideBrush",
+                 "dustcase": "unitCare", "airfilter": "heap", "ion": "dModule"}
+# respuesta JSON → clave interna 930 (la que consumen HA y el panel)
+LIFESPAN_JSON_INTERNAL = {"brush": "Brush", "sideBrush": "SideBrush",
+                          "heap": "AirFilter", "unitCare": "DustCaseHeap",
+                          "dModule": "IonSterilize"}
+# minutos de vida nominal por componente (para el % de HA)
+LIFESPAN_TOTALS = {"brush": 10800, "sideBrush": 7200, "heap": 9000,
+                   "unitCare": 10800, "dModule": 10800}
+# velocidad numérica eco-ng ↔ nombre HA
+SPEED_JSON = {0: "silent", 1: "standard", 2: "strong", 3: "strong"}
+SPEED_JSON_REV = {v: k for k, v in SPEED_JSON.items()}
 
 
 @dataclass
@@ -50,12 +67,22 @@ class RobotState:
     trace_points: list[tuple[float, float]] = field(default_factory=list)
     lifespans: dict[str, dict] = field(default_factory=dict)
     cleaned_map_pieces: dict[str, str] = field(default_factory=dict)
+    did: DeviceId | None = None
 
     @staticmethod
     def from_jid(jid: str) -> "RobotState":
+        did = DeviceId.from_jid(jid)
         serial = jid.split("@")[0]
         model = detect_model(jid)
-        return RobotState(jid=jid, slug=f"{model.slug}-{serial[-6:].lower()}", model=model)
+        return RobotState(jid=jid, slug=f"{model.slug}-{serial[-6:].lower()}",
+                          model=model, did=did)
+
+    @staticmethod
+    def from_device_id(did: DeviceId) -> "RobotState":
+        model = detect_model_for(did)
+        serial = did.sn
+        return RobotState(jid=did.key, slug=f"{model.slug}-{serial[-6:].lower()}".replace("-", "-"),
+                          model=model, did=did)
 
     # ---- ingesta de eventos y respuestas ----
 
@@ -128,6 +155,8 @@ class RobotState:
                 self.status = "idle"
 
     clean_seconds: int = 0
+    # última velocidad numérica reportada por robots MQTT (onSpeed/getSpeed)
+    fan_speed_json: int | None = None
 
     @staticmethod
     def _map_clean_status(attrs: dict, inner: str) -> str:
@@ -138,6 +167,99 @@ class RobotState:
         return {
             "h": "docked", "i": "idle", "p": "paused",
         }.get(st[:1], "cleaning" if st else "idle")
+
+    # ---- ingesta de reports/respuestas JSON (robots MQTT, spec §3-§5) ----
+
+    def update_report(self, name: str, data: dict) -> None:
+        """Aplica un report iot/atr o respuesta p2p JSON al estado.
+
+        Reports (onXxx) y respuestas (getXxx) comparten forma de payload,
+        así que se tratan por igual: onBattery≈getBattery, onPos≈getPos_V2…
+        """
+        if not isinstance(data, dict):
+            return
+        if data.get("ret") == "fail":
+            log.debug("report %s fail: errno=%s", name, data.get("errno"))
+            return
+        n = name.removeprefix("on").replace("_V2", "")
+        n = n[0].lower() + n[1:] if n else name  # onBattery → battery
+
+        # batería: {value, isLow}
+        if "value" in data and isinstance(data["value"], (int, float)) and (
+                n in ("battery",) or "isLow" in data):
+            self.battery = int(data["value"])
+
+        # posición: {mid, deebotPos:{x,y,a}, chargePos:[{x,y,a}]}
+        pos = data.get("deebotPos")
+        if isinstance(pos, dict) and "x" in pos:
+            self.position = Position(float(pos["x"]), float(pos["y"]),
+                                     float(pos.get("a", 0)))
+            if len(self.trace_points) < 100_000:
+                self.trace_points.append((self.position.x, self.position.y))
+        charge = data.get("chargePos")
+        if isinstance(charge, list) and charge and isinstance(charge[0], dict):
+            c0 = charge[0]
+            self.charger = Position(float(c0.get("x", 0)), float(c0.get("y", 0)),
+                                    float(c0.get("a", 0)))
+        elif isinstance(charge, dict) and "x" in charge:
+            self.charger = Position(float(charge["x"]), float(charge["y"]),
+                                    float(charge.get("a", 0)))
+
+        # estado de carga: {mode: slot_charging|idle|going|wire_charging}
+        mode = data.get("mode")
+        if isinstance(mode, str) and n in ("chargeState",):
+            if "going" in mode:
+                self.status = "returning"
+            elif "charging" in mode:
+                self.status = "charging"
+            elif mode == "idle" and self.status not in ("cleaning", "paused"):
+                self.status = "idle"
+
+        # limpieza: {state, cleanState:{motionState, content{...}}}
+        if n in ("cleanInfo",):
+            cs = data.get("cleanState") or {}
+            motion = cs.get("motionState") or data.get("state")
+            if isinstance(motion, str):
+                mapped = {"working": "cleaning", "pause": "paused", "paused": "paused",
+                          "going": "returning", "returning": "returning",
+                          "idle": "idle"}.get(motion)
+                if mapped:
+                    self.status = mapped
+            if isinstance(cs.get("content"), dict):
+                total = cs["content"].get("total")
+                if isinstance(total, (int, float)):
+                    self.clean_seconds = int(total)
+
+        # error: {error: [] | [{errno...}]}
+        err = data.get("error")
+        if n == "error" and isinstance(err, list):
+            if err:
+                self.error = ",".join(str(e.get("errno", e) if isinstance(e, dict) else e)
+                                      for e in err)
+                if self.status not in ("cleaning",):
+                    self.status = "error"
+            else:
+                self.error = None
+
+        # consumibles: {brush: N, sideBrush: N, heap: N, unitCare: N} (min restantes)
+        # se guardan con las claves internas 930 (Brush/SideBrush/…) para que
+        # HA y el panel funcionen igual con ambos protocolos
+        for comp, total in LIFESPAN_TOTALS.items():
+            if isinstance(data.get(comp), (int, float)):
+                internal = LIFESPAN_JSON_INTERNAL.get(comp, comp)
+                self.lifespans[internal] = {"left": int(data[comp]), "total": total}
+
+        # velocidad: {speed: 0-3}
+        if isinstance(data.get("speed"), (int, float)) and n == "speed":
+            self.fan_speed_json = int(data["speed"])
+
+        # firmware: getNetInfo → wkVer
+        if isinstance(data.get("wkVer"), str):
+            self.version = data["wkVer"]
+
+        # stats: {time, area}
+        if isinstance(data.get("time"), (int, float)) and n in ("stats", "totalStats"):
+            self.clean_seconds = int(data["time"])
 
 
 class RobotCommander:

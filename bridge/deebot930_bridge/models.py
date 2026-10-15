@@ -34,10 +34,54 @@ class ModelInfo:
     consumables: list[str] = field(default_factory=lambda: ["Brush", "SideBrush", "DustCaseHeap", "AirFilter"])
     map_types: list[str] = field(default_factory=lambda: ["st", "wa"])
     notes: str = ""
+    # "xmpp" (era 930, XML) | "mqtt" (eco-ng T8+, JSON — spec mqtt-json-spec.md)
+    protocol: str = "xmpp"
 
     @property
     def ha_model(self) -> str:
         return f"{self.display} via deebot-bridge"
+
+
+@dataclass(frozen=True)
+class DeviceId:
+    """Identidad unificada de un robot — la semilla del registro de
+    dispositivos que sustituirá a bumper.bot_add()/SQLite cuando Bumper
+    se absorba en el bridge (ver docs/absorcion-bumper.md).
+
+    XMPP: sn=serial, class del JID (ej "115"), resource="atom"
+    MQTT: sn=did (UUID del servidor), class 6 chars (ej "yna5xh"), resource="axm"
+    """
+
+    sn: str
+    device_class: str
+    resource: str
+    protocol: str = "xmpp"
+
+    @property
+    def key(self) -> str:
+        """Clave canónica para los dicts de robots/commanders del serve."""
+        return f"{self.sn}@{self.device_class}/{self.resource}"
+
+    @property
+    def jid(self) -> str:
+        """JID XMPP completo (solo tiene sentido con protocol='xmpp')."""
+        return f"{self.sn}@{self.device_class}.ecorobot.net/{self.resource}"
+
+    @staticmethod
+    def from_jid(jid: str) -> "DeviceId":
+        """E000105701860607AB7@115.ecorobot.net/atom → DeviceId xmpp."""
+        local, _, rest = jid.partition("@")
+        cls = rest.split(".")[0] if rest else ""
+        resource = rest.split("/", 1)[1] if "/" in rest else "atom"
+        return DeviceId(sn=local, device_class=cls, resource=resource, protocol="xmpp")
+
+    @staticmethod
+    def from_key(key: str, protocol: str = "mqtt") -> "DeviceId":
+        """{sn}@{cls}/{res} → DeviceId (por defecto mqtt: clave de topic MQTT)."""
+        local, _, rest = key.partition("@")
+        cls, _, resource = rest.partition("/")
+        return DeviceId(sn=local, device_class=cls, resource=resource or "axm",
+                        protocol=protocol)
 
 
 def _m(jid: str, slug: str, display: str, driver: str = "",
@@ -132,11 +176,32 @@ MODELS: dict[str, ModelInfo] = dict([
     _m("162", "db30", "Conga DB30", "ChaoBao3"),
 ])
 
+# ═══ Robots eco-ng (MQTT/JSON, T8+) — class IDs del spec §7 y home-apk-models.md ═══
+# La mayoría se asignan dinámicamente en el servidor; el robot anuncia su class
+# en el client-id al conectar al broker ({did}@{class}/{res}).
+MQTT_MODELS: dict[str, ModelInfo] = dict([
+    _m("yna5xh", "t9aivi", "Deebot OZMO T9 AIVI", "dt9ai_main"),
+    _m("x7p4y4", "t9pro", "Deebot OZMO T9 PRO", "dt9_main"),
+    _m("vsc5ia", "t8n8", "Deebot T8/N8 family", "dt8_main"),
+    _m("qqy0di", "aa30", "Deebot AA30 (AIRBOT)", "lib_iot_client"),
+    _m("oxandq", "a680", "Deebot A680 (AIRBOT)", ""),
+])
+for _m_info in MQTT_MODELS.values():
+    _m_info.protocol = "mqtt"
+
 DEFAULT_MODEL = ModelInfo(
     slug="deebot",
     display="Deebot",
     jid_class="unknown",
     map_types=["st"],
+)
+
+DEFAULT_MQTT_MODEL = ModelInfo(
+    slug="deebot-mqtt",
+    display="Deebot (eco-ng)",
+    jid_class="unknown",
+    map_types=["ol"],
+    protocol="mqtt",
 )
 
 
@@ -148,6 +213,18 @@ def detect_model(jid: str) -> ModelInfo:
         if sub in MODELS:
             return MODELS[sub]
     return DEFAULT_MODEL
+
+
+def detect_model_mqtt(device_class: str) -> ModelInfo:
+    """Detecta el modelo desde el class del client-id MQTT ({did}@{cls}/{res})."""
+    return MQTT_MODELS.get(device_class, DEFAULT_MQTT_MODEL)
+
+
+def detect_model_for(did: DeviceId) -> ModelInfo:
+    """Detecta el modelo desde un DeviceId, según su protocolo."""
+    if did.protocol == "mqtt":
+        return detect_model_mqtt(did.device_class)
+    return detect_model(did.jid)
 
 
 def detect_from_version(version_str: str) -> ModelInfo | None:
@@ -164,4 +241,5 @@ def detect_from_version(version_str: str) -> ModelInfo | None:
 def model_summary() -> str:
     c = Counter(m.driver for m in MODELS.values())
     lines = [f"  {d:14s}: {n} modelos" for d, n in c.most_common()]
+    lines.append(f"  MQTT (eco-ng) : {len(MQTT_MODELS)} class ids registrados")
     return "\n".join(lines)

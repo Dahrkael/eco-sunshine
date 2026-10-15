@@ -42,7 +42,7 @@ class MqttPublisher:
         self.client: aiomqtt.Client | None = None
         self.on_command = None  # async cb(slug, action, value)
 
-    def _device(self, slug: str, name: str) -> dict:
+    def _device(self, slug: str, name: str, model_name: str = "Deebot") -> dict:
         return {
             "identifiers": [f"deebot-{slug}"],
             "name": name,
@@ -75,7 +75,7 @@ class MqttPublisher:
     async def publish_discovery(self, slug: str, name: str = "Deebot", model_name: str = "Deebot") -> None:
         if not self.client:
             return
-        dev = self._device(slug, name)
+        dev = self._device(slug, name, model_name)
         b = f"{self.base}/{slug}"
 
         vac = {

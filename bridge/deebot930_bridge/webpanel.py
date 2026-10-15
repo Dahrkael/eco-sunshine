@@ -116,8 +116,7 @@ select:focus{outline:none;border-color:var(--accent)}
 
 <script>
 const COLORS = {0:'#0d1117', 1:'#30363d', 2:'#8b949e', 3:'#6b5b3e', 4:'#f85149'};
-const CELL_MM = 50;
-const ORIGIN_R = 401, ORIGIN_C = 401;
+let CELL_MM = 50, ORIGIN_R = 401, ORIGIN_C = 401, Y_DOWN = true;
 
 let ws, gridData = null, currentRobot = null, robots = {}, gridW = 0, gridH = 0, cropR = 0, cropC = 0;
 let robot = null, charger = null, trace = [], animRobot = null, lastPos = null, lastTime = 0;
@@ -139,6 +138,7 @@ function handle(d) {
   if (d.type === 'map') {
     gridData = d.rows.map(r => r.split('').map(Number));
     gridW = d.w; gridH = d.h; cropR = d.crop_r; cropC = d.crop_c;
+    CELL_MM = d.cell_mm ?? 50; ORIGIN_R = d.origin_r ?? 401; ORIGIN_C = d.origin_c ?? 401; Y_DOWN = d.y_down ?? true;
     document.getElementById('map-loading').style.display = 'none';
     draw();
   } else if (d.type === 'state') {
@@ -163,7 +163,8 @@ function handle(d) {
 
 function mmToCell(x, y) {
   if (!gridData) return null;
-  const r = Math.floor(y / CELL_MM) + ORIGIN_R - cropR;
+  const dr = Math.floor(y / CELL_MM);
+  const r = (Y_DOWN ? ORIGIN_R + dr : ORIGIN_R - dr) - cropR;
   const c = Math.floor(x / CELL_MM) + ORIGIN_C - cropC;
   if (r >= 0 && r < gridH && c >= 0 && c < gridW) return [r, c];
   return null;
@@ -318,12 +319,19 @@ class WebPanel:
         w = cmax - cmin + 1
         # serializar: cada celda = 1 carácter ('0'-'3')
         row_strs = ["".join(str(grid[r][c]) for c in range(cmin, cmax + 1)) for r in range(rmin, rmax + 1)]
+        geo = svc.asm.geo(map_id)
         return {
             "type": "map",
             "w": w, "h": h,
             "crop_r": rmin, "crop_c": cmin,
             "rows": row_strs,
             "map_id": map_id,
+            # transform mm→celda del mapa (930: 50mm/origen 401/y-down;
+            # MQTT: pixel variable, origen centrado, y-up)
+            "cell_mm": geo.cell_mm,
+            "origin_r": geo.origin_row,
+            "origin_c": geo.origin_col,
+            "y_down": geo.y_down,
         }
 
     async def api_state(self, _: web.Request) -> web.Response:
@@ -349,7 +357,7 @@ class WebPanel:
         action = data.get("action", "")
         value = data.get("value")
         svc = self.service
-        target_slug = data.get("slug") or (currentRobot if currentRobot else None)
+        target_slug = data.get("slug") or None
         for jid, r in svc.robots.items():
             if target_slug and r.slug != target_slug:
                 continue

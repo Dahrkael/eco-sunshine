@@ -1,0 +1,23 @@
+# Config de producción del bridge (contenedor docker-compose)
+panel_port = 8181
+
+# robots conocidos (adopción al arranque + sondeo inicial)
+robots = ["E000105701860607AB7@115.ecorobot.net/atom"]
+
+[bumper]
+host = "bumper"          # servicio compose (server XMPP de Bumper)
+port = 5223
+uid = "fuid_tmpuser"
+resource = "bridge"
+ca_file = "/certs/ca.crt"
+
+[mqtt]
+host = "mosquitto"
+port = 1883
+base_topic = "deebot"
+
+[bumper_mqtt]
+host = "bumper"          # broker MQTT eco-ng de Bumper
+port = 8883
+ca_file = "/certs/ca.crt"
+enabled = true

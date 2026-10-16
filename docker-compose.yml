@@ -39,6 +39,8 @@ services:
     depends_on: [bumper, mosquitto]
     environment:
       TZ: ${TZ:-Europe/Madrid}
+    ports:
+      - "8181:8181"      # panel web del bridge
     volumes:
       - ./data/certs:/certs:ro
       - ./configs/bridge.toml:/config/bridge.toml:ro

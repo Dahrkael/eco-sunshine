@@ -232,8 +232,11 @@ def cmd_probe_mqtt(args: argparse.Namespace) -> int:
 def cmd_serve(args: argparse.Namespace) -> int:
     """Servicio vivo: XMPP (Bumper) ⇄ MQTT (Home Assistant)."""
     import logging
+    import os
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    # DEEBOT_LOG_LEVEL gana (DEBUG revela el wire XMPP/MQTT completo)
+    level = os.environ.get("DEEBOT_LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
     # amqtt (broker embebido FC) loguea su máquina de estados a INFO — ruido
     logging.getLogger("transitions").setLevel(logging.WARNING)
 
@@ -244,13 +247,6 @@ def cmd_serve(args: argparse.Namespace) -> int:
     if getattr(args, "mqtt", False):
         cfg.bumper_mqtt.enabled = True
     jid = args.jid or (cfg.robots[0] if cfg.robots else None)
-    # nivel de log por entorno (DEBUG revela el wire XMPP/MQTT completo)
-    import logging as _logging
-    import os
-
-    if os.environ.get("DEEBOT_LOG_LEVEL"):
-        _logging.basicConfig(level=os.environ["DEEBOT_LOG_LEVEL"].upper(),
-                             format="%(levelname)s %(name)s: %(message)s")
     try:
         import asyncio
 

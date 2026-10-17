@@ -261,9 +261,12 @@ class Mock930:
                 f'<ctl td="ChargeState" ts="{self._ts()}">'
                 f'<charge h="" r="" s="" type="{typ}" /></ctl>')
         elif td == "GetBatteryInfo":
-            await self.push_ctl(
-                f'<ctl td="BatteryInfo" ts="{self._ts()}">'
-                f"<battery power=\"{self.battery}\" /></ctl>")
+            # el 930 REAL responde BatteryInfo en broadcast a de.ecorobot.net
+            # (corpus) — así validamos esa ruta de routing contra el server
+            await self._send(
+                f'<iq xmlns:ns0="com:ctl" id="{iq_id()}" to="de.ecorobot.net" '
+                f'type="set"><query><ctl td="BatteryInfo" ts="{self._ts()}">'
+                f"<battery power=\"{self.battery}\" /></ctl></query></iq>")
         elif td == "GetMapM":
             spec = self.corpus.get("spec_mapm") or {}
             await self.send_iq(

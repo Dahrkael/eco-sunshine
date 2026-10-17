@@ -583,6 +583,14 @@ class WebPanel:
         return web.json_response({"ok": False, "error": "no robot"}, status=404)
 
     @staticmethod
+    def _call(commander, method: str, *args) -> None:
+        """Duck typing tolerante: XMPP y MQTT no comparten el 100% del vocabulario."""
+        fn = getattr(commander, method, None)
+        if fn is None:
+            log.info("comando %s no disponible para este robot", method)
+            return
+        fn(*args)
+
     async def api_ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
         await ws.prepare(request)

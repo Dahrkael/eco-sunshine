@@ -1,76 +1,78 @@
-# ecovacs-bridge — especificación (todo-en-uno, multi-robot)
+# ecovacs-bridge — specification (all-in-one, multi-robot)
 
-Un solo servicio que sustituye a la app **y** al componente custom de HA:
-habla XMPP con Bumper como cliente, controla y escucha al robot, decodifica
-el mapa y publica todo por MQTT con discovery nativo de Home Assistant.
+A single service that replaces the app **and** the custom HA component:
+it talks XMPP to Bumper as a client, controls the robot and listens to it,
+decodes the map and publishes everything over MQTT with native Home
+Assistant discovery.
 
-## Arquitectura
+## Architecture
 
 ```
                       ┌─────────────────────────────────────────────┐
                       │  ecovacs-bridge (asyncio)                 |
- Bumper (XMPP 5223) ←──┤  ├─ sesion XMPP por robot (auto-login fake) │
-                      │  ├─ comando ←→ MQTT                          │
-   robot 930 ⇄ bumper │  ├─ colector: Pos/trace/MapP/CleanSt/...    │
-                      │  ├─ decodificador piezas (MapP) + traza      │
-                      │  └─ renderer PNG                             │
+ Bumper (XMPP 5223) ←──┤  ├─ XMPP session per robot (fake auto-login) │
+                      │  ├─ command ←→ MQTT                          │
+   930 robot ⇄ bumper │  ├─ collector: Pos/trace/MapP/CleanSt/...    │
+                      │  ├─ piece decoder (MapP) + trace              │
+                      │  └─ PNG renderer                              │
                       └──────────────────┬──────────────────────────┘
                                          │ MQTT (discovery)
                     Home Assistant ══════╧══ vacuum.* + camera.* + sensors
-                                          (integracion mqtt CORE, sin custom)
+                                          (CORE mqtt integration, no custom)
 ```
 
 ## Multi-robot
 
-- Config: lista de robots; auto-detección por defecto (cualquier bot que se
-  registre en Bumper se adopta: `discover: true`).
-- Cada robot = una tarea asyncio con su propio estado, su colector y su render.
-- Namespacing MQTT por robot: `deebot/<slug>/#` (slug = serie o friendly name),
-  discovery independiente por robot (vacuum, camera, sensors).
-- Sin límite práctico; robots de distintos modelos de la era XMPP deberían
-  funcionar si comparten dialecto (930/900/960...).
+- Config: list of robots; auto-detection by default (any bot that
+  registers with Bumper is adopted: `discover: true`).
+- Each robot = one asyncio task with its own state, its collector and its
+  render.
+- Per-robot MQTT namespacing: `deebot/<slug>/#` (slug = serial or friendly
+  name), independent discovery per robot (vacuum, camera, sensors).
+- No practical limit; XMPP-era robots of different models should work if
+  they share the dialect (930/900/960...).
 
-## Vocabulario XMPP (validado contra el 930 real, corpus sesiones 1-2)
+## XMPP vocabulary (validated against the real 930, corpus sessions 1-2)
 
-### Comandos (app→robot, envolver en <iq type=set><query><ctl ...>)
-- Iniciar limpieza:  `<ctl td="Clean"><clean act="s" speed="standard" type="auto"/></ctl>`
-- Pausa:            `<ctl td="Clean"><clean act="p" speed="standard" type="auto"/></ctl>`
-- A base:           `<ctl td="Charge"><charge type="go"/></ctl>`
-- Mapa por piezas:  `<ctl td="PullMP" pid="N"/>` (respuestas: `<ctl td="MapP" i="<mapid>" p="<b64>"/>`)
-- Traza paginada:   `<ctl td="GetTr" tf="0" tt="N"/>`
-- Autoreporte mapa: `<ctl td="SetMapAutoReport" on="1"/>`
-- Sondeo: GetPos, GetCleanState, GetChargeState, GetLifeSpan (type Brush/DustCaseHeap...),
+### Commands (app→robot, wrap in <iq type=set><query><ctl ...>)
+- Start cleaning:  `<ctl td="Clean"><clean act="s" speed="standard" type="auto"/></ctl>`
+- Pause:            `<ctl td="Clean"><clean act="p" speed="standard" type="auto"/></ctl>`
+- To dock:          `<ctl td="Charge"><charge type="go"/></ctl>`
+- Map by pieces:    `<ctl td="PullMP" pid="N"/>` (responses: `<ctl td="MapP" i="<mapid>" p="<b64>"/>`)
+- Paginated trace:  `<ctl td="GetTr" tf="0" tt="N"/>`
+- Map auto-report:  `<ctl td="SetMapAutoReport" on="1"/>`
+- Polling: GetPos, GetCleanState, GetChargeState, GetLifeSpan (type Brush/DustCaseHeap...),
   GetOnOff (t=g/b/s), GetError, GetVersion (name=FW), GetSched, GetTime/SetTime,
-  GetChargerPos, GetSleepStatus, GetWaterPermeability, GetMapSet (tp=vw → muros)
+  GetChargerPos, GetSleepStatus, GetWaterPermeability, GetMapSet (tp=vw → walls)
 
-### Eventos (robot→cliente)
-- `Pos` (a=ángulo, p="x,y" mm, valid) — posición en vivo
-- `trace` (tr=base64 varint ~2cm, trid, tf/tt fragmento)
-- `TrM` (c=contador de traza), `CleanSt`, `CleanReport` (<clean st= type= speed=>),
-  `ChargeState`, `SleepStatus`, `GetLifeSpan` resp, `MapP` (piezas), MapSet/MapSt
+### Events (robot→client)
+- `Pos` (a=angle, p="x,y" mm, valid) — live position
+- `trace` (tr=base64 varint ~2cm, trid, tf/tt fragment)
+- `TrM` (c=trace counter), `CleanSt`, `CleanReport` (<clean st= type= speed=>),
+  `ChargeState`, `SleepStatus`, `GetLifeSpan` responses, `MapP` (pieces), MapSet/MapSt
 
-## Salida MQTT por robot (`deebot/<slug>/`)
+## MQTT output per robot (`deebot/<slug>/`)
 
-| Qué | Topic | Nota |
+| What | Topic | Note |
 |---|---|---|
-| Discovery vacuum | `homeassistant/vacuum/<slug>/config` | entidad vacuum.mqtt core |
-| Comandos | `deebot/<slug>/command` | start/pause/return/dock/fan |
-| Estado | `deebot/<slug>/state`, `/attributes` | battery, status, consumibles |
-| Mapa | `deebot/<slug>/map` (PNG b64) + `/map_data` | cámara mqtt + valetudo-map-card compatible |
-| Posición/path | `deebot/<slug>/state` | incl. en payload del mapa |
+| Vacuum discovery | `homeassistant/vacuum/<slug>/config` | core vacuum.mqtt entity |
+| Commands | `deebot/<slug>/command` | start/pause/return/dock/fan |
+| State | `deebot/<slug>/state`, `/attributes` | battery, status, consumables |
+| Map | `deebot/<slug>/map` (PNG b64) + `/map_data` | mqtt camera + valetudo-map-card compatible |
+| Position/path | `deebot/<slug>/state` | incl. in the map payload |
 
-## Módulos (bridge/ecovacs_bridge/)
+## Modules (bridge/ecovacs_bridge/)
 
-- `xmpp_client.py` — sesión TLS contra Bumper (CA propio), login usuario fake,
-  envío iq/ctl, parse de eventos (a partir del formato de Bumper xmppserver).
-- `robot.py` — estado por robot + máquina de estados de HA (docked/cleaning/…).
-- `map_pieces.py` — PullMP walker + reassembly + decodificador (fase 3).
-- `trace.py` — decoder varint (hecho, falta el par constante).
-- `renderer.py` — Pillow → PNG (mapa + path + posición).
+- `xmpp_client.py` — TLS session against Bumper (own CA), fake-user login,
+  iq/ctl sending, event parsing (from Bumper's xmppserver format).
+- `robot.py` — per-robot state + HA state machine (docked/cleaning/…).
+- `map_pieces.py` — PullMP walker + reassembly + decoder (phase 3).
+- `trace.py` — varint decoder (done, the constant pair is still missing).
+- `renderer.py` — Pillow → PNG (map + path + position).
 - `mqtt_pub.py` — paho-mqtt/aiomqtt + discovery.
-- `cli.py` — `serve` (modo servicio) / `decode` / `tail`.
+- `cli.py` — `serve` (service mode) / `decode` / `tail`.
 
-## Dependencias previstas
+## Planned dependencies
 
-slixmpp (o implementación mínima propia — Bumper espera un dialecto simple),
-aiomqtt, Pillow. Python >= 3.10. Contenedor propio en docker-compose.
+slixmpp (or a minimal implementation of our own — Bumper expects a simple
+dialect), aiomqtt, Pillow. Python >= 3.10. Own container in docker-compose.

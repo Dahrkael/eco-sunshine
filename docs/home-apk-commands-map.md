@@ -28,7 +28,7 @@ Response: `{"ret":"ok",...}` or `{"ret":"fail","errno":N,"error":"..."}`
 - `getChargeState` → `{mode}`
 - `getSpeed` → `{speed}`
 - `getWaterInfo` → `{amount, type, sweepType, enable}`
-- `getCleanInfo` / `_V2` → estado completo
+- `getCleanInfo` / `_V2` → full state
 - `getLifeSpan` (params `["brush","sideBrush","heap","unitCare","dModule"]`)
 - `getBlock` → DND `{enable, start:"HH:MM", end:"HH:MM"}`
 - `getSched` / `_V2` → schedules

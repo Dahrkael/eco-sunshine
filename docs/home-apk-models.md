@@ -6,7 +6,7 @@
 
 | Vendor | Transport | Library |
 |---|---|---|
-| `eco-legacy` | XMPP | `IOTXmppDevice` (nuestro 930) |
+| `eco-legacy` | XMPP | `IOTXmppDevice` (our 930) |
 | `eco-ng` | **MQTT** (NG-IoT) | `IOTMqDevice` |
 | `ali-living` | Alibaba LinkLiving | `IOTAliDevice` |
 | `winbot-bt` | Bluetooth | BLE presenters |

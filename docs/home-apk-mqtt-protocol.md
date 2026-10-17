@@ -94,7 +94,7 @@ Headers: `Authorization: Bearer {SST token}`, `X-ECO-REQUEST-ID: {si}`, v2 adds 
 | Security | SASL + token | Pinned CA + Bearer token + HMAC signing |
 | Local mode | none | mDNS + WebSocket + PSK |
 
-## Implications for deebot-bridge
+## Implications for ecovacs-bridge
 
 1. **Bumper already has MQTT broker** (port 8883) — robots can connect
 2. **BUT**: commands from the app go via HTTPS, not MQTT — Bumper would need an HTTPS control endpoint

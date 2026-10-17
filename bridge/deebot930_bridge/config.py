@@ -51,6 +51,9 @@ class Config:
     robots: list[str] = field(default_factory=list)
     panel_port: int = 8181
     panel_host: str = "0.0.0.0"
+    # persistencia de piezas de mapa + posiciones (sobrevive reinicios sin
+    # robot); vacío = sin persistencia
+    state_file: str = ""
 
 
 def load_config(path: str | None) -> Config:
@@ -65,7 +68,7 @@ def load_config(path: str | None) -> Config:
         setattr(cfg.mqtt, k, v)
     for k, v in raw.get("bumper_mqtt", {}).items():
         setattr(cfg.bumper_mqtt, k, v)
-    for k in ("robots", "panel_port", "panel_host"):
+    for k in ("robots", "panel_port", "panel_host", "state_file"):
         if k in raw:
             setattr(cfg, k, raw[k])
     return cfg

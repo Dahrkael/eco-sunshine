@@ -138,9 +138,12 @@ class RobotState:
                 if self.status not in ("cleaning",):
                     self.status = "error"
 
-        # versión firmware: respuesta GetVersion (<FW ver>)
+        # versión firmware: respuesta GetVersion = <ver name="FW">1.9.9</ver>
+        # (elemento hijo con el valor en TEXT — corpus 930 real; el attr
+        # ver= era la variante equivocada)
         if td == "GetVersion":
-            m = re.search(r'ver="([^"]+)"', inner)
+            m = (re.search(r"<(?:[\w.-]+:)?ver[^>]*>([^<]+)</", inner)
+                 or re.search(r'ver="([^"]+)"', inner))
             if m:
                 self.version = m.group(1)
 

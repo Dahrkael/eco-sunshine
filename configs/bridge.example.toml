@@ -10,7 +10,11 @@ state_file = "/data/state.json"   # piezas+posiciones persistentes (volumen ./da
 lookup = false             # :8007  bootstrap del robot (lookup.do) — FA
 xmpp = false               # :5223  servidor XMPP era 930 — FB
 mqtt = false               # :8883  broker eco-ng — FC
-conf = false               # :443   API app Ecovacs — FD (pendiente)
+conf = false               # :443   API app Ecovacs antigua (FD): login,
+                           #        getAuthCode y lista de bots del registry.
+                           #        Actívala solo si quieres usar la app como
+                           #        cliente/oráculo (la moderna va firmada con
+                           #        HMAC y no está soportada)
 panel = true               # panel web del bridge
 announce_ip = ""           # IP que se anuncia a robots (obligatoria si lookup=on;
                            # vacía → usa la env DEEBOT_ANNOUNCE_IP del deploy)

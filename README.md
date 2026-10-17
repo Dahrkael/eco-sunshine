@@ -16,8 +16,9 @@ bridge ──► decoder mapa → renderer PNG → MQTT (formato Valetudo) ─�
 ```
 
 Desde la absorción de Bumper (fase 7) el bridge YA NO necesita el
-contenedor `bumper`: los servidores (lookup, XMPP, broker MQTT eco-ng)
-viven en el proceso del bridge. Bumper queda como `legacy` opcional.
+contenedor `bumper`: los servidores (lookup, XMPP, broker MQTT eco-ng y,
+opcionalmente, la API `:443` de la app) viven en el proceso del bridge.
+Bumper queda como `legacy` opcional.
 
 ## Estado del proyecto
 
@@ -30,7 +31,7 @@ viven en el proceso del bridge. Bumper queda como `legacy` opcional.
 | 4 | Bridge → MQTT + discovery HA | **✅ hecho** (14 entidades, panel web, multi-robot) |
 | 5 | Aislamiento (firewall) + dashboard HA | **✅ hecho** |
 | 6 | Transporte MQTT robots T8+ (eco-ng) | **✅ hecho** (spec mqtt-json-spec.md §10) |
-| 7 | Absorción de Bumper en el bridge | **en marcha**: FA–FE hechos (`docs/absorcion-bumper.md`), FD opcional |
+| 7 | Absorción de Bumper en el bridge | **✅ hecho** (FA–FD, `docs/absorcion-bumper.md`; FD = API de la app, off por defecto) |
 
 El bridge soporta **48 modelos XMPP** (detección por JID) y robots **eco-ng
 MQTT** (T8+; class ids conocidos + fallback genérico). Un solo `serve`
@@ -74,11 +75,12 @@ imagen de Bumper).
 ## Decisión tomada: futuro de Bumper (upstream abandonado)
 
 Resuelta en la fase 7 con la vía **(b) backend propio**: los servidores de
-Bumper (lookup, XMPP, broker MQTT) se absorbieron DENTRO del bridge
-(fases FA–FC) y el despliegue es un solo contenedor (FE). El código de
-Bumper queda vendorizado bajo `bumper/` y su contenedor pasa al profile
-`legacy` para rollback durante la transición. La API de la app (`:443`,
-confserver) no se absorbió todavía (FD, opcional).
+Bumper (lookup, XMPP, broker MQTT y la API `:443` de la app) se absorbieron
+DENTRO del bridge (fases FA–FD) y el despliegue es un solo contenedor (FE).
+El código de Bumper queda vendorizado bajo `bumper/` y su contenedor pasa al
+profile `legacy` para rollback durante la transición. La API de la app
+(confserver, FD) está implementada pero **off por defecto** — véase
+"Usar la app Ecovacs contra el bridge".
 
 El robot habla XMPP (lookup.do pide `EcoMsgNew`) → el protocolo no era
 negociable. Vias evaluadas en su día:
@@ -106,8 +108,9 @@ docker logs -f deebot930-bridge       # servidores embebidos + robots
 ```
 
 Puertos publicados en el host Windows (**192.0.2.10**): 5223 (XMPP),
-8007 (lookup), 8883 (MQTT eco-ng), 8181 (panel). El 443 ya no se publica
-(API de la app = FD, opcional).
+8007 (lookup), 8883 (MQTT eco-ng), 8181 (panel). El 443 (API de la app)
+está **comentado** en el compose: publicarlo solo si activas
+`servers.conf` (FD) — véase "Usar la app Ecovacs contra el bridge".
 
 - `BUMPER_ANNOUNCE_IP` (`.env`) = IP que el bridge comunica al robot como
   servidor (vía `DEEBOT_ANNOUNCE_IP` → `servers.announce_ip`; el toml
@@ -150,15 +153,33 @@ Wi-Fi → opciones avanzadas → DNS privado/IP = IP del Pi-hole.
 ## Firewall Windows
 
 Docker Desktop publica los puertos; si el robot/app no conectan, permitir
-inbound 5223/tcp, 8007/tcp, 8883/tcp para `com.docker.backend`
-(Perfil privado de la red Wi-Fi). El 443 ya no se usa (FD pendiente).
+inbound 5223/tcp, 8007/tcp, 8883/tcp (y 443/tcp si activas el conf) para
+`com.docker.backend` (Perfil privado de la red Wi-Fi).
+
+## Usar la app Ecovacs contra el bridge (FD, opcional)
+
+La **app antigua "Ecovacs"** (robots XMPP) puede loguearse, listar los
+robots y mandar comandos contra el bridge, sin Bumper legacy. Soportada:
+**solo la app antigua** — la moderna (Ecovacs Home) firma sus requests
+con HMAC (`X-ECO-SIGN`) y no se implementa.
+
+1. `configs/bridge.toml`: descomenta `conf = true` en `[servers]`.
+2. `docker-compose.yml`: descomenta el mapeo `- "443:443"` del bridge.
+3. `docker compose up -d --build` y reinstala/abre la app antigua en el
+   móvil (el DNS del Pi-hole ya redirige `*.ecovacs.com`/`*.ecouser.net`
+   al bridge; la app instalará la CA del cert si hace falta — misma CA
+   que ya usa el flujo de emparejamiento).
+4. Login con cualquier cuenta (use_auth=False, como Bumper): la app hace
+   `user/login` → `user/getAuthCode` → `user.do loginByItToken` →
+   `user.do GetDeviceList` (los bots registrados por XMPP/MQTT) y conecta
+   por XMPP al :5223 embebido.
 
 ## Checklist de emparejamiento (fase 1)
 
-> ⚠️ El emparejamiento usa la app Ecovacs antigua, que necesita la API
-> `:443` — hoy solo existe en el **bumper legacy** (`--profile legacy`,
-> FD pendiente). Para emparejar un robot nuevo: levanta legacy, empareja,
-> y vuelve al stack normal (los robots ya emparejados no necesitan nada).
+> La app antigua necesita la API `:443`: con FD basta activar
+> `servers.conf` + publicar el 443 (arriba). La alternativa con
+> **bumper legacy** (`--profile legacy`) sigue válida para rollback —
+> nunca a la vez que el conf del bridge (mismo puerto).
 
 1. [ ] Reserva DHCP con IP fija para el robot (router).
 2. [ ] Pi-hole respondiendo por el wildcard (probar desde el móvil:

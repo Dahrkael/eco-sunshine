@@ -7,11 +7,14 @@ robots = ["E000105701860607AB7@115.ecorobot.net/atom"]
 
 # ── Servidores embebidos (absorción de Bumper, docs/absorcion-bumper.md) ──
 # lookup+XMPP+broker MQTT dentro del proceso del bridge: sin Bumper externo.
-# conf (:443, API de la app) llega en FD — off.
+# conf (:443, API de la app Ecovacs) está implementado (FD) pero queda OFF:
+# actívalo solo para emparejar con la app antigua o usarla de oráculo
+# (recuerda publicar el 443 en el docker-compose.yml).
 [servers]
 lookup = true              # :8007  bootstrap del robot (lookup.do)
 xmpp = true                # :5223  servidor XMPP (robots era 930)
 mqtt = true                # :8883  broker MQTT TLS (robots eco-ng T8+)
+# conf = true              # :443   API de la app Ecovacs (FD, off por defecto)
 # announce_ip: la inyecta el compose vía DEEBOT_ANNOUNCE_IP (= BUMPER_ANNOUNCE_IP
 # del .env). Descomenta para fijarla aquí (el toml gana al entorno):
 # announce_ip = "192.0.2.10"

@@ -4,7 +4,8 @@ services:
   # ── Bridge: TODO el flujo en un solo contenedor (absorción de Bumper, FE) ──
   # lookup :8007 (bootstrap del robot) + XMPP :5223 (era 930) + broker MQTT
   # TLS :8883 (eco-ng T8+) embebidos en el proceso, más el panel :8181.
-  # El 443 (conf de la app Ecovacs) queda para la fase FD.
+  # El 443 (conf de la app Ecovacs) está implementado (FD) pero off por
+  # defecto: publica el puerto solo si activas servers.conf (abajo).
   bridge:
     build: ./bridge
     container_name: deebot930-bridge
@@ -20,6 +21,11 @@ services:
       - "8007:8007"     # lookup.do (bootstrap del robot)
       - "8883:8883"     # broker MQTT embebido (eco-ng T8+)
       - "8181:8181"     # panel web del bridge
+      # API de la app Ecovacs (FD): descomenta SOLO si activas
+      # servers.conf = true en configs/bridge.toml (la app antigua podrá
+      # loguearse/listar/conectar contra el bridge, sin Bumper legacy).
+      # ⚠️ Conflicto con el bumper legacy, que también publica 443.
+      # - "443:443"
     volumes:
       - ./data/certs:/certs          # RW: se auto-generan al primer arranque si faltan (FE)
       - ./configs/bridge.toml:/config/bridge.toml:ro

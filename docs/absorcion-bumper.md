@@ -1,8 +1,9 @@
 # Absorción de Bumper en el bridge — mapa de fusión
 
-> Estado: **FA–FE implementadas** (rama `feat/absorcion-bumper`); queda
-> **FD** (confserver `:443`) como opcional. Este documento empezó como plan
-> y ahora registra lo realmente hecho — ver el checklist final.
+> Estado: **FA–FD implementadas** (rama `feat/absorcion-bumper`). FD (el
+> confserver `:443`, API de la app) es **opcional y off por defecto**. Este
+> documento empezó como plan y ahora registra lo realmente hecho — ver el
+> checklist final.
 
 ## Principio
 
@@ -24,7 +25,7 @@ Bumper ya son librerías asyncio dentro de su proceso (`xmppserver.py`,
 |---|---|---|
 | `mqttserver.py` (MQTTServer + plugin auth) | `deebot930_bridge/servers/mqtt.py` | **hecho (FC)**: broker `amqtt` embebido; el helperbot se ELIMINÓ (MqttTransport lo sustituye) |
 | `xmppserver.py` | `deebot930_bridge/servers/xmpp.py` | **hecho (FB)**: vendorizado casi literal, registro inyectado |
-| `confserver.py` (:443/:8007) | `servers/lookup.py` (:8007) + `servers/conf.py` (:443) | lookup **hecho (FA)**; el resto del confserver (auth de la app) = **FD, pendiente** |
+| `confserver.py` (:443/:8007) | `servers/lookup.py` (:8007) + `servers/conf.py` (:443) | lookup **hecho (FA)**; conf **hecho (FD)**: login/getAuthCode/user.do de la app antigua contra el DeviceRegistry — detalle abajo |
 | `db.py` (bots/tokens/users) | `deebot930_bridge/servers/registry.py` | **hecho (FB)**: DeviceRegistry JSON junto al state_file (bumper.db muere) |
 | `create_certs` + data/certs | `deebot930_bridge/servers/certs.py` | **hecho (FE)**: CA+cert auto-generados al primer arranque si faltan; los existentes jamás se tocan |
 
@@ -71,12 +72,28 @@ Estado por fases (una saga de commits cada una, `git log --oneline`):
   `DEEBOT_ANNOUNCE_IP` para `servers.announce_ip`, y despliegue de un solo
   contenedor: bridge sin profile (5223/8007/8883/8181, sin 443), Bumper al
   profile `legacy`, certs `./data/certs` montados RW
-- [ ] **FD** — confserver `:443` (login/API de la app Ecovacs): opcional,
-  solo si se quiere volver a usar la app como cliente/oráculo. Hasta
-  entonces el 443 no se publica y `servers.conf` avisa "llega en FD"
+- [x] **FD** — confserver `:443` (`servers/conf.py`), **off por defecto**
+  (`servers.conf`). El mínimo que la **app antigua "Ecovacs"** (XMPP,
+  apptype `i_eco_e`) necesita, verificado contra el corpus
+  (`pairing-session.log`): `user/login` (use_auth=False, token fresco),
+  `user/getAuthCode` (authCode `{country}_{uuid}` — el que el SASL del
+  XMPP presenta), `user.do loginByItToken` (canjea ese authCode) y
+  `user.do GetDeviceList` (los bots del DeviceRegistry en la shape
+  `VacBotDevice` de Bumper) + `SetDeviceNick`/`DeleteOneDevice` y los
+  estáticos que la app sondea (`checkAgreement`, `checkVersion`,
+  `homePageAlert`). `lookup.do`/`newauth.do` también en el :443 (como el
+  confserver de Bumper). La **app moderna (Ecovacs Home)** queda fuera:
+  su flujo firma requests con HMAC (`X-ECO-SIGN`) — solo su login con
+  apptype `global_` responde la shape `EcoVacsHome_Login`. Descartados por
+  no aparecer en el flujo de la app antigua (Bumper les daba 404 y la app
+  seguía): catálogo pim, `devmanager.do`, OTA `latest.json`,
+  `notify_engine.do`, `getPurchaseUrl`. E2E con curl en el informe de la
+  fase; para usarla: activa `conf`, publica el 443 (comentado en el
+  compose) y el DNS del Pi-hole ya redirige `*.ecovacs.com`/`*.ecouser.net`
 
 Compatibilidad: con `[servers]` todo off el bridge sigue siendo cliente
-puro contra un Bumper externo (los 97 tests de antes de FE siguen igual).
+puro contra un Bumper externo (la suite de antes de cada fase sigue
+pasando; FD añade 19 tests sin tocar los existentes).
 
 Pendiente tras el merge: regresión en producción con el 930 real y un
 eco-ng real (los E2E de FB/FC usaron los mocks del corpus).

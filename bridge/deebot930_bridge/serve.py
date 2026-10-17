@@ -64,6 +64,8 @@ class Service:
         self.mqtt_transport = None  # MqttTransport (eco-ng), si está activado
         # servidores embebidos activos (absorción de Bumper, Fase F)
         self.embedded: dict[str, object] = {}
+        # registro unificado de bots/clients (cuando hay servidores embebidos)
+        self.registry = None
         if cfg.servers.panel:
             self.panel = WebPanel(self, port=cfg.panel_port, host=cfg.panel_host)
         else:
@@ -522,7 +524,6 @@ class Service:
             if getattr(srv, name):
                 log.warning("servidor embebido '%s' llega en la fase %s — ignorado",
                             name, phase)
-
         if srv.lookup:
             from .servers.lookup import LookupServer
 
@@ -531,6 +532,31 @@ class Service:
                                   listen=srv.listen, port=srv.lookup_port)
             await lookup.start()
             self.embedded["lookup"] = lookup
+
+        if srv.xmpp:
+            from .servers.registry import DeviceRegistry
+            from .servers.xmpp import XMPPServer
+
+            # registro persistente junto al state_file (si hay)
+            reg_path = None
+            if self.cfg.state_file:
+                from pathlib import Path as _P
+
+                reg_path = str(_P(self.cfg.state_file).parent / "registry.json")
+            registry = DeviceRegistry(persist_path=reg_path)
+            registry.load()
+            self.registry = registry
+            xmpp = XMPPServer((srv.listen, srv.xmpp_port), registry,
+                              server_cert=srv.server_cert, server_key=srv.server_key,
+                              ca_cert=srv.ca_file)
+            await xmpp.start_async_server()
+            self.embedded["xmpp"] = xmpp
+            # el cliente XMPP del bridge habla con NUESTRO servidor (loopback)
+            b = self.cfg.bumper
+            if b.host not in ("127.0.0.1", "localhost"):
+                log.info("xmpp embebido activo: cliente XMPP → 127.0.0.1:%d "
+                         "(config [bumper] host=%s ignorado)", srv.xmpp_port, b.host)
+            b.host, b.port = "127.0.0.1", srv.xmpp_port
 
     # ---------- bucle principal ----------
 

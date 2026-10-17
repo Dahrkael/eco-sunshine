@@ -47,6 +47,20 @@ def lookup_response(service: str, announce_ip: str, xmpp_port: int) -> web.Respo
     return web.json_response({})
 
 
+async def parse_lookup_request(request: web.Request) -> dict:
+    """Cuerpo de lookup.do: JSON (wget del robot) o form-urlencoded (app).
+
+    Compartido por el lookup :8007 (FA) y el conf :443 (FD), que monta el
+    mismo endpoint — como el confserver de Bumper.
+    """
+    try:
+        if request.content_type == "application/x-www-form-urlencoded":
+            return {k: v for k, v in (await request.post()).items()}
+        return await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+
+
 class LookupServer:
     """POST /lookup.do en HTTP plano — lo único que el robot necesita."""
 
@@ -76,14 +90,7 @@ class LookupServer:
             self._runner = None
 
     async def handle_lookup(self, request: web.Request) -> web.Response:
-        try:
-            if request.content_type == "application/x-www-form-urlencoded":
-                post = await request.post()
-                body = {k: v for k, v in post.items()}
-            else:
-                body = await request.json()
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            return web.json_response({})
+        body = await parse_lookup_request(request)
         service = str(body.get("service", ""))
         log.info("lookup.do todo=%s service=%s desde %s",
                  body.get("todo"), service, request.remote)

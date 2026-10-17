@@ -19,6 +19,5 @@ import logging
 log = logging.getLogger(__name__)
 
 # fases pendientes de implementar — el serve avisa si se activan pronto
-NOT_YET = {
-    "conf": "FD",
-}
+# (FA–FD están hechas: no queda ninguna)
+NOT_YET: dict[str, str] = {}

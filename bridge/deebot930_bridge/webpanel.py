@@ -434,6 +434,28 @@ connect();
 </html>"""
 
 
+class NullPanel:
+    """Panel desactivado (servers.panel=false) — mismo interface, no-op.
+
+    Evita guardar `if panel` por todo el serve: los broadcasts y el envío
+    de mapas simplemente no hacen nada.
+    """
+
+    port = 0
+
+    async def start(self) -> None:
+        pass
+
+    def build_and_broadcast_map(self, grids=None) -> None:
+        pass
+
+    def broadcast_raw(self, msg: str) -> None:
+        pass
+
+    async def broadcast(self, data: dict, slug: str = "") -> None:
+        pass
+
+
 class WebPanel:
     def __init__(self, service, port: int = 8181, host: str = "0.0.0.0"):
         self.service = service
@@ -561,14 +583,6 @@ class WebPanel:
         return web.json_response({"ok": False, "error": "no robot"}, status=404)
 
     @staticmethod
-    def _call(commander, method: str, *args) -> None:
-        """Duck typing tolerante: XMPP y MQTT no comparten el 100% del vocabulario."""
-        fn = getattr(commander, method, None)
-        if fn is None:
-            log.info("comando %s no disponible para este robot", method)
-            return
-        fn(*args)
-
     async def api_ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
         await ws.prepare(request)

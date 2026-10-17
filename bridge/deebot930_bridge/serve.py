@@ -23,7 +23,6 @@ from .mqtt_pub import MqttPublisher
 from .robot import SPEED_JSON, Position, RobotCommander, RobotState
 from .webpanel import WebPanel
 from .xmpp_client import BumperXMPPClient
-
 log = logging.getLogger(__name__)
 
 POLL_SECONDS = 30
@@ -63,7 +62,14 @@ class Service:
         )
         self.client: BumperXMPPClient | None = None
         self.mqtt_transport = None  # MqttTransport (eco-ng), si está activado
-        self.panel = WebPanel(self, port=cfg.panel_port, host=cfg.panel_host)
+        # servidores embebidos activos (absorción de Bumper, Fase F)
+        self.embedded: dict[str, object] = {}
+        if cfg.servers.panel:
+            self.panel = WebPanel(self, port=cfg.panel_port, host=cfg.panel_host)
+        else:
+            from .webpanel import NullPanel
+
+            self.panel = NullPanel()  # type: ignore[assignment]
         self._last_publish: dict[str, float] = {}
         self._last_status: dict[str, str] = {}
         self._last_trace_fetch: dict[str, float] = {}
@@ -501,10 +507,36 @@ class Service:
                 return
             await asyncio.sleep(0.25)
 
+    # ---------- servidores embebidos (absorción de Bumper, Fase F) ----------
+
+    async def _start_embedded_servers(self) -> None:
+        """Arranca SOLO los servidores activos en [servers].
+
+        Cada fase de la absorción añade los suyos; los aún no implementados
+        avisan en vez de fallar en silencio.
+        """
+        srv = self.cfg.servers
+        from .servers import NOT_YET
+
+        for name, phase in NOT_YET.items():
+            if getattr(srv, name):
+                log.warning("servidor embebido '%s' llega en la fase %s — ignorado",
+                            name, phase)
+
+        if srv.lookup:
+            from .servers.lookup import LookupServer
+
+            lookup = LookupServer(announce_ip=srv.announce_ip,
+                                  xmpp_port=srv.xmpp_port,
+                                  listen=srv.listen, port=srv.lookup_port)
+            await lookup.start()
+            self.embedded["lookup"] = lookup
+
     # ---------- bucle principal ----------
 
     async def run(self) -> None:
         b = self.cfg.bumper
+        await self._start_embedded_servers()
         self.client = BumperXMPPClient(
             host=b.host, port=b.port, uid=b.uid, resource=b.resource,
             ca_file=b.ca_file, on_event=self.on_event,
@@ -560,8 +592,11 @@ class Service:
                 log.exception("adopción inicial de %s falló", jid)
 
         await self.panel.start()
-        log.info("serve operativo (poll cada %ds, panel en :%d, mqtt eco-ng %s)",
-                 POLL_SECONDS, self.panel.port, "on" if bm.enabled else "off")
+        log.info("serve operativo (poll cada %ds, panel %s, mqtt eco-ng %s, embebidos: %s)",
+                 POLL_SECONDS,
+                 f":{self.panel.port}" if self.cfg.servers.panel else "off",
+                 "on" if bm.enabled else "off",
+                 ",".join(self.embedded) or "ninguno")
         await asyncio.gather(*tasks)
 
     def _load_map_from_log(self) -> None:

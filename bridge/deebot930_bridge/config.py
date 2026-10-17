@@ -1,5 +1,6 @@
 """Configuración del bridge (TOML)."""
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -110,4 +111,21 @@ def load_config(path: str | None) -> Config:
     for k in ("robots", "panel_port", "panel_host", "state_file"):
         if k in raw:
             setattr(cfg, k, raw[k])
+    _apply_env(cfg)
     return cfg
+
+
+def _apply_env(cfg: Config) -> None:
+    """Fallbacks por variable de entorno.
+
+    El TOML no puede leer el entorno y hay valores que el despliegue
+    (docker-compose) conoce en el momento de arrancar el contenedor:
+
+    - ``DEEBOT_ANNOUNCE_IP`` → ``servers.announce_ip`` si éste viene vacío
+      (equivalente del BUMPER_ANNOUNCE_IP de Bumper; el compose inyecta
+      ``DEEBOT_ANNOUNCE_IP: ${BUMPER_ANNOUNCE_IP}`` del ``.env``)
+    """
+    if not cfg.servers.announce_ip:
+        env_ip = os.environ.get("DEEBOT_ANNOUNCE_IP", "").strip()
+        if env_ip:
+            cfg.servers.announce_ip = env_ip

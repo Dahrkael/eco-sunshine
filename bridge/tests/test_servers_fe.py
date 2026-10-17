@@ -20,7 +20,7 @@ import aiomqtt
 import pytest
 from cryptography import x509
 
-from deebot930_bridge.config import Config
+from deebot930_bridge.config import Config, load_config
 from deebot930_bridge.servers.certs import ensure_certs
 from deebot930_bridge.servers.mqtt import EmbeddedMqttBroker
 from deebot930_bridge.servers.registry import DeviceRegistry
@@ -149,6 +149,39 @@ class TestCertsGeneradosSirvenParaTLS:
                 assert str(msg.topic) == f"iot/atr/onPos/{DID}/yna5xh/axm/j"
         finally:
             await broker.stop()
+
+
+# ---------- DEEBOT_ANNOUNCE_IP (fallback de entorno) ----------
+
+class TestAnnounceIpEntorno:
+    """El toml no lee env: el deploy inyecta la announce_ip por variable
+    (compose: DEEBOT_ANNOUNCE_IP ← ${BUMPER_ANNOUNCE_IP} del .env)."""
+
+    def test_env_rellena_announce_ip_vacio(self, tmp_path, monkeypatch):
+        p = tmp_path / "c.toml"
+        p.write_text("[servers]\nlookup = true\n")
+        monkeypatch.setenv("DEEBOT_ANNOUNCE_IP", "192.0.2.10")
+        cfg = load_config(str(p))
+        assert cfg.servers.announce_ip == "192.0.2.10"
+        assert cfg.servers.lookup is True  # el resto del toml intacto
+
+    def test_toml_explicito_gana_al_entorno(self, tmp_path, monkeypatch):
+        p = tmp_path / "c.toml"
+        p.write_text('[servers]\nannounce_ip = "10.0.0.7"\n')
+        monkeypatch.setenv("DEEBOT_ANNOUNCE_IP", "192.0.2.10")
+        assert load_config(str(p)).servers.announce_ip == "10.0.0.7"
+
+    def test_sin_env_queda_vacio(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("DEEBOT_ANNOUNCE_IP", raising=False)
+        p = tmp_path / "c.toml"
+        p.write_text("[servers]\n")
+        assert load_config(str(p)).servers.announce_ip == ""
+
+    def test_env_blanco_ignorado(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DEEBOT_ANNOUNCE_IP", "   ")
+        p = tmp_path / "c.toml"
+        p.write_text("[servers]\n")
+        assert load_config(str(p)).servers.announce_ip == ""
 
 
 # ---------- wiring de serve (FE) ----------

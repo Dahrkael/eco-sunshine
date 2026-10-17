@@ -30,7 +30,10 @@ class TestServersConfig:
         assert cfg.servers.lookup_port == 18007
         assert cfg.servers.panel is False
 
-    def test_sin_seccion(self):
+    def test_sin_seccion(self, monkeypatch):
+        # DEEBOT_ANNOUNCE_IP en el entorno podría rellenar announce_ip (FE):
+        # sin él la config por defecto es exactamente ServersConfig()
+        monkeypatch.delenv("DEEBOT_ANNOUNCE_IP", raising=False)
         assert load_config(None).servers == ServersConfig()
 
 

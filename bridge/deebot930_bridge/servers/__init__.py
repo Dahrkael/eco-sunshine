@@ -20,5 +20,5 @@ log = logging.getLogger(__name__)
 
 # fases pendientes de implementar — el serve avisa si se activan pronto
 NOT_YET = {
-    "xmpp": "FB", "mqtt": "FC", "conf": "FD",
+    "mqtt": "FC", "conf": "FD",
 }

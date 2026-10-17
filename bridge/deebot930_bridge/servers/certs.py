@@ -134,12 +134,19 @@ def _build_server_cert(ca_cert: x509.Certificate, ca_key: PrivateKeyTypes,
 
 
 def _atomic_write(path: Path, data: bytes, secret: bool = False) -> None:
-    """Escribe vía tmp+replace: un arranque abortado no deja certs a medias."""
+    """Escribe vía tmp+replace: un arranque abortado no deja certs a medias.
+
+    Los secretos se crean ya con 0600 (os.open con mode) — chmod posterior
+    dejaría una ventana world-readable.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_bytes(data)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     if secret:
-        os.chmod(tmp, 0o600)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+    else:
+        tmp.write_bytes(data)
     tmp.replace(path)
 
 
@@ -196,6 +203,10 @@ def ensure_certs(ca_file: str, server_cert: str, server_key: str,
             issuer_key = serialization.load_pem_private_key(
                 ca_key_path.read_bytes(), password=None)
             issuer_cert = x509.load_pem_x509_certificate(ca.read_bytes())
+            if issuer_key.public_key() != issuer_cert.public_key():
+                log.error("la clave %s no corresponde a la CA %s (public keys "
+                          "distintas) — no se firma nada", ca_key_path, ca)
+                return False
             log.info("firmando el cert de servidor con la CA existente %s "
                      "(los robots que ya la confían no necesitan nada)", ca)
         else:

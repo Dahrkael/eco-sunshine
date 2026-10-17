@@ -97,6 +97,7 @@ class Config:
 def load_config(path: str | None) -> Config:
     cfg = Config()
     if not path or tomllib is None or not Path(path).exists():
+        _apply_env(cfg)  # el fallback de entorno aplica también sin toml
         return cfg
     with open(path, "rb") as f:
         raw = tomllib.load(f)

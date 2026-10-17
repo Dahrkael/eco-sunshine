@@ -54,6 +54,12 @@ class TestEnsureCerts:
         assert ensure_certs(str(ca), str(crt), str(key), cn="bumper") is True
         for p in (ca, crt, key, tmp_path / "ca.key"):
             assert p.is_file(), f"falta {p}"
+        # contrato de permisos: claves privadas 0600, certs legibles
+        import stat
+
+        for secret in (key, tmp_path / "ca.key"):
+            mode = stat.S_IMODE(secret.stat().st_mode)
+            assert mode == 0o600, f"{secret} con permisos {oct(mode)}"
         ca_cert = x509.load_pem_x509_certificate(ca.read_bytes())
         srv_cert = x509.load_pem_x509_certificate(crt.read_bytes())
         # cadena: el leaf lo firma la CA generada
@@ -65,6 +71,12 @@ class TestEnsureCerts:
         # generador original de Bumper no ponía)
         aki = srv_cert.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier)
         assert aki.value.key_identifier is not None
+
+    def test_ca_sin_su_clave_no_firma_nada(self, tmp_path):
+        ca, crt, key = tmp_path / "ca.crt", tmp_path / "srv.crt", tmp_path / "srv.key"
+        ca.write_bytes(b"basura-ca")  # CA presente, ca.key ausente
+        assert ensure_certs(str(ca), str(crt), str(key)) is False
+        assert not crt.exists() and not key.exists()
 
     def test_existentes_no_se_tocan(self, tmp_path):
         ca, crt, key = tmp_path / "ca.crt", tmp_path / "srv.crt", tmp_path / "srv.key"

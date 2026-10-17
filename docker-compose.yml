@@ -14,7 +14,7 @@ services:
       TZ: ${TZ:-Europe/Madrid}
       # servers.announce_ip del bridge (el toml no lee entorno): misma IP
       # que antes consumía Bumper — se anuncia a robots/app en lookup.do
-      DEEBOT_ANNOUNCE_IP: ${BUMPER_ANNOUNCE_IP}
+      DEEBOT_ANNOUNCE_IP: ${BUMPER_ANNOUNCE_IP:?defínelo en .env — es la IP que se anuncia a los robots}
     ports:
       - "5223:5223"     # XMPP embebido   <- OZMO 930
       - "8007:8007"     # lookup.do (bootstrap del robot)

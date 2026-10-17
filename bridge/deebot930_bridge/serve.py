@@ -537,6 +537,12 @@ class Service:
                           "XMPP/MQTT desactivados en este arranque (los "
                           "clientes siguen con su config externa)")
                 srv.xmpp = srv.mqtt = False
+                if srv.lookup:
+                    # no anunciar un XMPP muerto: sin certs no hay servidor
+                    # al que el lookup mande el robot
+                    log.error("lookup embebido desactivado también "
+                              "(anunciaría un XMPP inexistente)")
+                    srv.lookup = False
 
         # registro unificado de bots/clients: lo comparten el XMPP (FB) y el
         # broker MQTT (FC) — persistente junto al state_file (si hay)
@@ -554,11 +560,18 @@ class Service:
         if srv.lookup:
             from .servers.lookup import LookupServer
 
-            lookup = LookupServer(announce_ip=srv.announce_ip,
-                                  xmpp_port=srv.xmpp_port,
-                                  listen=srv.listen, port=srv.lookup_port)
-            await lookup.start()
-            self.embedded["lookup"] = lookup
+            try:
+                lookup = LookupServer(announce_ip=srv.announce_ip,
+                                      xmpp_port=srv.xmpp_port,
+                                      listen=srv.listen, port=srv.lookup_port)
+                await lookup.start()
+            except Exception:  # noqa: BLE001  (announce vacía, puerto ocupado…)
+                log.exception("lookup embebido no pudo arrancar — el robot no "
+                              "encontrará el XMPP hasta que se arregle "
+                              "(announce_ip=%r puerto=%d)",
+                              srv.announce_ip, srv.lookup_port)
+            else:
+                self.embedded["lookup"] = lookup
 
         if srv.xmpp:
             from .servers.xmpp import XMPPServer
@@ -573,8 +586,11 @@ class Service:
                 b = self.cfg.bumper
                 if b.host not in ("127.0.0.1", "localhost"):
                     log.info("xmpp embebido activo: cliente XMPP → 127.0.0.1:%d "
-                             "(config [bumper] host=%s ignorado)", srv.xmpp_port, b.host)
-                b.host, b.port = "127.0.0.1", srv.xmpp_port
+                             "(config [bumper] host=%s ignorada)", srv.xmpp_port, b.host)
+                # el cert que presenta el servidor es el nuestro (misma
+                # regla que la rama MQTT: ca consistente aunque el config
+                # apunte a otra)
+                b.host, b.port, b.ca_file = "127.0.0.1", srv.xmpp_port, srv.ca_file
             else:
                 log.error("XMPP embebido no arrancó — el cliente sigue con "
                           "su config [bumper] externa")
@@ -612,71 +628,73 @@ class Service:
 
     async def run(self) -> None:
         b = self.cfg.bumper
-        await self._start_embedded_servers()
-        self.client = BumperXMPPClient(
-            host=b.host, port=b.port, uid=b.uid, resource=b.resource,
-            ca_file=b.ca_file, on_event=self.on_event,
-        )
-        await self.client.connect()
-        await self.pub.connect()
-        self.pub.on_command = self.on_command
-
-        tasks = [self.client.listen(), self.pub.listen_commands(),
-                 self.poll_loop(), self._map_publisher()]
-
-        # transporte MQTT (robots eco-ng T8+) — opcional. Si el broker no
-        # responde al arranque NO tumbamos el serve (B5): listen() reintenta
-        # y send_command degrada con {"ret":"fail"}.
-        bm = self.cfg.bumper_mqtt
-        if bm.enabled:
-            from .mqtt_transport import MqttTransport
-
-            self.mqtt_transport = MqttTransport(
-                bm.host, bm.port, ca_file=bm.ca_file, on_data=self.on_report,
-                tls=bm.tls)
-            try:
-                await self.mqtt_transport.connect()
-            except Exception:  # noqa: BLE001
-                log.exception("broker eco-ng no conectó al arranque — reintentando en background")
-            tasks.append(self.mqtt_transport.listen())
-            # robots conocidos estáticos (dormidos no emiten reports)
-            for key in bm.robots:
-                if "ecorobot.net" in key or "/" not in key.split("@")[-1]:
-                    log.error("bumper_mqtt.robots espera did@class/res, no JIDs: %r", key)
-                    continue
-                if key not in self.robots:
-                    try:
-                        await self._adopt_and_discover(key, mqtt=True)
-                    except Exception:  # noqa: BLE001
-                        log.exception("adopción estática falló para %s", key)
-
-        # cargar mapa del log de Bumper (sobrevive a reinicios del serve)
-        self._load_map_from_log()
-        # restaurar estado persistido (piezas + posiciones): el mapa se
-        # publica sin depender del robot
-        self._load_state()
-
-        # adopción inicial de robots conocidos: un robot en base no emite
-        # frames por sí solo — el sondeo inicial (con NUESTRO jid como from)
-        # fuerza respuestas que llegan a esta sesión
-        known = [j for j in [self.jid_hint, *self.cfg.robots] if j]
-        for jid in dict.fromkeys(known):  # sin duplicados, orden estable
-            if jid in self.robots:
-                continue
-            try:
-                await self._adopt_and_discover(jid, mqtt=False)
-            except Exception:  # noqa: BLE001
-                log.exception("adopción inicial de %s falló", jid)
-
-        await self.panel.start()
-        log.info("serve operativo (poll cada %ds, panel %s, mqtt eco-ng %s, embebidos: %s)",
-                 POLL_SECONDS,
-                 f":{self.panel.port}" if self.cfg.servers.panel else "off",
-                 "on" if bm.enabled else "off",
-                 ",".join(self.embedded) or "ninguno")
         try:
+            await self._start_embedded_servers()
+            self.client = BumperXMPPClient(
+                host=b.host, port=b.port, uid=b.uid, resource=b.resource,
+                ca_file=b.ca_file, on_event=self.on_event,
+            )
+            await self.client.connect()
+            await self.pub.connect()
+            self.pub.on_command = self.on_command
+
+            tasks = [self.client.listen(), self.pub.listen_commands(),
+                     self.poll_loop(), self._map_publisher()]
+
+            # transporte MQTT (robots eco-ng T8+) — opcional. Si el broker no
+            # responde al arranque NO tumbamos el serve (B5): listen() reintenta
+            # y send_command degrada con {"ret":"fail"}.
+            bm = self.cfg.bumper_mqtt
+            if bm.enabled:
+                from .mqtt_transport import MqttTransport
+
+                self.mqtt_transport = MqttTransport(
+                    bm.host, bm.port, ca_file=bm.ca_file, on_data=self.on_report,
+                    tls=bm.tls)
+                try:
+                    await self.mqtt_transport.connect()
+                except Exception:  # noqa: BLE001
+                    log.exception("broker eco-ng no conectó al arranque — reintentando en background")
+                tasks.append(self.mqtt_transport.listen())
+                # robots conocidos estáticos (dormidos no emiten reports)
+                for key in bm.robots:
+                    if "ecorobot.net" in key or "/" not in key.split("@")[-1]:
+                        log.error("bumper_mqtt.robots espera did@class/res, no JIDs: %r", key)
+                        continue
+                    if key not in self.robots:
+                        try:
+                            await self._adopt_and_discover(key, mqtt=True)
+                        except Exception:  # noqa: BLE001
+                            log.exception("adopción estática falló para %s", key)
+
+            # cargar mapa del log de Bumper (sobrevive a reinicios del serve)
+            self._load_map_from_log()
+            # restaurar estado persistido (piezas + posiciones): el mapa se
+            # publica sin depender del robot
+            self._load_state()
+
+            # adopción inicial de robots conocidos: un robot en base no emite
+            # frames por sí solo — el sondeo inicial (con NUESTRO jid como from)
+            # fuerza respuestas que llegan a esta sesión
+            known = [j for j in [self.jid_hint, *self.cfg.robots] if j]
+            for jid in dict.fromkeys(known):  # sin duplicados, orden estable
+                if jid in self.robots:
+                    continue
+                try:
+                    await self._adopt_and_discover(jid, mqtt=False)
+                except Exception:  # noqa: BLE001
+                    log.exception("adopción inicial de %s falló", jid)
+
+            await self.panel.start()
+            log.info("serve operativo (poll cada %ds, panel %s, mqtt eco-ng %s, embebidos: %s)",
+                     POLL_SECONDS,
+                     f":{self.panel.port}" if self.cfg.servers.panel else "off",
+                     "on" if bm.enabled else "off",
+                     ",".join(self.embedded) or "ninguno")
             await asyncio.gather(*tasks)
         finally:
+            # apagado graceful también si el arranque falla a mitad (p.ej.
+            # XMPP externo caído con broker embebido ya arriba)
             await self._stop_embedded_servers()
 
     async def _stop_embedded_servers(self) -> None:

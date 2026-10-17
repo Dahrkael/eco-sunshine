@@ -150,10 +150,15 @@ Wi-Fi → opciones avanzadas → DNS privado/IP = IP del Pi-hole.
 ## Firewall Windows
 
 Docker Desktop publica los puertos; si el robot/app no conectan, permitir
-inbound 443/tcp, 5223/tcp, 8007/tcp, 8883/tcp para `com.docker.backend`
-(Perfil privado de la red Wi-Fi).
+inbound 5223/tcp, 8007/tcp, 8883/tcp para `com.docker.backend`
+(Perfil privado de la red Wi-Fi). El 443 ya no se usa (FD pendiente).
 
 ## Checklist de emparejamiento (fase 1)
+
+> ⚠️ El emparejamiento usa la app Ecovacs antigua, que necesita la API
+> `:443` — hoy solo existe en el **bumper legacy** (`--profile legacy`,
+> FD pendiente). Para emparejar un robot nuevo: levanta legacy, empareja,
+> y vuelve al stack normal (los robots ya emparejados no necesitan nada).
 
 1. [ ] Reserva DHCP con IP fija para el robot (router).
 2. [ ] Pi-hole respondiendo por el wildcard (probar desde el móvil:

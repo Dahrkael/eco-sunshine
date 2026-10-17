@@ -554,13 +554,17 @@ class Service:
                               server_cert=srv.server_cert, server_key=srv.server_key,
                               ca_cert=srv.ca_file)
             await xmpp.start_async_server()
-            self.embedded["xmpp"] = xmpp
-            # el cliente XMPP del bridge habla con NUESTRO servidor (loopback)
-            b = self.cfg.bumper
-            if b.host not in ("127.0.0.1", "localhost"):
-                log.info("xmpp embebido activo: cliente XMPP → 127.0.0.1:%d "
-                         "(config [bumper] host=%s ignorado)", srv.xmpp_port, b.host)
-            b.host, b.port = "127.0.0.1", srv.xmpp_port
+            if xmpp.started:
+                self.embedded["xmpp"] = xmpp
+                # el cliente XMPP del bridge habla con NUESTRO servidor (loopback)
+                b = self.cfg.bumper
+                if b.host not in ("127.0.0.1", "localhost"):
+                    log.info("xmpp embebido activo: cliente XMPP → 127.0.0.1:%d "
+                             "(config [bumper] host=%s ignorado)", srv.xmpp_port, b.host)
+                b.host, b.port = "127.0.0.1", srv.xmpp_port
+            else:
+                log.error("XMPP embebido no arrancó — el cliente sigue con "
+                          "su config [bumper] externa")
 
         if srv.mqtt:
             from .servers.mqtt import EmbeddedMqttBroker
@@ -584,6 +588,9 @@ class Service:
                 bm.host, bm.port = "127.0.0.1", srv.mqtt_port
                 # el cert que presenta el broker es el nuestro (ServersConfig)
                 bm.ca_file = srv.ca_file
+                # TLS explícito: el heurístico por puerto (8883) rompería si
+                # mqtt_port se cambia para convivir con un Bumper externo
+                bm.tls = True
             else:
                 log.warning("broker eco-ng en :%d pero [bumper_mqtt] enabled=false "
                             "— sin cliente T8+", srv.mqtt_port)
@@ -612,7 +619,8 @@ class Service:
             from .mqtt_transport import MqttTransport
 
             self.mqtt_transport = MqttTransport(
-                bm.host, bm.port, ca_file=bm.ca_file, on_data=self.on_report)
+                bm.host, bm.port, ca_file=bm.ca_file, on_data=self.on_report,
+                tls=bm.tls)
             try:
                 await self.mqtt_transport.connect()
             except Exception:  # noqa: BLE001
@@ -653,7 +661,22 @@ class Service:
                  f":{self.panel.port}" if self.cfg.servers.panel else "off",
                  "on" if bm.enabled else "off",
                  ",".join(self.embedded) or "ninguno")
-        await asyncio.gather(*tasks)
+        try:
+            await asyncio.gather(*tasks)
+        finally:
+            await self._stop_embedded_servers()
+
+    async def _stop_embedded_servers(self) -> None:
+        """Apagado graceful de los servidores embebidos (orden inverso)."""
+        for name, srv in reversed(list(self.embedded.items())):
+            try:
+                if name == "xmpp":
+                    srv.disconnect()  # type: ignore[attr-defined]
+                elif hasattr(srv, "stop"):
+                    await srv.stop()  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001
+                log.exception("parando %s embebido falló", name)
+        self.embedded.clear()
 
     def _load_map_from_log(self) -> None:
         """Carga las últimas piezas MapP del log de Bumper al arrancar.

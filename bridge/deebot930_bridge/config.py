@@ -38,6 +38,9 @@ class BumperMQTTConfig:
     port: int = 8883
     ca_file: str = "data/certs/ca.crt"
     enabled: bool = False
+    # None = TLS si puerto 8883 (heurístico histórico); el serve lo fija a
+    # True cuando arranca el broker embebido (puerto puede ser otro)
+    tls: bool | None = None
     # robots conocidos (did@class/res) para adoptar sin esperar su primer report
     robots: list[str] = field(default_factory=list)
 

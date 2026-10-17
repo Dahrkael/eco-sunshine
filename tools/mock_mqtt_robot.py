@@ -150,7 +150,8 @@ class MockRobot:
                     hostname=self.host, port=self.port,
                     identifier=f"{self.did}@{self.cls}/{self.res}",
                     username=f"SN-{self.did}",   # el plugin lo registra como SN del bot
-                    password="mock",             # hbmqtt exige password si hay username
+                    password="mock",  # compat con Bumper/hbmqtt externo (exigía
+                                      # password con username; amqtt ya no)
                     tls_context=ctx,
                 )
                 async with self.client:

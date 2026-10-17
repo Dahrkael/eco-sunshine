@@ -46,6 +46,8 @@ class XMPPServer:
         self.ca_cert = ca_cert
         self.xmpp_protocol = lambda: XMPPServerProtocol(self)
 
+    started = False
+
     async def start_async_server(self) -> None:
         log.info("XMPP embebido en %s:%s", *self.address)
         try:
@@ -54,6 +56,7 @@ class XMPPServer:
                 self.xmpp_protocol, host=self.address[0], port=self.address[1]
             )
             self.server_coro = loop.create_task(self.server.serve_forever())
+            self.started = True
         except PermissionError as e:
             log.error("XMPP embebido sin permiso: %s", e.strerror)
         except asyncio.CancelledError:

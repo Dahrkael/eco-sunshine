@@ -62,7 +62,9 @@ class DeviceRegistry:
         if existed is None:
             log.info("bot registrado: %s (did=%s clase=%s %s)",
                      sn, bot.did, devclass, company)
-        self._save()
+        # persistir solo si algo cambió (las reconexiones no reescriben)
+        if existed is None or asdict(existed) != asdict(bot):
+            self._save()
 
     def bot_get(self, did: str) -> dict | None:
         bot = self.bots.get(did)

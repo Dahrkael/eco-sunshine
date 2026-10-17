@@ -366,18 +366,47 @@ class TestServeWiringFC:
         finally:
             await svc.embedded["mqtt"].stop()
 
-    async def test_certs_ausentes_no_tumban_el_serve(self):
+    async def test_certs_ausentes_no_tumban_el_serve(self, tmp_path):
         """Sin certs (o puerto ocupado) el broker no arranca, pero serve
         sigue vivo — mismo criterio que el XMPP embebido (FA/FB)."""
         cfg = Config()
         cfg.servers.listen = "127.0.0.1"
         cfg.servers.mqtt = True
+        # determinista: certs inexistentes en tmp y puerto libre (no 8883,
+        # que puede estar tomado por el bumper docker del entorno)
+        cfg.servers.server_cert = str(tmp_path / "no.crt")
+        cfg.servers.server_key = str(tmp_path / "no.key")
+        cfg.servers.mqtt_port = _free_port()
         svc = Service(cfg, None)
-        await svc._start_embedded_servers()  # certs por defecto: no existen
+        await svc._start_embedded_servers()
         assert "mqtt" not in svc.embedded  # no arrancó…
+        # promesa inversa: con [bumper_mqtt] enabled, la config del cliente
+        # NO se toca cuando el broker falla (sigue apuntando al externo)
+        cfg2 = Config()
+        cfg2.servers.listen = "127.0.0.1"
+        cfg2.servers.mqtt = True
+        cfg2.servers.server_cert = str(tmp_path / "no.crt")
+        cfg2.servers.server_key = str(tmp_path / "no.key")
+        cfg2.servers.mqtt_port = _free_port()
+        cfg2.bumper_mqtt.enabled = True
+        cfg2.bumper_mqtt.host = "bumper-externo"
+        cfg2.bumper_mqtt.port = 8883
+        svc2 = Service(cfg2, None)
+        await svc2._start_embedded_servers()
+        assert "mqtt" not in svc2.embedded
+        assert cfg2.bumper_mqtt.host == "bumper-externo"  # intacto
+        assert cfg2.bumper_mqtt.tls is None  # sin tocar
 
 
 # ---------- helpers ----------
+
+def _free_port() -> int:
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
 
 async def _wait_for(pred, timeout: float) -> None:
     """Espera (fail si vence) a que pred() devuelva algo truthy."""

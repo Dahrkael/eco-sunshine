@@ -60,6 +60,12 @@ class BridgeAuthPlugin(BaseAuthPlugin):
             return False
 
         did, _, realm = client_id.partition("@")
+        if client_id.count("@") != 1:
+            # fidelidad Bumper: split('@') con 2+ arrobas truncaba el realm
+            # y rechazaba; aquí explícito
+            log.warning("MQTT auth rechazada (client-id con varias '@'): %r",
+                        client_id)
+            return False
         if "/" not in realm:
             # como Bumper ({cls}/{res} o {realm}/{res} sin '/' → IndexError
             # → no autenticado): el realm siempre trae resource
@@ -106,12 +112,22 @@ class EmbeddedMqttBroker(Broker):  # type: ignore[misc]
         # leen el registro del broker (la copia del contexto apunta aquí)
         self.address = address
         self.registry = registry
+        # certs a medio configurar = error, NO downgrade silencioso a plano
+        if bool(server_cert) != bool(server_key):
+            raise ValueError(
+                f"certs MQTT incompletos: server_cert={server_cert!r} "
+                f"server_key={server_key!r} — se necesitan ambos o ninguno")
         listener: dict[str, Any] = {
             "type": "tcp",
             "bind": f"{address[0]}:{address[1]}",
         }
         if server_cert and server_key:
             listener.update(ssl=True, certfile=server_cert, keyfile=server_key)
+        elif address[0] not in ("127.0.0.1", "localhost"):
+            # TCP plano solo para tests locales — nunca silencioso en LAN
+            log.warning("broker MQTT embebido SIN TLS escuchando en %s "
+                        "(no 127.0.0.1) — solo aceptable en pruebas",
+                        address[0])
         config: dict[str, Any] = {
             "listeners": {"default": listener},
             "timeout_disconnect_delay": 0,

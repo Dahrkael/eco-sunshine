@@ -117,10 +117,15 @@ class MqttTransport:
         ca_file: str | None = None,
         on_data: DataHandler | None = None,
         identifier: str = "bridge@bumper/bridge",
+        tls: bool | None = None,
     ) -> None:
         self.host, self.port, self.ca_file = host, port, ca_file
         self.on_data = on_data
         self.identifier = identifier
+        # None = heurístico histórico (TLS en 8883) para configs existentes;
+        # el serve lo fija explícitamente cuando arranca el broker embebido
+        # (el puerto puede no ser 8883 durante la migración de Bumper)
+        self.tls = tls
         self.client: aiomqtt.Client | None = None
         self._pending: dict[str, asyncio.Future] = {}
         self._fire_tasks: set[asyncio.Task] = set()  # refs anti-GC (S7)
@@ -131,7 +136,8 @@ class MqttTransport:
             "port": self.port,
             "identifier": self.identifier,
         }
-        if self.port == 8883:
+        use_tls = self.tls if self.tls is not None else self.port == 8883
+        if use_tls:
             kwargs["tls_context"] = _tls_context(self.ca_file)
         self.client = aiomqtt.Client(**kwargs)
         await self.client.__aenter__()

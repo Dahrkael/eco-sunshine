@@ -1,4 +1,6 @@
 # Config del bridge para docker-compose (montada en /config/bridge.toml)
+panel_port = 8181
+state_file = "/data/state.json"   # piezas+posiciones persistentes (volumen ./data/bridge)
 [bumper]
 host = "bumper"          # nombre del servicio en la red de compose
 port = 5223

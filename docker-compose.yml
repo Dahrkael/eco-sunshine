@@ -44,4 +44,5 @@ services:
     volumes:
       - ./data/certs:/certs:ro
       - ./configs/bridge.toml:/config/bridge.toml:ro
+      - ./data/bridge:/data
     command: ["serve", "-c", "/config/bridge.toml", "--mqtt"]

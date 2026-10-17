@@ -1,5 +1,6 @@
 # Config de producción del bridge (contenedor docker-compose)
 panel_port = 8181
+state_file = "/data/state.json"   # piezas+posiciones persistentes
 
 # robots conocidos (adopción al arranque + sondeo inicial)
 robots = ["E000105701860607AB7@115.ecorobot.net/atom"]

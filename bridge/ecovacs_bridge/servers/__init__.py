@@ -1,15 +1,15 @@
-"""Servidores embebidos del bridge — absorción de Bumper (Fase F).
+"""Embedded bridge servers — Bumper absorption (Phase F).
 
-Cada componente vive en su módulo y se activa por su flag en
-``[servers]`` (config.py). El ciclo de vida lo gestiona serve.run().
+Each component lives in its own module and is enabled by its flag in
+``[servers]`` (config.py). serve.run() manages the lifecycle.
 
-- lookup.py  :8007  bootstrap del robot (POST /lookup.do)   [FA]
-- xmpp.py    :5223  servidor XMPP (era 930)                 [FB]
-- mqtt.py    :8883  broker MQTT eco-ng                      [FC]
-- conf.py    :443   API de la app Ecovacs                   [FD]
+- lookup.py  :8007  robot bootstrap (POST /lookup.do)   [FA]
+- xmpp.py    :5223  XMPP server (930 era)               [FB]
+- mqtt.py    :8883  eco-ng MQTT broker                  [FC]
+- conf.py    :443   Ecovacs app API                     [FD]
 
-Con todos off, el bridge se comporta como hasta ahora: cliente puro contra
-un Bumper externo.
+With all off, the bridge behaves as before: a pure client against an
+external Bumper.
 """
 
 from __future__ import annotations
@@ -18,6 +18,6 @@ import logging
 
 log = logging.getLogger(__name__)
 
-# fases pendientes de implementar — el serve avisa si se activan pronto
-# (FA–FD están hechas: no queda ninguna)
+# phases still pending — serve warns if they are enabled early
+# (FA–FD are done: none left)
 NOT_YET: dict[str, str] = {}

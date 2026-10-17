@@ -1,32 +1,33 @@
-"""Auto-generación de certs TLS para los servidores embebidos (Fase FE).
+"""TLS cert auto-generation for the embedded servers (Phase FE).
 
-Instalaciones limpias: si al arrancar falta el material (CA / cert de
-servidor), se genera un juego autofirmado y el robot/app pueden emparejar
-contra él. En producción los robots YA confían en la CA existente de la
-época de Bumper (``data/certs``) — por eso la regla es sagrada:
+Clean installs: if the material is missing at startup (CA / server
+cert), a self-signed set is generated and the robot/app can pair
+against it. In production the robots ALREADY trust the existing CA from
+the Bumper era (``data/certs``) — hence the sacred rule:
 
-    **los certs existentes JAMÁS se tocan.**
+    **existing certs are NEVER touched.**
 
-Casos que cubre ``ensure_certs``:
+Cases ``ensure_certs`` covers:
 
-- todo presente → no-op (solo avisa si falta la CA: el XMPP embebido la
-  necesita para verificar clientes)
-- par de servidor completo, CA ausente → NO se genera una CA nueva (no
-  firmaría el cert existente y engañaría al config) — warning
-- cert y key a medias → error: un par roto no se "arregla" regenerando
-  la mitad (decisión del operador)
-- par ausente, CA (+ su key hermana) presente → el par nuevo se firma con
-  la CA existente (los robots que ya la confían siguen funcionando —
-  mismo papel que ``tools/regen_server_cert.py``)
-- nada presente → CA nueva + par firmado por ella (primer arranque)
+- everything present → no-op (only warns if the CA is missing: the
+  embedded XMPP needs it to verify clients)
+- full server pair, missing CA → a new CA is NOT generated (it would not
+  sign the existing cert and would mislead the config) — warning
+- half-present cert/key → error: a broken pair is not "fixed" by
+  regenerating half of it (operator's call)
+- missing pair, CA (+ its sibling key) present → the new pair is signed
+  with the existing CA (robots that already trust it keep working —
+  same role as ``tools/regen_server_cert.py``)
+- nothing present → new CA + pair signed by it (first boot)
 
-La CA se escribe junto a su clave privada (``<ca>.key`` hermana) para poder
-firmar certs futuros sin regenerar la CA (si se regenerase, los robots
-tendrían que re-emparejar).
+The CA is written next to its private key (sibling ``<ca>.key``) so
+future certs can be signed without regenerating the CA (regenerating it
+would force robots to re-pair).
 
-Extensiones: SKI+AKI en CA y leaf (el generador original de Bumper producía
-CAs sin AKI que el modo estricto de ssl en py≥3.13 rechaza), BasicConstraints
-crítico y SANs con los dominios de Ecovacs — ver tests/test_servers_fe.py.
+Extensions: SKI+AKI on CA and leaf (Bumper's original generator
+produced CAs without AKI, which ssl's strict mode in py≥3.13 rejects),
+critical BasicConstraints and SANs with Ecovacs' domains — see
+tests/test_servers_fe.py.
 """
 
 from __future__ import annotations
@@ -45,11 +46,11 @@ from cryptography.x509.oid import NameOID
 
 log = logging.getLogger(__name__)
 
-DAYS_VALID = 3650  # ~10 años, como el create_certs de Bumper
+DAYS_VALID = 3650  # ~10 years, like Bumper's create_certs
 
-# dominios por los que robots/app pueden llegar al servidor (SANs del cert
-# de servidor) — mismo repertorio que tools/regen_server_cert.py, recortado
-# a los que usa el flujo embebido (lookup/xmpp/mqtt, sin la API de la app)
+# domains robots/app may use to reach the server (server cert SANs) —
+# same repertoire as tools/regen_server_cert.py, trimmed to what the
+# embedded flow uses (lookup/xmpp/mqtt, no app API)
 SERVER_DNS_SANS = [
     "localhost",
     "ecouser.net", "*.ecouser.net", "*.msg.ecouser.net", "*.ww.ecouser.net",
@@ -66,7 +67,7 @@ def _name(cn: str) -> x509.Name:
 
 
 def _build_ca(key: PrivateKeyTypes, cn: str) -> x509.Certificate:
-    """CA autofirmada con AKI/SKI — py≥3.13 estricto la exige."""
+    """Self-signed CA with AKI/SKI — py≥3.13 strict mode requires it."""
     now = datetime.datetime.now(datetime.timezone.utc)
     return (
         x509.CertificateBuilder()
@@ -93,15 +94,15 @@ def _build_ca(key: PrivateKeyTypes, cn: str) -> x509.Certificate:
 
 def _build_server_cert(ca_cert: x509.Certificate, ca_key: PrivateKeyTypes,
                        key: PrivateKeyTypes, cn: str) -> x509.Certificate:
-    """Cert de servidor firmado por la CA, con SANs para robots/app."""
+    """Server cert signed by the CA, with SANs for robots/app."""
     now = datetime.datetime.now(datetime.timezone.utc)
     sans: list[x509.GeneralName] = [x509.DNSName(d) for d in SERVER_DNS_SANS]
-    try:  # el CN suele ser la announce_ip: SAN de IP para quien verifique
+    try:  # the CN is usually the announce_ip: IP SAN for whoever verifies
         sans.append(x509.IPAddress(ipaddress.ip_address(cn)))
     except ValueError:
         sans.insert(0, x509.DNSName(cn))
     sans.append(x509.IPAddress(ipaddress.ip_address("127.0.0.1")))
-    # dedup preservando el orden (el CN puede duplicar un SAN por defecto)
+    # order-preserving dedup (the CN may duplicate a default SAN)
     seen: set[str] = set()
     unique: list[x509.GeneralName] = []
     for san in sans:
@@ -134,10 +135,10 @@ def _build_server_cert(ca_cert: x509.Certificate, ca_key: PrivateKeyTypes,
 
 
 def _atomic_write(path: Path, data: bytes, secret: bool = False) -> None:
-    """Escribe vía tmp+replace: un arranque abortado no deja certs a medias.
+    """Writes via tmp+replace: an aborted boot leaves no half-written certs.
 
-    Los secretos se crean ya con 0600 (os.open con mode) — chmod posterior
-    dejaría una ventana world-readable.
+    Secrets are created with 0600 from the start (os.open with mode) — a
+    later chmod would leave a world-readable window.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
@@ -164,12 +165,13 @@ def _pem_key(key: PrivateKeyTypes) -> bytes:
 
 def ensure_certs(ca_file: str, server_cert: str, server_key: str,
                  cn: str = "bumper") -> bool:
-    """Garantiza el material TLS de los servidores embebidos.
+    """Ensures the TLS material for the embedded servers.
 
-    Devuelve True si hay (o hubo) cert+key de servidor utilizables; False
-    si no se pudo (config rota, directorio no escribible…) — en ese caso el
-    llamador decide (serve desactiva los servidores TLS embebidos y los
-    clientes siguen con su config externa). Nunca toca certs existentes.
+    Returns True if usable server cert+key exist (or were created);
+    False when it was not possible (broken config, unwritable dir…) —
+    the caller decides then (serve disables the embedded TLS servers
+    and clients keep their external config). Never touches existing
+    certs.
     """
     ca, crt, key = Path(ca_file), Path(server_cert), Path(server_key)
     have_crt, have_key, have_ca = crt.is_file(), key.is_file(), ca.is_file()
@@ -177,61 +179,62 @@ def ensure_certs(ca_file: str, server_cert: str, server_key: str,
 
     if have_crt and have_key:
         if not have_ca:
-            log.warning("cert+key de servidor presentes pero falta la CA %s "
-                        "— no se genera (una CA nueva no firmaría el cert "
-                        "existente); el XMPP embebido la necesita para "
-                        "verificar clientes", ca)
-        return True  # jamás se regenera lo que ya existe
+            log.warning("server cert+key present but CA %s missing "
+                        "— not generated (a new CA would not sign the "
+                        "existing cert); the embedded XMPP needs it to "
+                        "verify clients", ca)
+        return True  # never regenerate what already exists
 
     if have_crt != have_key:
-        log.error("certs a medias (%s=%s, %s=%s) — no se regenera nada, "
-                  "retira el par a mano o repón el fichero que falta",
+        log.error("half-present certs (%s=%s, %s=%s) — nothing "
+                  "regenerated, remove the pair by hand or restore the "
+                  "missing file",
                   crt, have_crt, key, have_key)
         return False
 
     try:
-        # par a generar: primero asegurar que se PUEDE escribir donde toca
-        # (falla aquí = no se crea ni la CA en un destino válido)
+        # pair to generate: first make sure the destination IS writable
+        # (failing here = not even the CA gets created somewhere valid)
         crt.parent.mkdir(parents=True, exist_ok=True)
         key.parent.mkdir(parents=True, exist_ok=True)
 
         if have_ca:
             if not ca_key_path.is_file():
-                log.error("la CA %s existe pero falta su clave %s — no se "
-                          "puede firmar el cert de servidor", ca, ca_key_path)
+                log.error("CA %s exists but its key %s is missing — "
+                          "cannot sign the server cert", ca, ca_key_path)
                 return False
             issuer_key = serialization.load_pem_private_key(
                 ca_key_path.read_bytes(), password=None)
             issuer_cert = x509.load_pem_x509_certificate(ca.read_bytes())
             if issuer_key.public_key() != issuer_cert.public_key():
-                log.error("la clave %s no corresponde a la CA %s (public keys "
-                          "distintas) — no se firma nada", ca_key_path, ca)
+                log.error("key %s does not match CA %s (different public "
+                          "keys) — nothing signed", ca_key_path, ca)
                 return False
-            log.info("firmando el cert de servidor con la CA existente %s "
-                     "(los robots que ya la confían no necesitan nada)", ca)
+            log.info("signing the server cert with existing CA %s "
+                     "(robots that already trust it need nothing)", ca)
         else:
             if ca_key_path.is_file():
-                log.error("existe %s pero no %s — estado inconsistente, no "
-                          "se toca nada", ca_key_path, ca)
+                log.error("%s exists but not %s — inconsistent state, "
+                          "nothing touched", ca_key_path, ca)
                 return False
             issuer_key = rsa.generate_private_key(
                 public_exponent=65537, key_size=2048)
             issuer_cert = _build_ca(issuer_key, cn)
             _atomic_write(ca, _pem_cert(issuer_cert))
             _atomic_write(ca_key_path, _pem_key(issuer_key), secret=True)
-            log.info("CA nueva en %s (+ clave %s) — primer arranque; los "
-                     "robots deberán emparejar contra ella", ca, ca_key_path)
+            log.info("new CA at %s (+ key %s) — first boot; robots "
+                     "will have to pair against it", ca, ca_key_path)
 
         srv_key = rsa.generate_private_key(public_exponent=65537,
                                            key_size=2048)
         srv_cert = _build_server_cert(issuer_cert, issuer_key, srv_key, cn)
         _atomic_write(crt, _pem_cert(srv_cert))
         _atomic_write(key, _pem_key(srv_key), secret=True)
-        log.info("cert de servidor generado en %s / %s (CN=%s, SANs: %s)",
+        log.info("server cert generated at %s / %s (CN=%s, SANs: %s)",
                  crt, key, cn,
                  ", ".join(SERVER_DNS_SANS[:3]) + ", …")
         return True
-    except Exception:  # noqa: BLE001  (garantía: ensure nunca revienta)
-        log.exception("generando certs para (%s, %s, %s) falló",
+    except Exception:  # noqa: BLE001  (guarantee: ensure never blows up)
+        log.exception("generating certs for (%s, %s, %s) failed",
                       ca_file, server_cert, server_key)
         return False

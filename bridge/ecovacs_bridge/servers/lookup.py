@@ -1,23 +1,23 @@
-"""Servidor lookup embebido — bootstrap del robot (Fase FA).
+"""Embedded lookup server — robot bootstrap (Phase FA).
 
-El firmware de cada robot, al arrancar, pide por HTTP plano dónde está el
-servidor de mensajes::
+On boot, each robot's firmware asks over plain HTTP where the message
+server is::
 
     POST http://lbo.ecouser.net:8007/lookup.do
     {"todo": "FindBest", "service": "EcoMsgNew"}        (UA: Wget/1.19)
 
-Respuesta (el robot es quisquilloso con los espacios — Bumper lo aprendió
-a golpes; reproducimos su truco de json compacto)::
+Response (the robot is picky about spaces — Bumper learned this the hard
+way; we reproduce its compact-json trick)::
 
     {"ip":"<announce_ip>","port":5223,"result":"ok"}
 
-También responde a ``EcoUpdate`` (OTA) apuntando al servidor real de
-Ecovacs, como hace Bumper — el firmware lo consulta y no nos interesa
-gestionar OTA.
+It also answers ``EcoUpdate`` (OTA) pointing at Ecovacs' real server,
+like Bumper does — the firmware checks it and we do not want to handle
+OTA.
 
-Puerto por defecto :8007 (configurable, ``servers.lookup_port``). Se monta
-en :443 solo cuando ``servers.conf`` esté activo (FD) — de momento el 443
-queda libre.
+Default port :8007 (configurable, ``servers.lookup_port``). It is mounted
+on :443 only when ``servers.conf`` is active (FD) — for now 443 stays
+free.
 """
 
 from __future__ import annotations
@@ -29,15 +29,15 @@ from aiohttp import web
 
 log = logging.getLogger(__name__)
 
-# servidor real de OTA de Ecovacs (como responde Bumper)
+# Ecovacs' real OTA server (as Bumper answers)
 ECOUPDATE_IP = "47.88.66.164"
 ECOUPDATE_PORT = 8005
 
 
 def lookup_response(service: str, announce_ip: str, xmpp_port: int) -> web.Response:
-    """Respuesta fiel a bumper/confserver.handle_lookup (ambos formatos)."""
+    """Faithful reply to bumper/confserver.handle_lookup (both formats)."""
     if service == "EcoMsgNew":
-        # sin espacios: el parser del robot es estricto
+        # no spaces: the robot's parser is strict
         body = json.dumps({"ip": announce_ip, "port": xmpp_port, "result": "ok"},
                           separators=(",", ":"))
         return web.Response(text=body, content_type="application/json")
@@ -48,10 +48,10 @@ def lookup_response(service: str, announce_ip: str, xmpp_port: int) -> web.Respo
 
 
 async def parse_lookup_request(request: web.Request) -> dict:
-    """Cuerpo de lookup.do: JSON (wget del robot) o form-urlencoded (app).
+    """Body of lookup.do: JSON (robot's wget) or form-urlencoded (app).
 
-    Compartido por el lookup :8007 (FA) y el conf :443 (FD), que monta el
-    mismo endpoint — como el confserver de Bumper.
+    Shared by the :8007 lookup (FA) and the :443 conf (FD), which mounts
+    the same endpoint — like Bumper's confserver.
     """
     try:
         if request.content_type == "application/x-www-form-urlencoded":
@@ -62,7 +62,7 @@ async def parse_lookup_request(request: web.Request) -> dict:
 
 
 class LookupServer:
-    """POST /lookup.do en HTTP plano — lo único que el robot necesita."""
+    """POST /lookup.do over plain HTTP — all the robot needs."""
 
     def __init__(self, announce_ip: str, xmpp_port: int = 5223,
                  listen: str = "0.0.0.0", port: int = 8007):
@@ -81,7 +81,7 @@ class LookupServer:
         await self._runner.setup()
         site = web.TCPSite(self._runner, self.listen, self.port)
         await site.start()
-        log.info("lookup embebido en http://%s:%d (announce %s:%d)",
+        log.info("embedded lookup at http://%s:%d (announce %s:%d)",
                  self.listen, self.port, self.announce_ip, self.xmpp_port)
 
     async def stop(self) -> None:
@@ -92,6 +92,6 @@ class LookupServer:
     async def handle_lookup(self, request: web.Request) -> web.Response:
         body = await parse_lookup_request(request)
         service = str(body.get("service", ""))
-        log.info("lookup.do todo=%s service=%s desde %s",
+        log.info("lookup.do todo=%s service=%s from %s",
                  body.get("todo"), service, request.remote)
         return lookup_response(service, self.announce_ip, self.xmpp_port)

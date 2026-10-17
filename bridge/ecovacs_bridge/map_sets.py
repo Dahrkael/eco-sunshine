@@ -1,19 +1,19 @@
-"""Muros virtuales, zonas y habitaciones — modelos + parsers XML/JSON.
+"""Virtual walls, zones and rooms — models + XML/JSON parsers.
 
-Fuentes:
-- XML (era 930): corpus propio (frames MapSet: <ctl msid td="MapSet" tp><m
-  mid n p/></ctl>) + vocabulario del driver DR930.java (decompile). El
-  corpus no contiene muros/zonas configurados (entradas vacías) → los
-  formatos con datos reales quedan A VALIDAR con robot; parsers tolerantes.
+Sources:
+- XML (930 era): own corpus (MapSet frames: <ctl msid td="MapSet" tp><m
+  mid n p/></ctl>) + vocabulary from the DR930.java driver (decompile).
+  The corpus holds no configured walls/zones (empty entries) → formats
+  with real data still TO BE VALIDATED on a robot; parsers stay lenient.
 - JSON (eco-ng, T8+): docs/mqtt-json-spec.md §4.5 (getMapSet/getMapSubSet,
-  verificado contra APK Home v3.16.1 y ecovacs-deebot.js).
+  verified against Home APK v3.16.1 and ecovacs-deebot.js).
 
-Tipos (tp):
-- vw: muros virtuales (línea de 2 puntos, en mm)
-- mw: zonas no-fregar (rectángulo, mm) — eco-ng; en 930 viaja en vw con
-  atributo de tipo cuando aplica
-- sa: zonas de limpieza custom (rectángulo)
-- ar: habitaciones (eco-ng; mssid + nombre + centro)
+Types (tp):
+- vw: virtual walls (2-point line, in mm)
+- mw: no-mop zones (rectangle, mm) — eco-ng; on the 930 it travels in vw
+  with a type attribute where applicable
+- sa: custom cleaning zones (rectangle)
+- ar: rooms (eco-ng; mssid + name + center)
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 ATTR_RE = re.compile(r'(\w+)="([^"]*)"')
 
 
-# ---------- modelos ----------
+# ---------- models ----------
 
 @dataclass
 class VirtualWall:
@@ -41,13 +41,13 @@ class VirtualWall:
 
 @dataclass
 class Zone:
-    """Rectángulo (esquinas opuestas) — zona no-fregar (mw) o custom (sa)."""
+    """Rectangle (opposite corners) — no-mop zone (mw) or custom zone (sa)."""
     mid: str
     x1: float
     y1: float
     x2: float
     y2: float
-    kind: str = "mw"  # mw=no-fregar, sa=custom
+    kind: str = "mw"  # mw=no-mop, sa=custom
 
     def to_doc(self) -> dict:
         return {"mid": self.mid, "x1": self.x1, "y1": self.y1,
@@ -60,7 +60,7 @@ class Room:
     name: str
     center: tuple[float, float] | None = None
     index: int = 0
-    # coordenadas del contorno ("x,y;x,y;…") si se conocen (getMapSubSet)
+    # outline coordinates ("x,y;x,y;…") when known (getMapSubSet)
     outline: list[tuple[float, float]] = field(default_factory=list)
 
     def to_doc(self) -> dict:
@@ -93,28 +93,28 @@ def _coords(s: str) -> list[float]:
     return out
 
 
-# ---------- parsers XML (era 930) ----------
+# ---------- XML parsers (930 era) ----------
 
 def parse_mapset_xml(attrs: dict, inner: str) -> MapSetData | None:
-    """Frame MapSet (respuesta GetMapSet o push) → MapSetData.
+    """MapSet frame (GetMapSet reply or push) → MapSetData.
 
     <ctl msid="0" td="MapSet" tp="vw" ts="…"><m mid="0" n="" p="x1,y1,x2,y2"/></ctl>
-    Entradas con mid vacío = set vacío (patrón del corpus).
+    Entries with an empty mid = empty set (corpus pattern).
     """
     tp = attrs.get("tp", "")
     if not tp:
         return None
     data = MapSetData(tp=tp, msid=attrs.get("msid", ""))
-    # ns0:-prefijado: Bumper re-serializa los frames y los hijos pueden
-    # llegar con namespace (<ns0:m …/>) — regex agnóstica de prefijo
+    # ns0:-prefixed: Bumper re-serializes frames, so children may arrive
+    # with a namespace (<ns0:m …/>) — prefix-agnostic regex
     for m in re.finditer(r"<(?:[\w.-]+:)?m\s+([^>]*?)/?>", inner):
         a = dict(ATTR_RE.findall(m.group(1)))
         mid, p = a.get("mid", ""), a.get("p", "")
         if not mid and not p:
-            continue  # entrada vacía (sin muros/zonas configurados)
+            continue  # empty entry (no walls/zones configured)
         c = _coords(p)
         if tp == "vw":
-            # atributo t (si existe) distingue muro de zona no-fregar
+            # the t attribute (if present) tells wall from no-mop zone
             if len(c) >= 4:
                 entry: object
                 if a.get("t") in ("mw", "zone", "1"):
@@ -136,18 +136,18 @@ def parse_mapset_xml(attrs: dict, inner: str) -> MapSetData | None:
 def parse_stats_xml(attrs: dict, inner: str) -> dict:
     """GetCleanStatistics/GetCleanSum → {total_time, total_area, total_count}.
 
-    Formato exacto no presente en el corpus (no se pidieron) → tolerante:
-    - attrs planos (CleanSum: a=área t=tiempo c=cuenta, convención sucks)
-    - hijos <statistics .../> o <clean .../> con area/time/count
+    Exact format absent from the corpus (never requested) → lenient:
+    - flat attrs (CleanSum: a=area t=time c=count, sucks convention)
+    - children <statistics .../> or <clean .../> with area/time/count
     """
     out: dict = {}
-    # attrs directos
+    # direct attrs
     if attrs.get("a") and attrs.get("t"):
         out.setdefault("total_area", float(attrs["a"]))
         out.setdefault("total_time", float(attrs["t"]))
     if attrs.get("c"):
         out.setdefault("total_count", int(attrs["c"]))
-    # hijos (posible prefijo de namespace por la re-serialización de Bumper)
+    # children (possible namespace prefix from Bumper's re-serialization)
     for tag in re.finditer(r"<(?:[\w.-]+:)?\w+ ([^>]*?)/?>", inner):
         a = dict(ATTR_RE.findall(tag.group(1)))
         for src_area in ("area", "a"):
@@ -171,10 +171,10 @@ def parse_stats_xml(attrs: dict, inner: str) -> dict:
     return out
 
 
-# ---------- parsers JSON (eco-ng, spec §4.5) ----------
+# ---------- JSON parsers (eco-ng, spec §4.5) ----------
 
 def parse_mapset_json(data: dict) -> MapSetData | None:
-    """Respuesta getMapSet → MapSetData (habitaciones ar / muros vw / mw)."""
+    """getMapSet reply → MapSetData (ar rooms / vw walls / mw)."""
     tp = str(data.get("type", ""))
     if not tp:
         return None
@@ -191,7 +191,7 @@ def parse_mapset_json(data: dict) -> MapSetData | None:
                                    name=str(sub.get("name", "")),
                                    center=center,
                                    index=int(sub.get("index", 0) or 0)))
-        else:  # vw / mw: las coordenadas llegan por getMapSubSet (value)
+        else:  # vw / mw: coordinates arrive via getMapSubSet (value)
             ms.entries.append({"mssid": str(sub.get("mssid", "")),
                                "name": str(sub.get("name", "")),
                                "_pending_outline": True})
@@ -199,21 +199,21 @@ def parse_mapset_json(data: dict) -> MapSetData | None:
 
 
 def _entry_mssid(e) -> str | None:
-    """Id de una entrada sea dict pendiente, Room (.mssid) o Wall/Zone (.mid)."""
+    """Id of an entry, whether a pending dict, Room (.mssid) or Wall/Zone (.mid)."""
     if isinstance(e, dict):
         return e.get("mssid")
     return getattr(e, "mssid", None) or getattr(e, "mid", None)
 
 
 def parse_subset_json(data: dict, sets: dict[str, MapSetData]) -> None:
-    """Respuesta getMapSubSet: coordina el contorno de un mssId y lo resuelve
-    a VirtualWall/Zone dentro del MapSetData correspondiente (muta sets)."""
+    """getMapSubSet reply: takes a mssId's outline and resolves it to a
+    VirtualWall/Zone inside the matching MapSetData (mutates sets)."""
     tp = str(data.get("type", ""))
     mssid = str(data.get("mssid", ""))
     pts: list[tuple[float, float]] = []
     for pair in str(data.get("value", "")).split(";"):
         c = _coords(pair)
-        if len(c) >= 4:  # formato plano defensivo: "x1,y1,x2,y2"
+        if len(c) >= 4:  # defensive flat format: "x1,y1,x2,y2"
             pts.append((c[0], c[1]))
             pts.append((c[2], c[3]))
         elif len(c) >= 2:
@@ -238,7 +238,7 @@ def parse_subset_json(data: dict, sets: dict[str, MapSetData]) -> None:
 def parse_stats_json(data: dict) -> dict:
     """getTotalStats/getStats/onStats → {total_time, total_area, total_count}.
 
-    OJO unidades: time en s, area en mm² (spec §4.2: area=45000000 ≈ 45 m²).
+    Mind the units: time in s, area in mm² (spec §4.2: area=45000000 ≈ 45 m²).
     """
     out: dict = {}
     if isinstance(data.get("time"), (int, float)):

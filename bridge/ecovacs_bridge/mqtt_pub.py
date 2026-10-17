@@ -1,21 +1,21 @@
-"""Publicador MQTT con discovery nativo de Home Assistant (integracion mqtt core).
+"""MQTT publisher with native Home Assistant discovery (mqtt core integration).
 
-Cada robot = UN dispositivo HA con todas sus entidades agrupadas:
-  vacuum.<slug>          (estado, comandos, bateria, fan_speed)
-  camera.<slug>_map      (PNG del mapa)
-  sensor.<slug>_*        (consumibles x4, error, firmware, tiempo de limpieza)
-  button.<slug>_reset_*  (reset de consumibles)
-  switch.<slug>_dnd      (no molestar, optimista)
-  switch.<slug>_silent   (modo silencio, optimista)
+Each robot = ONE HA device with all its entities grouped:
+  vacuum.<slug>          (state, commands, battery, fan_speed)
+  camera.<slug>_map      (map PNG)
+  sensor.<slug>_*        (4 consumables, error, firmware, cleaning time)
+  button.<slug>_reset_*  (consumable resets)
+  switch.<slug>_dnd      (do not disturb, optimistic)
+  switch.<slug>_silent   (silent mode, optimistic)
 
 Topics:
-  <base>/<slug>/state            JSON consolidado (retained)
+  <base>/<slug>/state            consolidated JSON (retained)
   <base>/<slug>/battery          int % (retained)
-  <base>/<slug>/fan_speed        velocidad actual (retained)
-  <base>/<slug>/consumable/<k>   % restante por consumible (retained)
-  <base>/<slug>/command          comandos del vacuum (start/pause/stop/dock/locate)
+  <base>/<slug>/fan_speed        current speed (retained)
+  <base>/<slug>/consumable/<k>   remaining % per consumable (retained)
+  <base>/<slug>/command          vacuum commands (start/pause/stop/dock/locate)
   <base>/<slug>/fan_speed/set    set fan speed
-  <base>/<slug>/reset_life_span  payload = componente (Brush/SideBrush/...)
+  <base>/<slug>/reset_life_span  payload = component (Brush/SideBrush/...)
   <base>/<slug>/dnd/set          ON/OFF
   <base>/<slug>/silent/set       ON/OFF
 """
@@ -59,14 +59,14 @@ class MqttPublisher:
             kwargs["password"] = self.password
         self.client = aiomqtt.Client(**kwargs)
         await self.client.__aenter__()
-        # (O4) una sola llamada con todas las suscripciones
+        # (O4) a single call with all subscriptions
         subs = [(f"{self.base}/+/command", 0),
                 (f"{self.base}/+/fan_speed/set", 0),
                 (f"{self.base}/+/reset_life_span", 0),
                 (f"{self.base}/+/dnd/set", 0),
                 (f"{self.base}/+/silent/set", 0)]
         await self.client.subscribe(subs)
-        log.info("MQTT conectado a %s:%s", self.host, self.port)
+        log.info("MQTT connected to %s:%s", self.host, self.port)
 
     async def _pub(self, topic: str, payload, retain: bool = True) -> None:
         if self.client:
@@ -116,7 +116,7 @@ class MqttPublisher:
         }
         await self._pub(f"homeassistant/camera/{slug}_map/config", json.dumps(cam))
 
-        # sensores de consumibles (% restante por tipo)
+        # consumable sensors (remaining % per type)
         for key, comp in CONSUMABLES.items():
             sensor = {
                 "name": f"{name} {key.replace('_', ' ')}",
@@ -131,7 +131,7 @@ class MqttPublisher:
             }
             await self._pub(f"homeassistant/sensor/{slug}_{key}/config", json.dumps(sensor))
 
-        # sensor de error
+        # error sensor
         err = {
             "name": f"{name} error",
             "unique_id": f"{slug}_error",
@@ -142,7 +142,7 @@ class MqttPublisher:
         }
         await self._pub(f"homeassistant/sensor/{slug}_error/config", json.dumps(err))
 
-        # botones de reset de consumibles
+        # consumable reset buttons
         for key, comp in CONSUMABLES.items():
             btn = {
                 "name": f"{name} reset {key.replace('_', ' ')}",
@@ -155,7 +155,7 @@ class MqttPublisher:
             }
             await self._pub(f"homeassistant/button/{slug}_reset_{key}/config", json.dumps(btn))
 
-        # switches DND / silent (optimisticos)
+        # DND / silent switches (optimistic)
         for key, label, icon in (("dnd", "Do not disturb", "mdi:moon-waning-crescent"),
                                  ("silent", "Silent mode", "mdi:volume-off")):
             sw = {
@@ -173,15 +173,15 @@ class MqttPublisher:
             }
             await self._pub(f"homeassistant/switch/{slug}_{key}/config", json.dumps(sw))
 
-        log.info("discovery publicado para %s (vacuum+camera+5 sensores+4 botones+2 switches)", slug)
+        log.info("discovery published for %s (vacuum+camera+5 sensors+4 buttons+2 switches)", slug)
 
-    # ---------- estado ----------
+    # ---------- state ----------
 
     async def publish_state_doc(self, slug: str, doc: dict) -> None:
         await self._pub(f"{self.base}/{slug}/state", json.dumps(doc))
 
     async def publish_state(self, slug: str, status: str) -> None:
-        """Estado optimista tras un comando (el doc completo lo sobreescribe en <2s)."""
+        """Optimistic state after a command (the full doc overwrites it in <2s)."""
         await self._pub(f"{self.base}/{slug}/state", json.dumps({"status": status}))
 
     async def publish_battery(self, slug: str, battery: int | None) -> None:
@@ -204,15 +204,15 @@ class MqttPublisher:
         await self._pub(f"{self.base}/{slug}/attributes", json.dumps(attrs))
 
     async def publish_map(self, slug: str, png: bytes) -> None:
-        # el MQTT camera de HA espera los bytes crudos de la imagen
+        # HA's MQTT camera expects the raw image bytes
         if self.client:
             await self.client.publish(f"{self.base}/{slug}/map", png, retain=True, qos=0)
 
-    # ---------- bucle de comandos ----------
+    # ---------- command loop ----------
 
     async def listen_commands(self) -> None:
-        """Bucle de comandos con reconexión (B16): si mosquitto corta, el
-        serve no debe morir — reintenta como hace MqttTransport.listen."""
+        """Command loop with reconnection (B16): if mosquitto drops us the
+        serve must not die — retries like MqttTransport.listen."""
         delay = 3.0
         while True:
             try:
@@ -223,11 +223,11 @@ class MqttPublisher:
                     try:
                         await self._dispatch(msg)
                     except Exception:  # noqa: BLE001
-                        log.exception("error despachando comando MQTT (mensaje ignorado)")
+                        log.exception("error dispatching MQTT command (message ignored)")
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
-                log.warning("MQTT HA desconectado (%s) — reintento en %.0fs", e, delay)
+                log.warning("HA MQTT disconnected (%s) — retrying in %.0fs", e, delay)
                 try:
                     if self.client is not None:
                         await self.client.__aexit__(type(e), e, None)

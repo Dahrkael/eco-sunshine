@@ -1,9 +1,10 @@
-"""CLI del bridge. De momento solo valida el layout del paquete.
+"""Bridge CLI.
 
-Comandos previstos:
-  tail     - seguir el log XMPP de Bumper (fase 2: captura de frames)
-  decode   - decodificar una traza guardada a eventos estructurados (fase 3)
-  serve    - modo servicio: XMPP -> MQTT (fase 4)
+Commands:
+  probe       - live read-only probe of a robot through Bumper (XMPP)
+  probe-mqtt  - probe the eco-ng MQTT transport
+  replay      - feed a captured corpus through the pipeline to MQTT
+  serve       - live service: XMPP (Bumper) ⇄ MQTT (Home Assistant)
 """
 
 import argparse
@@ -18,7 +19,7 @@ def cmd_tail(args: argparse.Namespace) -> int:
 
 
 def cmd_probe(args: argparse.Namespace) -> int:
-    """Prueba en vivo: login en Bumper, sondeo read-only del robot."""
+    """Live probe: log in to Bumper and poll the robot read-only."""
     import asyncio
     import logging
 
@@ -70,7 +71,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
             ca_file=b.ca_file, on_event=on_event,
         )
         await client.connect()
-        # sondeo directo al robot conocido (dormido no emite nada solo)
+        # poll the known robot directly (a docked robot pushes nothing on its own)
         if jid_hint:
             r = RobotState.from_jid(jid_hint)
             robots[jid_hint] = r
@@ -98,7 +99,7 @@ def cmd_decode(args: argparse.Namespace) -> int:
 
 
 def cmd_replay(args: argparse.Namespace) -> int:
-    """Reproduce el corpus por el pipeline completo → MQTT (sin tocar el robot)."""
+    """Replays a captured corpus through the full pipeline to MQTT (no robot involved)."""
     import asyncio
     import json as jsonlib
     import logging
@@ -170,8 +171,8 @@ def cmd_replay(args: argparse.Namespace) -> int:
 
 
 def cmd_probe_mqtt(args: argparse.Namespace) -> int:
-    """Prueba del transporte MQTT: conecta al broker de Bumper, escucha
-    reports y (opcional) manda un getBattery al did indicado."""
+    """MQTT transport probe: connect to Bumper's broker, listen for
+    reports and (optionally) send getBattery to the given did."""
     import asyncio
     import logging
 
@@ -230,14 +231,14 @@ def cmd_probe_mqtt(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
-    """Servicio vivo: XMPP (Bumper) ⇄ MQTT (Home Assistant)."""
+    """Live service: XMPP (Bumper) ⇄ MQTT (Home Assistant)."""
     import logging
     import os
 
-    # DEEBOT_LOG_LEVEL gana (DEBUG revela el wire XMPP/MQTT completo)
+    # DEEBOT_LOG_LEVEL wins (DEBUG reveals the full XMPP/MQTT wire)
     level = os.environ.get("DEEBOT_LOG_LEVEL", "INFO").upper()
     logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
-    # amqtt (broker embebido FC) loguea su máquina de estados a INFO — ruido
+    # amqtt (embedded FC broker) logs its state machine at INFO — too noisy
     logging.getLogger("transitions").setLevel(logging.WARNING)
 
     from .config import load_config

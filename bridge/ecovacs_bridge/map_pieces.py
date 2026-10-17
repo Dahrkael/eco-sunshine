@@ -1,15 +1,15 @@
-"""Piezas MapP: decodificacion LZMA/zstd, ensamblado por mapa y render PNG.
+"""MapP pieces: LZMA/zstd decoding, per-map assembly and PNG rendering.
 
-Formato (validado contra corpus 930 + receta de ecovacs-privacy-control):
+Wire format (validated against the 930 corpus + ecovacs-privacy-control recipe):
   p= base64 → props(1B 0x5d) + dict(u32 LE) + size(u32 LE) + lzma data[9:]
-  reconstruccion: props + dict + size(u64) + data → LZMA-alone → 10.000 B
-  = 100x100 celdas/pieza. Valores: 0=none 1=floor 2=wall 3=carpet.
-  Geometria del frame MapSet: w/h=100 (celdas por pieza), c/r=8 (piezas por
-  eje) → grid 800x800, 64 piezas; p=50 (~mm por celda).
+  rebuild: props + dict + size(u64) + data → LZMA-alone → 10,000 B
+  = 100x100 cells/piece. Values: 0=none 1=floor 2=wall 3=carpet.
+  MapSet frame geometry: w/h=100 (cells per piece), c/r=8 (pieces per
+  axis) → 800x800 grid, 64 pieces; p=50 (~mm per cell).
 
-Robots MQTT (T8+, spec mqtt-json-spec.md §6): misma pieza LZMA (o zstd en
-gen-3) con geometría variable — pieceWidth/pieceHeight/cellWidth/cellHeight/
-pixel vienen en el getMajorMap JSON → MapGeometry por mapa.
+MQTT robots (T8+, spec mqtt-json-spec.md §6): same LZMA piece (or zstd on
+gen-3) with variable geometry — pieceWidth/pieceHeight/cellWidth/cellHeight/
+pixel come in the getMajorMap JSON → per-map MapGeometry.
 """
 
 from __future__ import annotations
@@ -28,35 +28,35 @@ ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
 
 
 def log_geometry_warning(map_id: str, geo: "MapGeometry") -> None:
-    """Geometría fuera de rango (payload corrupto o formato desconocido)."""
+    """Out-of-range geometry (corrupt payload or unknown format)."""
     import logging
 
     logging.getLogger(__name__).warning(
-        "mapa %s: geometría implausible %dx%d (%d celdas) — chunked descartado",
+        "map %s: implausible geometry %dx%d (%d cells) — chunked discarded",
         map_id, geo.total_cols, geo.total_rows, geo.total_rows * geo.total_cols)
 
-# estilo tipo app: plano gris = pendiente, traza blanca = limpiado
+# app-like palette: flat grey = pending, white trace = cleaned
 COLORS = {
-    0: (247, 247, 245),    # sin datos (fondo claro)
-    1: (203, 206, 210),    # suelo pendiente de limpiar
-    2: (85, 91, 98),       # pared
-    3: (174, 214, 241),    # alfombra
+    0: (247, 247, 245),    # no data (light background)
+    1: (203, 206, 210),    # floor pending cleaning
+    2: (85, 91, 98),       # wall
+    3: (174, 214, 241),    # carpet
 }
-TRACE_COLOR = (255, 255, 255)   # limpiado
+TRACE_COLOR = (255, 255, 255)   # cleaned
 ROBOT_COLOR = (76, 175, 80)
 DOCK_COLOR = (255, 152, 0)
 
-# Origen del grid respecto al marco mm del robot (930; resuelto por busqueda
-# exhaustiva: 86.8% traza-sobre-suelo — tools/buscar_transformacion.py).
-# Mapeo natural: fila = y_mm/50, col = x_mm/50 (x→columnas, y→filas).
+# Grid origin relative to the robot's mm frame (930; found by exhaustive
+# search: 86.8% trace-over-floor — tools/buscar_transformacion.py).
+# Natural mapping: row = y_mm/50, col = x_mm/50 (x→columns, y→rows).
 ORIGIN_ROW = 401
 ORIGIN_COL = 401
 
 
-# Colocacion empirica de piezas (validada por el usuario contra su piso):
-# el robot indexa las piezas en su marco INTERNO (inclinado), que no
-# corresponde a filas/columnas axis-aligned. Tabla pid → (fila, columna)
-# de pieza. Los pids fuera de la tabla caen en fallback row-major.
+# Empirical piece placement (validated by the user against their floor):
+# the robot indexes pieces in its own TILTED internal frame, which does
+# not map to axis-aligned rows/columns. pid → (row, column) table;
+# pids outside the table fall back to row-major.
 PIECE_PLACEMENT = {
     18: (0, 0), 19: (0, 1), 20: (0, 2), 28: (0, 3),
     26: (1, 0), 27: (1, 2), 36: (1, 3),
@@ -77,14 +77,14 @@ def decode_piece(p_b64: str) -> bytes:
 
 
 def decompress_auto(raw: bytes, size_hint: int = PIECE_CELLS * PIECE_CELLS) -> bytes:
-    """Descomprime un payload de mapa detectando el algoritmo por magic number.
+    """Decompress a map payload, picking the algorithm by magic number.
 
     - zstd (gen-3, T80/X8 OMNI — ecovacs-deebot.js #592): magic 28 B5 2F FD
-    - LZMA-alone (930 y T8+): props 5D 00 00 04 00 (el u64 de tamaño se
-      reinyecta desde size_hint porque el original puede venir a 0)
+    - LZMA-alone (930 and T8+): props 5D 00 00 04 00 (the size u64 is
+      re-injected from size_hint because the original can come as 0)
     """
     if raw[:4] == ZSTD_MAGIC:
-        import zstandard  # dependencia declarada en pyproject
+        import zstandard  # dependency declared in pyproject
 
         return zstandard.ZstdDecompressor().decompress(raw, max_output_size=size_hint * 8)
     hdr = raw[0:5] + struct.pack("<Q", size_hint)
@@ -92,16 +92,16 @@ def decompress_auto(raw: bytes, size_hint: int = PIECE_CELLS * PIECE_CELLS) -> b
 
 
 def decode_piece_auto(p_b64: str, size_hint: int = PIECE_CELLS * PIECE_CELLS) -> bytes:
-    """Pieza con detección automática LZMA/zstd (spec §6.1b)."""
+    """Piece with automatic LZMA/zstd detection (spec §6.1b)."""
     return decompress_auto(base64.b64decode(p_b64), size_hint)
 
 
 def _lzma_stream(raw: bytes) -> bytes:
-    """LZMA-alone estándar (13B de cabecera: props+dict+size u64).
+    """Standard LZMA-alone (13B header: props+dict+u64 size).
 
-    Los robots mandan traza y mapas chunked como LZMA-alone estándar (a
-    diferencia de las piezas, que recortan el size a u32). Fallback:
-    cabecera de 9 bytes con size reinyectado como desconocido (EOS).
+    Robots send traces and chunked maps as standard LZMA-alone (unlike
+    pieces, which truncate the size to u32). Fallback: 9-byte header
+    with the size re-injected as unknown (EOS).
     """
     try:
         return lzma.LZMADecompressor(format=lzma.FORMAT_ALONE).decompress(raw)
@@ -114,8 +114,8 @@ def _lzma_stream(raw: bytes) -> bytes:
 
 
 def decompress_stream_auto(raw: bytes, max_out: int = 1 << 26) -> bytes:
-    """Descomprime un stream estándar (traza getMapTrace, mapa chunked
-    getMapInfo) detectando zstd por magic — LZMA sin tocar la cabecera."""
+    """Decompress a standard stream (getMapTrace trace, chunked getMapInfo
+    map) detecting zstd by magic — LZMA header left untouched."""
     if raw[:4] == ZSTD_MAGIC:
         import zstandard
 
@@ -124,10 +124,10 @@ def decompress_stream_auto(raw: bytes, max_out: int = 1 << 26) -> bytes:
 
 
 def decode_trace_mqtt(trace_b64: str) -> list[tuple[float, float, bool]]:
-    """Traza de robots MQTT (spec §6.3): 5 bytes/punto.
+    """MQTT robots trace (spec §6.3): 5 bytes/point.
 
-    base64 → LZMA estándar → registros: int16_be y+2000, int16_be x+2000,
-    flags (bit7 = discontinuidad). Devuelve [(x_mm, y_mm, discontinuo)].
+    base64 → standard LZMA → records: int16_be y+2000, int16_be x+2000,
+    flags (bit7 = discontinuity). Returns [(x_mm, y_mm, discontinuous)].
     """
     data = decompress_stream_auto(base64.b64decode(trace_b64))
     pts: list[tuple[float, float, bool]] = []
@@ -139,15 +139,15 @@ def decode_trace_mqtt(trace_b64: str) -> list[tuple[float, float, bool]]:
 
 
 class MapGeometry:
-    """Geometría de un mapa — por mapa, no global.
+    """Geometry of one map — per map, not global.
 
-    930 (XML GetMapM): w/h celdas por pieza, c/r piezas por eje, p mm/celda.
+    930 (XML GetMapM): w/h cells per piece, c/r pieces per axis, p mm/cell.
     MQTT (getMajorMap JSON): cellWidth/cellHeight, pieceWidth/pieceHeight, pixel.
 
-    transform y_down: convención 930 — y+ mm hacia fila+ (validada empíricamente).
-    Para mapas JSON usamos origen centrado con y invertida (y+ mm hacia fila-),
-    convención habitual de la familia T9+; PROVISIONAL hasta validar con robot
-    real (mock y bridge son consistentes entre sí).
+    y_down transform: 930 convention — y+ mm towards row+ (empirically
+    validated). For JSON maps we use a centered origin with inverted y
+    (y+ mm towards row-), the usual convention of the T9+ family;
+    PROVISIONAL until validated on a real robot (mock and bridge agree).
     """
 
     def __init__(
@@ -185,7 +185,7 @@ class MapGeometry:
 
     @classmethod
     def from_major_map_json(cls, data: dict) -> "MapGeometry":
-        """getMajorMap JSON → geometría con origen centrado y y-up."""
+        """getMajorMap JSON → geometry with centered origin and y-up."""
         try:
             cells_x = int(data.get("cellWidth", PIECE_CELLS))
             cells_y = int(data.get("cellHeight", PIECE_CELLS))
@@ -201,12 +201,12 @@ class MapGeometry:
 
     @classmethod
     def from_chunked_json(cls, data: dict) -> "MapGeometry":
-        """getMapInfo chunked (T8/N8, spec §4.5): el blob concatenado ES el
-        grid completo — totalWidth/totalHeight en celdas, sin piezas.
+        """Chunked getMapInfo (T8/N8, spec §4.5): the joined blob IS the
+        full grid — totalWidth/totalHeight in cells, no pieces.
 
-        Los chunks traen width/height (celdas del chunk) y totalWidth/
-        totalHeight (grid completo); usar from_major_map_json aquí montaría
-        un grid gigante (width=100 → 100 piezas por eje → 100M celdas).
+        Chunks carry width/height (chunk cells) and totalWidth/totalHeight
+        (full grid); using from_major_map_json here would build a giant
+        grid (width=100 → 100 pieces per axis → 100M cells).
         """
         try:
             total_cols = int(data.get("totalWidth") or data.get("width") or PIECE_CELLS)
@@ -220,10 +220,10 @@ class MapGeometry:
         return geo
 
     def set_centered_origin(self) -> None:
-        """Origen mm en el centro del grid total (convención eco-ng)."""
+        """mm origin at the center of the total grid (eco-ng convention)."""
         self.origin_col = (self.piece_cols * self.cells_x) // 2
         self.origin_row = (self.piece_rows * self.cells_y) // 2
-        self.y_down = False  # y+ mm → fila-
+        self.y_down = False  # y+ mm → row-
 
     @property
     def total_rows(self) -> int:
@@ -234,7 +234,7 @@ class MapGeometry:
         return self.piece_cols * self.cells_x
 
     def mm_to_cell(self, x_mm: float, y_mm: float) -> tuple[int, int]:
-        """mm del frame del robot → (fila, columna) del grid total."""
+        """Robot-frame mm → (row, column) in the total grid."""
         col = int(x_mm // self.cell_mm) + self.origin_col
         drow = int(y_mm // self.cell_mm)
         row = self.origin_row + drow if self.y_down else self.origin_row - drow
@@ -242,15 +242,15 @@ class MapGeometry:
 
 
 class MapAssembler:
-    """Colecciona piezas por map_id y ensambla el grid completo."""
+    """Collects pieces per map_id and assembles the full grid."""
 
     def __init__(self) -> None:
         self.maps: dict[str, dict[int, bytes]] = {}
         self.geometry: dict[str, MapGeometry] = {}
-        self.crcs: dict[str, list[int]] = {}  # por map_id: crc esperado por pid
+        self.crcs: dict[str, list[int]] = {}  # per map_id: expected crc per pid
         self.version = 0
         self.spec_changes = 0
-        # mapas chunked (T8/N8 getMapInfo): mid → {index: b64} hasta completar
+        # chunked maps (T8/N8 getMapInfo): mid → {index: b64} until complete
         self._chunks: dict[str, dict[int, str]] = {}
 
     def set_geometry(self, map_id: str, attrs: dict) -> None:
@@ -262,11 +262,11 @@ class MapAssembler:
             self.spec_changes += 1
 
     def set_geometry_json(self, map_id: str, data: dict) -> None:
-        """Geometría+CRCs desde getMajorMap JSON (robots MQTT, spec §4.5).
+        """Geometry+CRCs from getMajorMap JSON (MQTT robots, spec §4.5).
 
-        A diferencia del camino XML (las piezas llegan por push), aquí la
-        primera spec también cuenta como cambio: sin walk inicial no hay
-        piezas (getMinorMap es la única fuente).
+        Unlike the XML path (pieces arrive via push), here the first
+        spec also counts as a change: without an initial walk there are
+        no pieces (getMinorMap is the only source).
         """
         old = self.crcs.get(map_id)
         self.geometry[map_id] = MapGeometry.from_major_map_json(data)
@@ -286,12 +286,12 @@ class MapAssembler:
         return self.geometry.get(map_id, MapGeometry())
 
     def add_piece(self, map_id: str, pid: int, p_b64: str) -> bool:
-        """Acepta la pieza solo si su crc32 coincide con la spec vigente."""
+        """Accepts the piece only if its crc32 matches the current spec."""
         pieces = self.maps.setdefault(map_id, {})
         decoded = decode_piece(p_b64)
         crcs = self.crcs.get(map_id)
         if crcs and pid < len(crcs) and zlib.crc32(decoded) != crcs[pid]:
-            return False  # pieza obsoleta (mapa reconstruido): descartada
+            return False  # stale piece (rebuilt map): discarded
         changed = pieces.get(pid) != decoded
         if changed:
             pieces[pid] = decoded
@@ -299,7 +299,7 @@ class MapAssembler:
         return True
 
     def add_piece_json(self, map_id: str, pid: int, piece_value_b64: str) -> bool:
-        """Pieza desde getMinorMap JSON (robots MQTT) — decoder auto LZMA/zstd."""
+        """Piece from getMinorMap JSON (MQTT robots) — auto LZMA/zstd decoder."""
         geo = self.geo(map_id)
         pieces = self.maps.setdefault(map_id, {})
         decoded = decode_piece_auto(piece_value_b64, geo.cells_x * geo.cells_y)
@@ -318,9 +318,9 @@ class MapAssembler:
 
     def add_chunk_json(self, map_id: str, index: int, value_b64: str,
                        total_count: int, data: dict | None = None) -> bool:
-        """Chunk de getMapInfo (T8/N8): concatena y decodifica al completar.
+        """getMapInfo chunk (T8/N8): concatenate and decode once complete.
 
-        Devuelve True cuando el mapa quedó montado con este chunk.
+        Returns True when this chunk completed the map.
         """
         chunks = self._chunks.setdefault(map_id, {})
         if value_b64:
@@ -329,24 +329,24 @@ class MapAssembler:
             return False
         joined = "".join(chunks[i] for i in range(total_count) if i in chunks)
         if len(chunks) != total_count:
-            return False  # faltan chunks intermedios
+            return False  # missing intermediate chunks
         if data:
             self.geometry[map_id] = MapGeometry.from_chunked_json(data)
         geo = self.geo(map_id)
-        # salvaguarda (B9): un payload con geometría absurda no debe montar
-        # un grid de 100M celdas — limitar a 2000x2000
+        # safeguard (B9): a payload with absurd geometry must not build a
+        # 100M-cell grid — cap at 2000x2000
         if geo.total_rows * geo.total_cols > 2000 * 2000:
             log_geometry_warning(map_id, geo)
             self._chunks.pop(map_id, None)
             return False
-        # el blob chunked es un stream LZMA/zstd ESTÁNDAR (no formato pieza)
+        # the chunked blob is a STANDARD LZMA/zstd stream (not piece format)
         grid = decompress_stream_auto(base64.b64decode(joined),
                                       max_out=geo.total_rows * geo.total_cols * 4)
         if len(grid) < geo.total_rows * geo.total_cols:
             self._chunks.pop(map_id, None)
             return False
-        # el chunked NO viene por piezas: una sola "pieza" = grid completo,
-        # indexada como pid -1 (B15: descarta piezas viejas del mismo mid)
+        # chunked does NOT come in pieces: a single "piece" = full grid,
+        # indexed as pid -1 (B15: drops old pieces of the same mid)
         pieces = self.maps.setdefault(map_id, {})
         pieces.clear()
         pieces[-1] = grid
@@ -360,9 +360,9 @@ class MapAssembler:
         return len(self.maps.get(map_id, {}))
 
     def assemble(self, map_id: str) -> list[list[int]] | None:
-        """Colocacion row-major (privacy-control): r0=pid//8, c0=pid%8.
-        Validada por correlacion traza/suelo 86.8% (tools/buscar_transformacion.py).
-        Con geometría por mapa (MQTT): pieza N en row=N//pieceW, col=N%pieceW.
+        """Row-major placement (privacy-control): r0=pid//8, c0=pid%8.
+        Validated by trace/floor correlation 86.8% (tools/buscar_transformacion.py).
+        With per-map geometry (MQTT): piece N at row=N//pieceW, col=N%pieceW.
         """
         pieces = self.maps.get(map_id)
         if not pieces:
@@ -371,14 +371,14 @@ class MapAssembler:
         grid = [[0] * geo.total_cols for _ in range(geo.total_rows)]
         expected = geo.cells_x * geo.cells_y
         for pid, piece in pieces.items():
-            if pid < 0:  # mapa chunked: el grid ya viene montado
+            if pid < 0:  # chunked map: the grid arrives pre-assembled
                 for r in range(geo.total_rows):
                     row = grid[r]
                     base = r * geo.total_cols
                     for c in range(geo.total_cols):
                         row[c] = piece[base + c]
                 continue
-            if len(piece) < expected:  # (B10) pieza truncada/corrupta: se salta
+            if len(piece) < expected:  # (B10) truncated/corrupt piece: skipped
                 continue
             r0 = (pid // geo.piece_cols) * geo.cells_y
             c0 = (pid % geo.piece_cols) * geo.cells_x
@@ -399,10 +399,10 @@ def render_png(
     trace_color: tuple[int, int, int] = TRACE_COLOR,
     geo: MapGeometry | None = None,
 ) -> bytes:
-    """Render PNG (1 celda = 1px). trace/position en mm del frame del robot.
+    """Render a PNG (1 cell = 1px). trace/position in robot-frame mm.
 
-    geo: geometría del mapa (transform mm→celda). Si es None se usa la del
-    930 (cell_mm, ORIGIN_ROW/COL con y hacia abajo).
+    geo: map geometry (mm→cell transform). If None, the 930's is used
+    (cell_mm, ORIGIN_ROW/COL with y pointing down).
     """
     size_r = len(grid)
     size_c = len(grid[0]) if grid else 0
@@ -417,7 +417,7 @@ def render_png(
 
     g = geo or MapGeometry(cell_mm=cell_mm)
 
-    # overlay: mm → celda del grid completo, luego restar el recorte
+    # overlay: mm → full-grid cell, then subtract the crop offset
     def to_cell(x_mm: float, y_mm: float) -> tuple[int, int] | None:
         row, col = g.mm_to_cell(x_mm, y_mm)
         row, col = row - rmin, col - cmin
@@ -429,15 +429,15 @@ def render_png(
         for x, y in trace:
             cell = to_cell(x, y)
             if cell:
-                canvas[cell[0]][cell[1]] = -1  # marcador traza
+                canvas[cell[0]][cell[1]] = -1  # trace marker
     if position:
         cell = to_cell(*position)
         if cell:
-            canvas[cell[0]][cell[1]] = -2  # marcador robot
+            canvas[cell[0]][cell[1]] = -2  # robot marker
     if dock:
         dcell = to_cell(*dock)
         if dcell:
-            canvas[dcell[0]][dcell[1]] = -3  # marcador base
+            canvas[dcell[0]][dcell[1]] = -3  # dock marker
 
     lut = {-1: trace_color, -2: ROBOT_COLOR, -3: DOCK_COLOR, **COLORS}
     bg = COLORS[0]

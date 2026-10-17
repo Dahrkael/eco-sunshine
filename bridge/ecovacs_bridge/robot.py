@@ -1,12 +1,12 @@
-"""Estado + comandos del 930 — vocabulario 1:1 del driver de la app
-(DR930.java + EcoRobotProtocol.java decompilados, corpus sesiones 1-3).
+"""930 state + commands — 1:1 vocabulary from the app's driver
+(decompiled DR930.java + EcoRobotProtocol.java, corpus sessions 1-3).
 
-Formatos de comando (todos dentro de <iq type=set><query><ctl .../></query></iq>):
+Command formats (all inside <iq type=set><query><ctl .../></query></iq>):
   self-closing: <ctl id=".." [attrs] td="CMD" [attrs]/>
-  con hijos:     <ctl id=".." td="Clean"><clean .../></ctl>
+  with children: <ctl id=".." td="Clean"><clean .../></ctl>
 
-Robots MQTT (T8+): la ingesta va por update_report() (spec §5) — reports
-iot/atr y respuestas p2p comparten forma de payload, así que un solo camino.
+MQTT robots (T8+): ingestion goes through update_report() (spec §5) —
+iot/atr reports and p2p responses share payload shape, so a single path.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from .map_sets import (MapSetData, parse_mapset_json, parse_mapset_xml,
 
 log = logging.getLogger(__name__)
 
-# ---------- enums de la app (valores de wire) ----------
+# ---------- app enums (wire values) ----------
 
 CLEAN_TYPES = {"auto": "auto", "spot_area": "SpotArea", "custom_area": "CustomArea",
                "stop": "stop", "spot": "spot"}
@@ -33,19 +33,19 @@ COMPONENTS = {"brush": "Brush", "sidebrush": "SideBrush", "dustcase": "DustCaseH
 SOUNDS = {"boot": 0, "wheels": 4, "dustbin": 6, "stuck": 5, "ding": 17, "battery_low": 18,
           "here": 30, "brush_tangled": 31, "returning": 63, "paused": 65, "relocating": 55}
 
-# MQTT: nombre JSON del componente (getLifeSpan array / respuesta)
+# MQTT: component JSON name (getLifeSpan array / response)
 LIFESPAN_JSON = {"brush": "brush", "sidebrush": "sideBrush",
                  "dustcase": "unitCare", "airfilter": "heap", "ion": "dModule"}
-# respuesta JSON → clave interna 930 (la que consumen HA y el panel)
+# JSON response → 930 internal key (what HA and the panel consume)
 LIFESPAN_JSON_INTERNAL = {"brush": "Brush", "sideBrush": "SideBrush",
                           "heap": "AirFilter", "unitCare": "DustCaseHeap",
                           "dModule": "IonSterilize"}
-# minutos de vida nominal por componente (para el % de HA)
+# nominal life minutes per component (for HA's %)
 LIFESPAN_TOTALS = {"brush": 10800, "sideBrush": 7200, "heap": 9000,
                    "unitCare": 10800, "dModule": 10800}
-# velocidad numérica eco-ng ↔ nombre HA
+# eco-ng numeric speed ↔ HA name
 SPEED_JSON = {0: "silent", 1: "standard", 2: "strong", 3: "strong"}
-# inverso EXPLÍCITO: sin él, el dict-comp haría last-wins y strong→3 (fuera de spec)
+# EXPLICIT inverse: without it the dict-comp would go last-wins and strong→3 (off-spec)
 SPEED_JSON_REV = {"silent": 0, "standard": 1, "strong": 2}
 
 
@@ -72,9 +72,9 @@ class RobotState:
     cleaned_map_pieces: dict[str, str] = field(default_factory=dict)
     did: DeviceId | None = None
     clean_seconds: int = 0
-    # última velocidad numérica reportada por robots MQTT (onSpeed/getSpeed)
+    # last numeric speed reported by MQTT robots (onSpeed/getSpeed)
     fan_speed_json: int | None = None
-    # muros/zonas/habitaciones por tipo: {"vw": MapSetData, "ar": MapSetData…}
+    # walls/zones/rooms by type: {"vw": MapSetData, "ar": MapSetData…}
     map_sets: dict[str, MapSetData] = field(default_factory=dict)
     # {total_time: s, total_area: mm², total_count: n}
     stats: dict = field(default_factory=dict)
@@ -94,12 +94,12 @@ class RobotState:
         return RobotState(jid=did.key, slug=f"{model.slug}-{serial[-6:].lower()}",
                           model=model, did=did)
 
-    # ---- ingesta de eventos y respuestas ----
+    # ---- event and response ingestion ----
 
     def update(self, attrs: dict, inner: str) -> None:
         td = attrs.get("td", "")
 
-        # posición: push td=Pos o respuesta GetPos (attrs a/p/t/valid)
+        # position: td=Pos push or GetPos reply (attrs a/p/t/valid)
         if "p" in attrs and "valid" in attrs and "," in attrs["p"]:
             try:
                 x, y = (float(v) for v in attrs["p"].split(","))
@@ -109,7 +109,7 @@ class RobotState:
             except ValueError:
                 pass
 
-        # base de carga (GetChargerPos con p= en attrs)
+        # charging dock (GetChargerPos with p= in attrs)
         if td == "GetChargerPos" and "p" in attrs and "," in attrs["p"]:
             try:
                 x, y = (float(v) for v in attrs["p"].split(","))
@@ -117,20 +117,20 @@ class RobotState:
             except ValueError:
                 pass
 
-        # consumibles: respuesta GetLifeSpan
+        # consumables: GetLifeSpan reply
         if "left" in attrs and "total" in attrs:
             self.lifespans[attrs.get("type", "?")] = {
                 "left": int(attrs["left"]), "total": int(attrs["total"])
             }
 
-        # batería: respuesta GetBatteryInfo (<battery power="N"/>) o push
+        # battery: GetBatteryInfo reply (<battery power="N"/>) or push
         if td in ("BatteryInfo", "GetBatteryInfo") or "power" in attrs:
             m = re.search(r'power="(\d+)"', inner) or (
                 re.search(r'power="(\d+)"', str(attrs)) if "power" in attrs else None)
             if m:
                 self.battery = int(m.group(1))
 
-        # error: respuesta GetError (<error errno=.../> o attrs)
+        # error: GetError reply (<error errno=.../> or attrs)
         if td == "GetError" or "errno" in attrs:
             m = re.search(r'errno="(\d+)"', inner) or re.search(r'errno="(\d+)"', str(attrs))
             if m and m.group(1) not in ("0", ""):
@@ -138,16 +138,16 @@ class RobotState:
                 if self.status not in ("cleaning",):
                     self.status = "error"
 
-        # versión firmware: respuesta GetVersion = <ver name="FW">1.9.9</ver>
-        # (elemento hijo con el valor en TEXT — corpus 930 real; el attr
-        # ver= era la variante equivocada)
+        # firmware version: GetVersion reply = <ver name="FW">1.9.9</ver>
+        # (child element carrying the value as TEXT — real 930 corpus; the
+        # ver= attribute was the wrong variant)
         if td == "GetVersion":
             m = (re.search(r"<(?:[\w.-]+:)?ver[^>]*>([^<]+)</", inner)
                  or re.search(r'ver="([^"]+)"', inner))
             if m:
                 self.version = m.group(1)
 
-        # estado de limpieza
+        # cleaning state
         if td in ("CleanSt", "CleanReport", "GetCleanState"):
             st = attrs.get("st")
             if not st:
@@ -155,7 +155,7 @@ class RobotState:
                 st = m.group(1) if m else None
             if st:
                 self.status = self._map_clean_status({"st": st}, inner)
-            # stats: t = tiempo (s), a = area?
+            # stats: t = time (s), a = area?
             m = re.search(r't="(\d+)"', inner)
             if m:
                 self.clean_seconds = int(m.group(1))
@@ -167,13 +167,13 @@ class RobotState:
             elif "Idle" in inner and self.status not in ("cleaning", "paused"):
                 self.status = "idle"
 
-        # muros/zonas/habitaciones (respuesta GetMapSet o push)
+        # walls/zones/rooms (GetMapSet reply or push)
         if td == "MapSet":
             ms = parse_mapset_xml(attrs, inner)
             if ms is not None:
                 self.map_sets[ms.tp] = ms
 
-        # estadísticas (GetCleanStatistics/GetCleanSum — formato tolerante)
+        # statistics (GetCleanStatistics/GetCleanSum — lenient format)
         if td in ("GetCleanStatistics", "CleanStatistics", "GetCleanSum", "CleanSum"):
             stats = parse_stats_xml(attrs, inner)
             if stats:
@@ -189,7 +189,7 @@ class RobotState:
             "h": "docked", "i": "idle", "p": "paused",
         }.get(st[:1], "cleaning" if st else "idle")
 
-    # ---- ingesta de reports/respuestas JSON (robots MQTT, spec §3-§5) ----
+    # ---- JSON report/response ingestion (MQTT robots, spec §3-§5) ----
 
     @staticmethod
     def _canon_name(name: str) -> str:
@@ -201,10 +201,10 @@ class RobotState:
         return n[0].lower() + n[1:] if n else name
 
     def update_report(self, name: str, data: dict) -> None:
-        """Aplica un report iot/atr o respuesta p2p JSON al estado.
+        """Applies an iot/atr report or JSON p2p response to the state.
 
-        Reports (onXxx) y respuestas (getXxx) comparten forma de payload,
-        así que se tratan por igual: onBattery≈getBattery, onPos≈getPos_V2…
+        Reports (onXxx) and responses (getXxx) share payload shape, so
+        they are treated alike: onBattery≈getBattery, onPos≈getPos_V2…
         """
         if not isinstance(data, dict):
             return
@@ -213,12 +213,12 @@ class RobotState:
             return
         n = self._canon_name(name)
 
-        # batería: {value, isLow}
+        # battery: {value, isLow}
         if "value" in data and isinstance(data["value"], (int, float)) and (
                 n in ("battery",) or "isLow" in data):
             self.battery = int(data["value"])
 
-        # posición: {mid, deebotPos:{x,y,a}, chargePos:[{x,y,a}]}
+        # position: {mid, deebotPos:{x,y,a}, chargePos:[{x,y,a}]}
         pos = data.get("deebotPos")
         if isinstance(pos, dict) and "x" in pos:
             self.position = Position(float(pos["x"]), float(pos["y"]),
@@ -234,7 +234,7 @@ class RobotState:
             self.charger = Position(float(charge["x"]), float(charge["y"]),
                                     float(charge.get("a", 0)))
 
-        # estado de carga: {mode: slot_charging|idle|going|wire_charging}
+        # charge state: {mode: slot_charging|idle|going|wire_charging}
         mode = data.get("mode")
         if isinstance(mode, str) and n in ("chargeState",):
             if "going" in mode:
@@ -244,7 +244,7 @@ class RobotState:
             elif mode == "idle" and self.status not in ("cleaning", "paused"):
                 self.status = "idle"
 
-        # limpieza: {state, cleanState:{motionState, content{...}}}
+        # cleaning: {state, cleanState:{motionState, content{...}}}
         if n in ("cleanInfo",):
             cs = data.get("cleanState") or {}
             motion = cs.get("motionState") or data.get("state")
@@ -270,15 +270,15 @@ class RobotState:
             else:
                 self.error = None
 
-        # consumibles: {brush: N, sideBrush: N, heap: N, unitCare: N} (min restantes)
-        # se guardan con las claves internas 930 (Brush/SideBrush/…) para que
-        # HA y el panel funcionen igual con ambos protocolos
+        # consumables: {brush: N, sideBrush: N, heap: N, unitCare: N} (minutes left)
+        # stored under the 930 internal keys (Brush/SideBrush/…) so HA and
+        # the panel behave the same with both protocols
         for comp, total in LIFESPAN_TOTALS.items():
             if isinstance(data.get(comp), (int, float)):
                 internal = LIFESPAN_JSON_INTERNAL.get(comp, comp)
                 self.lifespans[internal] = {"left": int(data[comp]), "total": total}
 
-        # velocidad: {speed: 0-3}
+        # speed: {speed: 0-3}
         if isinstance(data.get("speed"), (int, float)) and n == "speed":
             self.fan_speed_json = int(data["speed"])
 
@@ -294,19 +294,19 @@ class RobotState:
                 if "total_time" in st:
                     self.clean_seconds = int(st["total_time"])
 
-        # muros/zonas/habitaciones (getMapSet/onMapSet → subsets)
+        # walls/zones/rooms (getMapSet/onMapSet → subsets)
         if n in ("mapSet",) and "subsets" in data:
             ms = parse_mapset_json(data)
             if ms is not None:
                 self.map_sets[ms.tp] = ms
 
-        # contorno de un subconjunto (getMapSubSet → value "x,y;x,y;…")
+        # subset outline (getMapSubSet → value "x,y;x,y;…")
         if n in ("mapSubSet",) and "value" in data:
             parse_subset_json(data, self.map_sets)
 
 
 class RobotCommander:
-    """Comandos 1:1 con los stanzas de la app (corpus + EcoRobotProtocol)."""
+    """Commands 1:1 with the app's stanzas (corpus + EcoRobotProtocol)."""
 
     def __init__(self, client, robot: RobotState):
         self.client = client
@@ -315,7 +315,7 @@ class RobotCommander:
     def _cmd(self, ctl: str, td: str = "", extra_attrs: dict | None = None) -> str:
         return self.client.send_command(self.robot.jid, ctl, td, extra_attrs)
 
-    # ---- limpieza ----
+    # ---- cleaning ----
 
     def start_clean(self, speed: str = "standard", clean_type: str = "auto") -> str:
         return self._cmd(
@@ -351,7 +351,7 @@ class RobotCommander:
             f'type="SpotArea" mid="{mid}" p="{rooms}" /></ctl>',
             "Clean")
 
-    # ---- movimiento ----
+    # ---- movement ----
 
     def dock(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="Charge"><charge type="go" /></ctl>', "Charge")
@@ -359,12 +359,12 @@ class RobotCommander:
     def move(self, action: str) -> str:
         return self._cmd(f'<ctl id="{{ctl_id}}" td="Move"><move act="{action}" /></ctl>', "Move")
 
-    # ---- sonido ----
+    # ---- sound ----
 
     def play_sound(self, sid: int = 30) -> str:
         return self._cmd(f'<ctl id="{{ctl_id}}" td="PlaySound" sid="{sid}" />', "PlaySound")
 
-    # ---- consultas ----
+    # ---- queries ----
 
     def get_pos(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="GetPos" />', "GetPos")
@@ -388,7 +388,7 @@ class RobotCommander:
         return self._cmd('<ctl id="{ctl_id}" name="FW" td="GetVersion" />', "GetVersion")
 
     def get_life_span(self, kind: str = "Brush") -> str:
-        # type en extra_attrs: el eco no lo repite y el parser lo usa de clave
+        # type in extra_attrs: the robot's echo omits it and the parser keys on it
         return self._cmd(f'<ctl id="{{ctl_id}}" td="GetLifeSpan" type="{kind}" />',
                          "GetLifeSpan", extra_attrs={"type": kind})
 
@@ -401,14 +401,14 @@ class RobotCommander:
     def get_device_position(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="GetDevicePosition" />', "GetDevicePosition")
 
-    # ---- mapa ----
+    # ---- map ----
 
     def get_map_m(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="GetMapM" />', "GetMapM")
 
     def pull_map_piece(self, pid: int) -> str:
-        # pid en extra_attrs: el eco del robot no lo repite, pero el handler
-        # de piezas lo necesita para colocar la MapP
+        # pid in extra_attrs: the robot's echo omits it, but the piece
+        # handler needs it to place the MapP
         return self._cmd(f'<ctl id="{{ctl_id}}" pid="{pid}" td="PullMP" />', "PullMP",
                          extra_attrs={"pid": str(pid)})
 
@@ -422,10 +422,10 @@ class RobotCommander:
         return self._cmd(f'<ctl id="{{ctl_id}}" td="GetTr" tf="{tf}" trid="{trid}" tt="{tt}" />', "GetTr")
 
     def get_map_set(self, tp: str = "vw") -> str:
-        """tp: vw=muros virtuales, sa=zonas, mw=zonas de fregado"""
+        """tp: vw=virtual walls, sa=zones, mw=mopping zones"""
         return self._cmd(f'<ctl id="{{ctl_id}}" td="GetMapSet" tp="{tp}" />', "GetMapSet")
 
-    # ---- idioma / hora / silent ----
+    # ---- language / time / silent ----
 
     def get_languages(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="GetLanguages" />', "GetLanguages")
@@ -470,16 +470,16 @@ class RobotCommander:
     def get_progress(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="GetProgress" />', "GetProgress")
 
-    # ---- mapa wifi / net ----
+    # ---- wifi map / net ----
 
     def get_map_wifi(self) -> str:
-        """Mapa de cobertura WiFi (MapType wa): mismo GetMapM pero tipo wa."""
+        """WiFi coverage map (MapType wa): same GetMapM but type wa."""
         return self._cmd('<ctl id="{ctl_id}" tp="wa" td="GetMapM" />', "GetMapM")
 
     def get_net_info(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="GetNetInfo" />', "GetNetInfo")
 
-    # ---- gestión de mapa / multi-piso ----
+    # ---- map management / multi-floor ----
 
     def if_have_map(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="IfHaveMap" />', "IfHaveMap")
@@ -491,7 +491,7 @@ class RobotCommander:
         return self._cmd('<ctl id="{ctl_id}" td="RecoverMap" />', "RecoverMap")
 
     def build_map(self, action: str = "pp") -> str:
-        """pp=preparar, r=reanudar, h=parar"""
+        """pp=prepare, r=resume, h=halt"""
         return self._cmd(f'<ctl id="{{ctl_id}}" td="BuildMap" act="{action}" />', "BuildMap")
 
     def get_build_map_state(self) -> str:
@@ -500,7 +500,7 @@ class RobotCommander:
     def rename_map(self, mid: str, name: str) -> str:
         return self._cmd(f'<ctl id="{{ctl_id}}" td="RenameM" mid="{mid}" n="{name}" />', "RenameM")
 
-    # ---- muros virtuales / zonas ----
+    # ---- virtual walls / zones ----
 
     def pull_map_set(self, tp: str, msid: str, mid: str, seq: int = 0) -> str:
         return self._cmd(
@@ -517,7 +517,7 @@ class RobotCommander:
             f'<ctl id="{{ctl_id}}" td="DelM" tp="{tp}" msid="{msid}" mid="{mid}" />',
             "DelM")
 
-    # ---- muros/zonas con nombres unificados (duck typing con MqttCommander) ----
+    # ---- walls/zones with unified names (duck typing with MqttCommander) ----
 
     @staticmethod
     def _fmt_coords(coords) -> str:
@@ -526,20 +526,20 @@ class RobotCommander:
         return str(coords)
 
     def add_wall(self, coords) -> str:
-        """Muro virtual: coords [x1,y1,x2,y2] mm (AddM tp=vw)."""
+        """Virtual wall: coords [x1,y1,x2,y2] mm (AddM tp=vw)."""
         return self.add_map_set("vw", "0", "", self._fmt_coords(coords))
 
     def del_wall(self, mid: str) -> str:
         return self.del_map_set("vw", "0", mid)
 
     def add_zone(self, coords) -> str:
-        """Zona no-fregar: coords [x1,y1,x2,y2] mm (AddM tp=mw)."""
+        """No-mop zone: coords [x1,y1,x2,y2] mm (AddM tp=mw)."""
         return self.add_map_set("mw", "0", "", self._fmt_coords(coords))
 
     def del_zone(self, mid: str) -> str:
         return self.del_map_set("mw", "0", mid)
 
-    # ---- volumen / sonido ----
+    # ---- volume / sound ----
 
     def get_volume(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="GetVolume" />', "GetVolume")
@@ -550,7 +550,7 @@ class RobotCommander:
     def set_mute(self, on: bool) -> str:
         return self._cmd(f'<ctl id="{{ctl_id}}" td="SetMute" mute="{int(on)}" />', "SetMute")
 
-    # ---- switches (t: g=continuo, b=DND, l=LED, cl=bloqueo infantil) ----
+    # ---- switches (t: g=continuous, b=DND, l=LED, cl=child lock) ----
 
     def set_on_off(self, t: str, on: bool) -> str:
         return self._cmd(f'<ctl id="{{ctl_id}}" td="SetOnOff" t="{t}" on="{int(on)}" />', "SetOnOff")
@@ -558,7 +558,7 @@ class RobotCommander:
     def get_on_off(self, t: str) -> str:
         return self._cmd(f'<ctl id="{{ctl_id}}" td="GetOnOff" t="{t}" />', "GetOnOff")
 
-    # ---- velocidad de limpieza directa ----
+    # ---- direct cleaning speed ----
 
     def get_clean_speed(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="GetCleanSpeed" />', "GetCleanSpeed")
@@ -566,13 +566,13 @@ class RobotCommander:
     def set_clean_speed(self, speed: str) -> str:
         return self._cmd(f'<ctl id="{{ctl_id}}" td="SetCleanSpeed" speed="{speed}" />', "SetCleanSpeed")
 
-    # ---- fregado (nivel de agua — el 930 lo soporta via protocolo compartido) ----
+    # ---- mopping (water level — the 930 supports it via the shared protocol) ----
 
     def get_water_permeability(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="GetWaterPermeability" />', "GetWaterPermeability")
 
     def set_water_permeability(self, level: int) -> str:
-        """level: 1-4 (bajo/alto)"""
+        """level: 1-4 (low/high)"""
         return self._cmd(f'<ctl id="{{ctl_id}}" td="SetWaterPermeability" v="{level}" />', "SetWaterPermeability")
 
     def get_water_box_info(self) -> str:

@@ -1,16 +1,16 @@
-"""Cliente XMPP minimal contra el servidor de Bumper (puerto 5223).
+"""Minimal XMPP client against Bumper's server (port 5223).
 
-Protocolo (validado contra bumper/xmppserver.py + corpus de la app):
-  1. TCP plano → <stream:stream> → features
-  2. <starttls/> → upgrade TLS (CA propio de Bumper)
-  3. nuevo stream → features (SASL PLAIN)
+Protocol (validated against bumper/xmppserver.py + the app corpus):
+  1. plain TCP → <stream:stream> → features
+  2. <starttls/> → TLS upgrade (Bumper's own CA)
+  3. new stream → features (SASL PLAIN)
   4. auth = base64("\\x00<uid>\\x00<pass>") + "/<resource>/<authcode>"
-     (con use_auth=False el servidor acepta cualquier authcode)
+     (with use_auth=False the server accepts any authcode)
   5. bind resource → session → presence → READY
-  6. responder pings del servidor (iq get ping → result)
+  6. answer the server's pings (iq get ping → result)
 
-Los frames del bot llegan como <iq type=set><query><ctl .../></query></iq>
-con from=<bot jid>: el servidor enruta a TODO cliente cuyo uid esté en to=.
+Bot frames arrive as <iq type=set><query><ctl .../></query></iq> with
+from=<bot jid>: the server routes to EVERY client whose uid is in to=.
 """
 
 from __future__ import annotations
@@ -30,12 +30,12 @@ STREAM_OPENER = (
     'xmlns="jabber:client" xmlns:com="com:ctl" version="1.0" to="ecouser.net">'
 )
 
-# callback(jid_emisor, ctl_attrs, children_xml)
+# callback(sender jid, ctl_attrs, children_xml)
 EventHandler = Callable[[str, dict, str], Awaitable[None]]
 
 
 def extract_stanzas(buf: str) -> tuple[list[str], str]:
-    """Corta stanzas completas <x>...</x> o <x/> del buffer; devuelve (stanzas, resto)."""
+    """Cuts complete stanzas <x>...</x> or <x/> from the buffer; returns (stanzas, remainder)."""
     out: list[str] = []
     while True:
         start = min(
@@ -44,14 +44,14 @@ def extract_stanzas(buf: str) -> tuple[list[str], str]:
         )
         if start == -1:
             break
-        # stanza auto-cerrada
+        # self-closing stanza
         self_close = buf.find("/>", start)
         close = buf.find(">", start)
         if self_close != -1 and self_close + 1 == close:
             end = close + 1
         else:
             tag = buf[start + 1 : buf.find(" ", start)]
-            if tag.endswith(">"):  # sin atributos
+            if tag.endswith(">"):  # no attributes
                 tag = tag[:-1]
             end = buf.find(f"</{tag}>")
             if end == -1:
@@ -81,19 +81,19 @@ class BumperXMPPClient:
         self._buf = ""
         self.ready = asyncio.Event()
         self._pending: dict[str, dict] = {}
-        self._iq_counter: int = 2600  # iq_id/ctl_id → td+attrs esperados (correlación)
+        self._iq_counter: int = 2600  # iq_id/ctl_id → expected td+attrs (correlation)
 
-    # ---------- transporte ----------
+    # ---------- transport ----------
 
     async def connect(self) -> None:
-        log.info("conectando a %s:%s", self.host, self.port)
+        log.info("connecting to %s:%s", self.host, self.port)
         self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
         self._send(STREAM_OPENER)
         await self._expect("starttls")
         self._send('<starttls xmlns="urn:ietf:params:xml:ns:xmpp-tls"/>')
         await self._expect("proceed")
         await self._starttls()
-        log.debug("TLS arriba")
+        log.debug("TLS up")
 
         self._buf = ""
         self._send(STREAM_OPENER)
@@ -103,7 +103,7 @@ class BumperXMPPClient:
             f'<auth xmlns="urn:ietf:params:xml:ns:xmpp-sasl">{token}/{self.resource}/0</auth>'
         )
         await self._expect("success")
-        log.info("autenticado como %s", self.uid)
+        log.info("authenticated as %s", self.uid)
 
         self._buf = ""
         self._send(STREAM_OPENER)
@@ -118,26 +118,26 @@ class BumperXMPPClient:
         await self._expect('type="result"')
         self._send("<presence/>")
         self.ready.set()
-        log.info("sesión XMPP lista: %s", self.jid)
+        log.info("XMPP session ready: %s", self.jid)
 
     async def _starttls(self) -> None:
         ctx = ssl.create_default_context(cafile=self.ca_file)
         ctx.check_hostname = False
-        # el CA de Bumper (generado con Go) no lleva AKI; el modo estricto de
-        # py>=3.14 lo rechaza — mantenemos verificación de cadena sin strict
+        # Bumper's CA (Go-generated) carries no AKI; py>=3.14's strict mode
+        # rejects it — keep chain verification without strict
         if hasattr(ssl, "VERIFY_X509_STRICT"):
             ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        # el servidor es py3.7: con TLS1.3 pierde datos post-handshake (bug
-        # conocido de start_tls en 3.7); la app original negocia 1.2 — igualamos
+        # the server is py3.7: with TLS1.3 it loses post-handshake data
+        # (known 3.7 start_tls bug); the original app negotiates 1.2 — match it
         ctx.maximum_version = ssl.TLSVersion.TLSv1_2
         loop = asyncio.get_running_loop()
         transport = await loop.start_tls(
             self.writer.transport, self.writer._protocol, ctx, server_hostname=None
         )
-        # mismo writer, nuevo transporte (si se crea otro StreamWriter, el
-        # viejo muere por GC y su __del__ aborta la conexión TLS)
+        # same writer, new transport (creating another StreamWriter would let
+        # the old one die by GC and its __del__ abort the TLS connection)
         self.writer._transport = transport
-        await asyncio.sleep(0.1)  # margen contra la carrera post-handshake
+        await asyncio.sleep(0.1)  # margin against the post-handshake race
 
     def _send(self, data: str) -> None:
         assert self.writer is not None
@@ -155,7 +155,7 @@ class BumperXMPPClient:
             buf += text
         return buf
 
-    # ---------- bucle de eventos ----------
+    # ---------- event loop ----------
 
     async def listen(self) -> None:
         assert self.reader is not None
@@ -166,7 +166,7 @@ class BumperXMPPClient:
             self._buf += data.decode(errors="replace")
             stanzas, self._buf = extract_stanzas(self._buf)
             if stanzas:
-                log.debug("stanzas recibidas: %d (buf %d)", len(stanzas), len(self._buf))
+                log.debug("stanzas received: %d (buf %d)", len(stanzas), len(self._buf))
                 for st in stanzas:
                     log.debug("<< %s", st[:140])
             for s in stanzas:
@@ -176,10 +176,10 @@ class BumperXMPPClient:
         try:
             xml = ET.fromstring(s)
         except ET.ParseError as e:
-            log.warning("stanza no parseable (%s): %.180s", e, s)
+            log.warning("unparseable stanza (%s): %.180s", e, s)
             return
         if xml.tag.endswith("iq"):
-            if xml.get("type") == "get":  # ping del servidor
+            if xml.get("type") == "get":  # server ping
                 iq_id = xml.get("id", "")
                 self._send(f'<iq type="result" id="{iq_id}" to="ecouser.net"/>')
                 return
@@ -188,24 +188,24 @@ class BumperXMPPClient:
     def _handle_ctl(self, xml: ET.Element) -> None:
         frm = xml.get("from", "")
         if "m=" in ET.tostring(xml, encoding="unicode")[:400]:
-            log.debug("frame con m=: %s...", ET.tostring(xml, encoding="unicode")[:300])
+            log.debug("frame with m=: %s...", ET.tostring(xml, encoding="unicode")[:300])
         iq_id = xml.get("id", "")
         for child in xml:
             if not child.tag.endswith("query"):
                 continue
             for ctl in child:
                 attrs = dict(ctl.attrib)
-                # Correlación de la DIALECTA ECO del 930: responde sin td
-                # (ni pid) pero repite el CTL id que le mandamos. Se inyectan
-                # el td esperado y los attrs de la petición (p.ej. pid de un
-                # PullMP → el handler lo procesa como MapP con su pid).
+                # 930 ECO dialect correlation: the robot replies without td
+                # (or pid) but echoes back the CTL id we sent. Inject the
+                # expected td plus the request's attrs (e.g. a PullMP's
+                # pid — the handler then processes it as a MapP with it).
                 pending = self._pending.pop(f"c:{attrs.get('id')}", None) \
                     or self._pending.pop(iq_id, None)
                 if pending:
                     attrs.setdefault("td", pending["td"])
                     for k, v in pending.get("attrs", {}).items():
                         attrs.setdefault(k, v)
-                    # limpiar la clave hermana (evita fuga en _pending)
+                    # clear the sibling key (avoids a _pending leak)
                     self._pending.pop(str(pending.get("_iq", "")), None)
                 inner = "".join(ET.tostring(c, encoding="unicode") for c in ctl)
                 if self.on_event:
@@ -216,21 +216,21 @@ class BumperXMPPClient:
             assert self.on_event is not None
             await self.on_event(frm, attrs, inner)
         except Exception:  # noqa: BLE001
-            log.exception("error en handler de evento")
+            log.exception("error in event handler")
 
-    # ---------- comandos ----------
+    # ---------- commands ----------
 
     def send_command(self, bot_jid: str, ctl_template: str, td: str = "",
                      extra_attrs: dict | None = None) -> str:
-        """Envuelve un ctl plantilla (con {ctl_id}) en el iq EXACTO de la app.
+        """Wraps a ctl template (with {ctl_id}) in the app's EXACT iq.
 
-        Formato corpus: <iq xmlns:ns0="com:ctl" from=... id=<decimal> to=...
+        Corpus format: <iq xmlns:ns0="com:ctl" from=... id=<decimal> to=...
         type="set"><query>{ctl}</query></iq>
 
-        La correlación de la respuesta se guarda por CTL id (el robot repite
-        ese id en sus ecos, no el iq id) y por iq id (por si acaso).
-        extra_attrs: attrs de la petición a reinyectar en la respuesta
-        (p.ej. {"pid": N} en un PullMP — el eco no trae pid).
+        Reply correlation is stored by CTL id (the robot echoes that id
+        in its replies, not the iq id) and by iq id (just in case).
+        extra_attrs: request attrs to re-inject into the reply (e.g.
+        {"pid": N} on a PullMP — the echo carries no pid).
         """
         iq_id = str(self._iq_counter)
         self._iq_counter += 1

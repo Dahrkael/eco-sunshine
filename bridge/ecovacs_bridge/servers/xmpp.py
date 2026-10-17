@@ -1,19 +1,19 @@
-"""Servidor XMPP embebido — vendorizado de bumper/xmppserver.py (Fase FB).
+"""Embedded XMPP server — vendored from bumper/xmppserver.py (Phase FB).
 
-El código de wire (handshake, SASL, bind, routing de iq/ctl, ping) es el
-de Bumper PROBADO contra robots reales — se copia casi literal. Cambios
-quirúrgicos respecto al original:
+The wire code (handshake, SASL, bind, iq/ctl routing, ping) is Bumper's,
+TESTED against real robots — copied almost verbatim. Surgical changes
+from the original:
 
-- sin `import bumper`: el registro de bots/clients es DeviceRegistry
-  (servers/registry.py), inyectado por el constructor
+- no `import bumper`: the bots/clients registry is DeviceRegistry
+  (servers/registry.py), injected via the constructor
 - py3.10+: xml.getchildren() → list(xml); asyncio.Task() → create_task;
   get_event_loop() → get_running_loop()
-- un error del listener ya no tumba el proceso (bumper.shutdown() fuera)
-- certs por parámetro (ServersConfig) en vez de globales de bumper
+- a listener error no longer kills the process (bumper.shutdown() gone)
+- certs passed as parameters (ServersConfig) instead of bumper globals
 
-Todo lo demás (incluidos los raros replace de namespaces de ET, necesarios
-para que los frames lleguen idénticos a como los genera la app) queda
-INTACTO a propósito: es el dialecto exacto que hablan los robots.
+Everything else (including ET's odd namespace replaces, needed so frames
+arrive identical to what the app generates) stays INTACT on purpose:
+it is the exact dialect the robots speak.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ class XMPPServer:
     started = False
 
     async def start_async_server(self) -> None:
-        log.info("XMPP embebido en %s:%s", *self.address)
+        log.info("embedded XMPP on %s:%s", *self.address)
         try:
             loop = asyncio.get_running_loop()
             self.server = await loop.create_server(
@@ -58,14 +58,14 @@ class XMPPServer:
             self.server_coro = loop.create_task(self.server.serve_forever())
             self.started = True
         except PermissionError as e:
-            log.error("XMPP embebido sin permiso: %s", e.strerror)
+            log.error("embedded XMPP without permission: %s", e.strerror)
         except asyncio.CancelledError:
             pass
         except Exception:  # noqa: BLE001
-            log.exception("XMPP embebido no pudo arrancar")
+            log.exception("embedded XMPP failed to start")
 
     def disconnect(self) -> None:
-        log.debug("XMPP embebido: cerrando %d clientes", len(self.clients))
+        log.debug("embedded XMPP: closing %d clients", len(self.clients))
         for client in self.clients:
             client._disconnect()
         self.exit_flag = True
@@ -81,7 +81,7 @@ class XMPPServerProtocol(asyncio.Protocol):
         self.server = server
 
     def connection_made(self, transport):
-        if self.aclient:  # upgrade a TLS: reutiliza el cliente existente
+        if self.aclient:  # TLS upgrade: reuse the existing client
             log.debug("Upgraded connection for %s", self.aclient.address)
             self.aclient.transport = transport
         else:
@@ -97,12 +97,12 @@ class XMPPServerProtocol(asyncio.Protocol):
         import time as _t
 
         self.aclient.disconnected_at = _t.time()
-        log.info("conexión cerrada (%s:%s | %s | bot=%s tras %.0fs): %s",
+        log.info("connection closed (%s:%s | %s | bot=%s after %.0fs): %s",
                  self.aclient.address[0], self.aclient.address[1],
                  self.aclient.bumper_jid or "?",
                  self.aclient.type == self.aclient.BOT,
                  _t.time() - getattr(self.aclient, "authenticated_at", _t.time()),
-                 error or "EOF/cierre del peer")
+                 error or "peer EOF/close")
         self.aclient._set_state("DISCONNECT")
         log.debug("End Connection for (%s:%s | %s)", self.aclient.address[0],
                   self.aclient.address[1], self.aclient.bumper_jid)
@@ -111,10 +111,10 @@ class XMPPServerProtocol(asyncio.Protocol):
         try:
             self.aclient._parse_data(data)
         except UnicodeDecodeError:
-            # carrera del handshake TLS: bytes del ClientHello llegando al
-            # transporte plano mientras start_tls hace el relevo — se pierden
-            # (el handshake los re-procesa el nuevo transporte)
-            log.debug("bytes no-UTF8 pre-TLS ignorados (%d)", len(data))
+            # TLS handshake race: ClientHello bytes reaching the plain
+            # transport while start_tls does the handover — they are lost
+            # (the handshake re-processes them on the new transport)
+            log.debug("non-UTF8 pre-TLS bytes ignored (%d)", len(data))
 
 
 class XMPPAsyncClient:
@@ -143,7 +143,7 @@ class XMPPAsyncClient:
         self.log_sent_message = True
         self.log_incoming_data = True
 
-    # ---------- envío ----------
+    # ---------- sending ----------
 
     def send(self, command: str) -> None:
         try:
@@ -152,7 +152,7 @@ class XMPPAsyncClient:
                           self.address[1], self.bumper_jid, command[:200])
             self.transport.write(command.encode())
         except Exception:  # noqa: BLE001
-            log.exception("send falló")
+            log.exception("send failed")
 
     def _disconnect(self) -> None:
         try:
@@ -164,9 +164,9 @@ class XMPPAsyncClient:
                 self.server.registry.client_set_xmpp(client["resource"], False)
             self.transport.close()
         except Exception:  # noqa: BLE001
-            log.exception("disconnect falló")
+            log.exception("disconnect failed")
 
-    # ---------- estado ----------
+    # ---------- state ----------
 
     def _tag_strip_uri(self, tag: str) -> str:
         if tag and tag[0] == "{":
@@ -183,7 +183,7 @@ class XMPPAsyncClient:
             if new_state == 5:
                 self._disconnect()
         except Exception:  # noqa: BLE001
-            log.exception("state change falló")
+            log.exception("state change failed")
 
     # ---------- iq/ctl ----------
 
@@ -212,7 +212,7 @@ class XMPPAsyncClient:
                     XMPPServerProtocol.client_id = ctl.get("admin")
                     return
 
-            # forward a su destinatario
+            # forward to its recipient
             for client in XMPPServer.clients:
                 if (client.bumper_jid != self.bumper_jid
                         and client.state == client.READY):
@@ -220,8 +220,8 @@ class XMPPAsyncClient:
                     if "from" not in xml.attrib:
                         xml.attrib["from"] = f"{self.bumper_jid}"
                     rxmlstring = ET.tostring(xml).decode("utf-8")
-                    # limpiar namespaces que añade ET — necesario para que el
-                    # frame llegue idéntico al que genera la app original
+                    # strip namespaces ET adds — needed so the frame
+                    # arrives identical to what the original app generates
                     rxmlstring = rxmlstring.replace("xmlns:ns0=", "xmlns=")
                     rxmlstring = rxmlstring.replace("ns0:", "")
                     rxmlstring = rxmlstring.replace('iq xmlns="com:ctl"', "iq")
@@ -232,11 +232,11 @@ class XMPPAsyncClient:
                             log.debug("Sending ctl to bot: %s", rxmlstring[:200])
                             client.send(rxmlstring)
         except Exception:  # noqa: BLE001
-            log.exception("handle_ctl falló")
+            log.exception("handle_ctl failed")
 
     def _handle_ping(self, xml, data: str) -> None:
         try:
-            if xml.get("to").find("@") == -1:  # ping al servidor
+            if xml.get("to").find("@") == -1:  # ping to the server
                 self.send('<iq type="result" id="{}" from="{}" />'.format(
                     xml.get("id"), xml.get("to")))
                 return
@@ -256,7 +256,7 @@ class XMPPAsyncClient:
                     if client.uid.lower() in pingto.lower():
                         client.send(pingstring)
         except Exception:  # noqa: BLE001
-            log.exception("handle_ping falló")
+            log.exception("handle_ping failed")
 
     async def schedule_ping(self, seconds: float) -> None:
         if not self.state == 5:
@@ -275,9 +275,9 @@ class XMPPAsyncClient:
 
             if ("errno='103'" in data
                     and self.type == self.BOT):
-                # robot estaba en la nube real: dar permisos al usuario local
-                # (misma receta que Bumper)
-                log.info("bot sin permisos para el usuario — aplicando receta AddUser/SetAC")
+                # robot was on the real cloud: grant permissions to the
+                # local user (same recipe as Bumper)
+                log.info("bot lacks permissions for the user — applying the AddUser/SetAC recipe")
                 try:
                     xquery = list(xml)
                     ctl = list(xquery[0])
@@ -301,7 +301,7 @@ class XMPPAsyncClient:
                             '<ac name="clean" allow="1"/></acs></ctl></query></iq>'.format(
                                 uuid.uuid4().hex[:8], adminuser, self.bumper_jid, newuser))
                 except Exception:  # noqa: BLE001
-                    log.exception("receta AddUser falló")
+                    log.exception("AddUser recipe failed")
                 return
 
             rxmlstring = ET.tostring(xml).decode("utf-8")
@@ -311,8 +311,8 @@ class XMPPAsyncClient:
             rxmlstring = rxmlstring.replace("<query", '<query xmlns="com:ctl"')
 
             if self.type == self.BOT and ctl_to == "de.ecorobot.net":
-                # broadcast del robot (p.ej. BatteryInfo) → todos los clients
-                log.debug("broadcast de.ecorobot.net → todos")
+                # robot broadcast (e.g. BatteryInfo) → all clients
+                log.debug("broadcast de.ecorobot.net → all")
                 for client in XMPPServer.clients:
                     client.send(rxmlstring)
 
@@ -330,7 +330,7 @@ class XMPPAsyncClient:
                         log.debug("Sending from %s to client %s", self.uid, client.uid)
                         client.send(rxmlstring)
         except Exception:  # noqa: BLE001
-            log.exception("handle_result falló")
+            log.exception("handle_result failed")
 
     # ---------- handshake ----------
 
@@ -343,7 +343,7 @@ class XMPPAsyncClient:
                         sc = text.find("to=")
                         ec = text.find(".ecorobot.net")
                         if ec > -1:
-                            # class del bot en el to= del stream (SERIAL@CLS…)
+                            # bot class in the stream's to= (SERIAL@CLS…)
                             self.devclass = text[sc + 4: ec]
                         self.send(
                             '<stream:stream xmlns:stream="http://etherx.jabber.org/streams" '
@@ -384,7 +384,7 @@ class XMPPAsyncClient:
                     if xml.tag == "iq" and child == "bind":
                         self._handle_bind(xml)
         except Exception:  # noqa: BLE001
-            log.exception("handle_connect falló")
+            log.exception("handle_connect failed")
 
     async def _handle_starttls(self, data) -> None:
         try:
@@ -401,14 +401,15 @@ class XMPPAsyncClient:
                     transport, protocol, ssl_ctx, server_side=True)
                 protocol.connection_made(new_transport)
         except Exception:  # noqa: BLE001
-            log.exception("starttls falló")
+            log.exception("starttls failed")
 
     def _handle_sasl_auth(self, xml) -> None:
         try:
             # auth = b64("\x00uid\x00resource") + "/resource/authcode"
-            # El token b64 termina en su padding '=' (o es múltiplo de 4 sin
-            # él): separar token y tail ANTES de decodificar. py3.7 tragaba
-            # el conjunto con basura; py3.14 es estricto ("Incorrect padding")
+            # The b64 token ends with its '=' padding (or is a multiple of
+            # 4 without it): split token and tail BEFORE decoding. py3.7
+            # swallowed the whole thing as garbage; py3.14 is strict
+            # ("Incorrect padding")
             text = xml.text or ""
             eq = text.find("=")
             if eq != -1:
@@ -419,7 +420,7 @@ class XMPPAsyncClient:
             decoded = base64.b64decode(token)
             fields = decoded.split(b"\x00")
             username = fields[1].decode("utf-8", "ignore") if len(fields) > 1 else ""
-            # resource: dentro del token (2º campo \x00) o en el tail /res/ac
+            # resource: inside the token (2nd \x00 field) or in the tail /res/ac
             if len(fields) > 2:
                 resource = fields[2].decode("utf-8", "ignore")
             else:
@@ -429,14 +430,14 @@ class XMPPAsyncClient:
             self.uid = username
             self.clientresource = resource
 
-            if self.devclass:  # es un bot (class en el to= del stream)
+            if self.devclass:  # it is a bot (class in the stream's to=)
                 self.server.registry.bot_add(self.uid, self.uid, self.devclass,
                                              "atom", "eco-legacy")
                 self.type = self.BOT
                 import time as _t
 
                 self.authenticated_at = _t.time()
-                log.info("bot autenticado SN=%s clase=%s", self.uid, self.devclass)
+                log.info("bot authenticated SN=%s class=%s", self.uid, self.devclass)
                 self.send('<success xmlns="urn:ietf:params:xml:ns:xmpp-sasl"/>')
                 self._set_state("INIT")
             else:
@@ -444,13 +445,13 @@ class XMPPAsyncClient:
                 if reg.check_authcode(self.uid, authcode) or not reg.use_auth:
                     self.type = self.CONTROLLER
                     reg.client_add(self.uid, "bumper", self.clientresource)
-                    log.info("client autenticado %s/%s", self.uid, self.clientresource)
+                    log.info("client authenticated %s/%s", self.uid, self.clientresource)
                     self._set_state("INIT")
                     self.send('<success xmlns="urn:ietf:params:xml:ns:xmpp-sasl"/>')
                 else:
                     self.send('<response xmlns="urn:ietf:params:xml:ns:xmpp-sasl"/>')
         except Exception:  # noqa: BLE001
-            log.exception("sasl_auth falló")
+            log.exception("sasl_auth failed")
 
     def _handle_bind(self, xml) -> None:
         try:
@@ -477,7 +478,7 @@ class XMPPAsyncClient:
             self._set_state("BIND")
             self.send(res)
         except Exception:  # noqa: BLE001
-            log.exception("bind falló")
+            log.exception("bind failed")
 
     def _handle_session(self, xml) -> None:
         res = '<iq type="result" id="{}" />'.format(xml.get("id"))
@@ -487,7 +488,7 @@ class XMPPAsyncClient:
 
     def _handle_presence(self, xml) -> None:
         if len(xml) and self._tag_strip_uri(xml[0].tag) == "status":
-            # presencia de bot (hello world) → dummy + GetDeviceInfo
+            # bot presence (hello world) → dummy + GetDeviceInfo
             self.send(f'<presence to="{self.bumper_jid}"> dummy </presence>')
             if self.type == self.BOT:
                 self.send(
@@ -531,7 +532,7 @@ class XMPPAsyncClient:
                     item.clear()
         except ET.ParseError as e:
             if "no element found" in e.msg:
-                # stream sin cerrar (handshake): normal en XMPP
+                # unclosed stream (handshake): normal in XMPP
                 if "<stream:stream " in newdata:
                     if self.state in (self.CONNECT, self.INIT):
                         self._handle_connect(newdata.encode("utf-8"))
@@ -550,7 +551,7 @@ class XMPPAsyncClient:
                 else:
                     log.error("xml parse error - %s - %s", newdata[:200], e)
         except Exception:  # noqa: BLE001
-            log.exception("parse_data falló")
+            log.exception("parse_data failed")
 
     def _handle_iq(self, xml, data: str) -> None:
         child = self._tag_strip_uri(xml[0].tag) if len(xml) else None

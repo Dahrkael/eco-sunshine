@@ -1,4 +1,4 @@
-"""Configuración del bridge (TOML)."""
+"""Bridge configuration (TOML)."""
 
 import os
 from dataclasses import dataclass, field
@@ -14,7 +14,7 @@ except ImportError:  # py<3.11
 class BumperConfig:
     host: str = "localhost"
     port: int = 5223
-    uid: str = "fuid_tmpuser"  # mismo uid que la app → routing del bot
+    uid: str = "fuid_tmpuser"  # same uid as the app → bot routing
     resource: str = "bridge"
     ca_file: str = "data/certs/ca.crt"
 
@@ -30,40 +30,41 @@ class MQTTConfig:
 
 @dataclass
 class BumperMQTTConfig:
-    """Conexión al broker MQTT de Bumper (robots eco-ng / T8+).
+    """Connection to Bumper's MQTT broker (eco-ng / T8+ robots).
 
-    Hoy apunta al contenedor Bumper; cuando Bumper se absorba en el bridge,
-    apuntará a 127.0.0.1 del broker embebido (docs/absorcion-bumper.md).
+    Currently points at the external Bumper container; once Bumper is
+    absorbed into the bridge it will point at the embedded broker on
+    127.0.0.1 (docs/absorcion-bumper.md).
     """
     host: str = "localhost"
     port: int = 8883
     ca_file: str = "data/certs/ca.crt"
     enabled: bool = False
-    # None = TLS si puerto 8883 (heurístico histórico); el serve lo fija a
-    # True cuando arranca el broker embebido (puerto puede ser otro)
+    # None = TLS iff port 8883 (legacy heuristic); serve pins it to True
+    # when it starts the embedded broker (which may use another port)
     tls: bool | None = None
-    # robots conocidos (did@class/res) para adoptar sin esperar su primer report
+    # known robots (did@class/res) to adopt without waiting for their first report
     robots: list[str] = field(default_factory=list)
 
 
 @dataclass
 class ServersConfig:
-    """Servidores embebidos (absorción de Bumper, docs/absorcion-bumper.md).
+    """Embedded servers (Bumper absorption, docs/absorcion-bumper.md).
 
-    Cada componente se enciende por separado — el bridge arranca SOLO lo
-    que necesita. Mientras un servidor esté off, su cliente del bridge
-    sigue apuntando al host externo ([bumper]/[bumper_mqtt]).
+    Each component is enabled separately — the bridge starts ONLY what
+    it needs. While a server is off, its bridge client keeps pointing
+    at the external host ([bumper]/[bumper_mqtt]).
     """
-    # :8007 — bootstrap del robot (POST lookup.do → IP del XMPP). Diminuto
-    # e imprescindible: el firmware lo pide en cada arranque.
+    # :8007 — robot bootstrap (POST lookup.do → XMPP IP). Tiny but
+    # essential: the firmware requests it on every boot.
     lookup: bool = False
-    # :5223 — servidor XMPP (robots era 930) — FA/FB
+    # :5223 — XMPP server (930-era robots) — FA/FB
     xmpp: bool = False
-    # :8883 — broker MQTT eco-ng — FC
+    # :8883 — eco-ng MQTT broker — FC
     mqtt: bool = False
-    # :443 — API de la app Ecovacs (login/dispositivos) — FD, OFF por defecto
+    # :443 — Ecovacs app API (login/devices) — FD, OFF by default
     conf: bool = False
-    # panel web del bridge (nativo, no absorbido)
+    # bridge web panel (native, not absorbed)
     panel: bool = True
 
     listen: str = "0.0.0.0"
@@ -71,9 +72,9 @@ class ServersConfig:
     xmpp_port: int = 5223
     mqtt_port: int = 8883
     conf_port: int = 443
-    # IP que se anuncia a robots/app (como BUMPER_ANNOUNCE_IP de Bumper)
+    # IP announced to robots/app (like Bumper's BUMPER_ANNOUNCE_IP)
     announce_ip: str = ""
-    # TLS de los servidores que lo usan (xmpp/mqtt/conf)
+    # TLS material for the servers that use it (xmpp/mqtt/conf)
     ca_file: str = "data/certs/ca.crt"
     server_cert: str = "data/certs/server.crt"
     server_key: str = "data/certs/server.key"
@@ -85,19 +86,19 @@ class Config:
     mqtt: MQTTConfig = field(default_factory=MQTTConfig)
     bumper_mqtt: BumperMQTTConfig = field(default_factory=BumperMQTTConfig)
     servers: ServersConfig = field(default_factory=ServersConfig)
-    # vacío = auto-descubrir cualquier bot que envíe frames
+    # empty = auto-discover any bot that sends frames
     robots: list[str] = field(default_factory=list)
     panel_port: int = 8181
     panel_host: str = "0.0.0.0"
-    # persistencia de piezas de mapa + posiciones (sobrevive reinicios sin
-    # robot); vacío = sin persistencia
+    # map pieces + positions persistence (survives restarts without the
+    # robot); empty = no persistence
     state_file: str = ""
 
 
 def load_config(path: str | None) -> Config:
     cfg = Config()
     if not path or tomllib is None or not Path(path).exists():
-        _apply_env(cfg)  # el fallback de entorno aplica también sin toml
+        _apply_env(cfg)  # env fallback applies even without a toml
         return cfg
     with open(path, "rb") as f:
         raw = tomllib.load(f)
@@ -117,14 +118,14 @@ def load_config(path: str | None) -> Config:
 
 
 def _apply_env(cfg: Config) -> None:
-    """Fallbacks por variable de entorno.
+    """Environment variable fallbacks.
 
-    El TOML no puede leer el entorno y hay valores que el despliegue
-    (docker-compose) conoce en el momento de arrancar el contenedor:
+    TOML cannot read the environment, and some values are only known
+    when the container starts (docker-compose):
 
-    - ``DEEBOT_ANNOUNCE_IP`` → ``servers.announce_ip`` si éste viene vacío
-      (equivalente del BUMPER_ANNOUNCE_IP de Bumper; el compose inyecta
-      ``DEEBOT_ANNOUNCE_IP: ${BUMPER_ANNOUNCE_IP}`` del ``.env``)
+    - ``DEEBOT_ANNOUNCE_IP`` → ``servers.announce_ip`` when empty
+      (Bumper's BUMPER_ANNOUNCE_IP equivalent; compose injects
+      ``DEEBOT_ANNOUNCE_IP: ${BUMPER_ANNOUNCE_IP}`` from ``.env``)
     """
     if not cfg.servers.announce_ip:
         env_ip = os.environ.get("DEEBOT_ANNOUNCE_IP", "").strip()

@@ -1,16 +1,15 @@
-"""Registro de modelos soportados por el bridge — extraído del decompile del APK.
+"""Registry of robot models supported by the bridge — extracted from the APK decompile.
 
-Fuente: IOTDeviceType.java (enum de dispositivos) + EcoRobotFactory.java
-(mapping dispositivo→driver) + análisis de cada driver (capabilities).
+Source: IOTDeviceType.java (device enum) + EcoRobotFactory.java
+(device→driver mapping) + per-driver capability analysis.
 
-Detección: el JID del robot lleva el dominio de la clase
-(SERIAL@CLASE.ecorobot.net/atom). La clase identifica el modelo.
+Detection: the robot's JID carries its class as the domain
+(SERIAL@CLASS.ecorobot.net/atom); the class identifies the model.
 
-Protocolos:
-  - EcoRobotProtocol (v1): XML sobre XMPP — generación 2016-2018
-  - EcoRobotProtocol2: JSON sobre XMPP — transición, algunos modelos
-  (ambos funcionan a través de Bumper sin cambios en el bridge;
-  el vocabulario de tds es mayormente compartido)
+Protocols:
+  - EcoRobotProtocol (v1): XML over XMPP — 2016-2018 generation
+  - EcoRobotProtocol2: JSON over XMPP — transition era, some models
+  (both work through Bumper unchanged; the td vocabulary is mostly shared)
 """
 
 from __future__ import annotations
@@ -33,7 +32,7 @@ class ModelInfo:
     consumables: list[str] = field(default_factory=lambda: ["Brush", "SideBrush", "DustCaseHeap", "AirFilter"])
     map_types: list[str] = field(default_factory=lambda: ["st", "wa"])
     notes: str = ""
-    # "xmpp" (era 930, XML) | "mqtt" (eco-ng T8+, JSON — spec mqtt-json-spec.md)
+    # "xmpp" (930 era, XML) | "mqtt" (eco-ng T8+, JSON — see mqtt-json-spec.md)
     protocol: str = "xmpp"
 
     @property
@@ -43,12 +42,12 @@ class ModelInfo:
 
 @dataclass(frozen=True)
 class DeviceId:
-    """Identidad unificada de un robot — la semilla del registro de
-    dispositivos que sustituirá a bumper.bot_add()/SQLite cuando Bumper
-    se absorba en el bridge (ver docs/absorcion-bumper.md).
+    """Unified robot identity — the seed of the device registry that will
+    replace bumper.bot_add()/SQLite once Bumper is absorbed into the
+    bridge (see docs/absorcion-bumper.md).
 
-    XMPP: sn=serial, class del JID (ej "115"), resource="atom"
-    MQTT: sn=did (UUID del servidor), class 6 chars (ej "yna5xh"), resource="axm"
+    XMPP: sn=serial, class from the JID (e.g. "115"), resource="atom"
+    MQTT: sn=did (server-assigned UUID), 6-char class (e.g. "yna5xh"), resource="axm"
     """
 
     sn: str
@@ -58,17 +57,17 @@ class DeviceId:
 
     @property
     def key(self) -> str:
-        """Clave canónica para los dicts de robots/commanders del serve."""
+        """Canonical key for the serve's robots/commanders dicts."""
         return f"{self.sn}@{self.device_class}/{self.resource}"
 
     @property
     def jid(self) -> str:
-        """JID XMPP completo (solo tiene sentido con protocol='xmpp')."""
+        """Full XMPP JID (only meaningful with protocol='xmpp')."""
         return f"{self.sn}@{self.device_class}.ecorobot.net/{self.resource}"
 
     @staticmethod
     def from_jid(jid: str) -> "DeviceId":
-        """E000105701860607AB7@115.ecorobot.net/atom → DeviceId xmpp."""
+        """E000105701860607AB7@115.ecorobot.net/atom → xmpp DeviceId."""
         local, _, rest = jid.partition("@")
         cls = rest.split(".")[0] if rest else ""
         resource = rest.split("/", 1)[1] if "/" in rest else "atom"
@@ -76,7 +75,7 @@ class DeviceId:
 
     @staticmethod
     def from_key(key: str, protocol: str = "mqtt") -> "DeviceId":
-        """{sn}@{cls}/{res} → DeviceId (por defecto mqtt: clave de topic MQTT)."""
+        """{sn}@{cls}/{res} → DeviceId (defaults to mqtt: MQTT topic key)."""
         local, _, rest = key.partition("@")
         cls, _, resource = rest.partition("/")
         return DeviceId(sn=local, device_class=cls, resource=resource or "axm",
@@ -95,28 +94,28 @@ def _m(jid: str, slug: str, display: str, driver: str = "",
 
 
 MODELS: dict[str, ModelInfo] = dict([
-    # ═══ DR930 (Protocol v1, LDS, fregado con nivel de agua) ═══
+    # ═══ DR930 (Protocol v1, LDS, mopping with water level) ═══
     _m("115", "ozmo930", "Deebot OZMO 930", "DR930", mop=True, water=True,
        notes="LDS, fregado mecánico con nivel de agua, SpotArea"),
     _m("139", "ozmo930cn", "Deebot OZMO 930 (CN)", "DR930", mop=True, water=True),
     _m("lbw54s", "de5g", "Deebot DE5G", "DE5G"),
 
-    # ═══ DR920 (Protocol v1, LDS, fregado con nivel de agua) ═══
+    # ═══ DR920 (Protocol v1, LDS, mopping with water level) ═══
     _m("116", "ozmo920", "Deebot OZMO 920", "DR920", mop=True, water=True),
 
-    # ═══ DR95a (Protocol v1, LDS, sin fregado) ═══
+    # ═══ DR95a (Protocol v1, LDS, no mopping) ═══
     _m("113", "dr95", "Deebot 950/955", "DR95a"),
     _m("118", "dr96", "Deebot 960/965", "DR95a"),
     _m("117", "dr98", "Deebot 980", "DR95a"),
 
-    # ═══ DG720 (Protocol v1, LDS, fregado con nivel de agua) ═══
+    # ═══ DG720 (Protocol v1, LDS, mopping with water level) ═══
     _m("119", "dg720", "Deebot DG720", "DG720", mop=True, water=True),
     _m("156", "dd37", "Deebot DD37", "DG720"),
 
-    # ═══ DG726 (Protocol v1, fregado con nivel de agua) ═══
+    # ═══ DG726 (Protocol v1, mopping with water level) ═══
     _m("130", "dg726", "Deebot DG726", "DG726", mop=True, water=True),
 
-    # ═══ DG622 / DN622 (Protocol2, fregado con nivel de agua) ═══
+    # ═══ DG622 / DN622 (Protocol2, mopping with water level) ═══
     _m("132", "dg622", "Deebot DG622", "DG622", mop=True, water=True),
     _m("126", "dn622", "Deebot DN622", "DN622", mop=True, water=True),
 
@@ -126,7 +125,7 @@ MODELS: dict[str, ModelInfo] = dict([
     # ═══ DN79S (Protocol v1) ═══
     _m("155", "dn79s", "Deebot N79S", "DN79S"),
 
-    # ═══ DH43 (Protocol2, fregado con nivel de agua) ═══
+    # ═══ DH43 (Protocol2, mopping with water level) ═══
     _m("133", "dh43", "Deebot DH43", "DH43", mop=True, water=True),
 
     # ═══ DH45 ═══
@@ -139,10 +138,10 @@ MODELS: dict[str, ModelInfo] = dict([
     # ═══ Mini2 (Protocol2) ═══
     _m("142", "mini2", "Deebot Mini2", "Mini2"),
 
-    # ═══ DT87G (híbrido: usa AMBOS Protocol y Protocol2) ═══
+    # ═══ DT87G (hybrid: uses BOTH Protocol and Protocol2) ═══
     _m("153", "dt87g", "Deebot T87", "DT87G"),
 
-    # ═══ Slim family (Protocol2 mayormente) ═══
+    # ═══ Slim family (mostly Protocol2) ═══
     _m("123", "slim", "Deebot Slim", "Slim"),
     _m("134", "dd30", "Deebot DD30", "Slim"),
     _m("135", "dh36", "Deebot DH36", "Slim"),
@@ -175,9 +174,9 @@ MODELS: dict[str, ModelInfo] = dict([
     _m("162", "db30", "Conga DB30", "ChaoBao3"),
 ])
 
-# ═══ Robots eco-ng (MQTT/JSON, T8+) — class IDs del spec §7 y home-apk-models.md ═══
-# La mayoría se asignan dinámicamente en el servidor; el robot anuncia su class
-# en el client-id al conectar al broker ({did}@{class}/{res}).
+# ═══ eco-ng robots (MQTT/JSON, T8+) — class IDs from spec §7 and home-apk-models.md ═══
+# Most are assigned dynamically by the server; the robot announces its
+# class in the client-id when connecting to the broker ({did}@{class}/{res}).
 MQTT_MODELS: dict[str, ModelInfo] = dict([
     _m("yna5xh", "t9aivi", "Deebot OZMO T9 AIVI", "dt9ai_main"),
     _m("x7p4y4", "t9pro", "Deebot OZMO T9 PRO", "dt9_main"),
@@ -205,7 +204,7 @@ DEFAULT_MQTT_MODEL = ModelInfo(
 
 
 def detect_model(jid: str) -> ModelInfo:
-    """Detecta el modelo desde el JID (SERIAL@CLASE.ecorobot.net/atom)."""
+    """Detect the model from the JID (SERIAL@CLASS.ecorobot.net/atom)."""
     parts = jid.split("@")
     if len(parts) >= 2:
         sub = parts[1].split("/")[0].split(".")[0]
@@ -215,12 +214,12 @@ def detect_model(jid: str) -> ModelInfo:
 
 
 def detect_model_mqtt(device_class: str) -> ModelInfo:
-    """Detecta el modelo desde el class del client-id MQTT ({did}@{cls}/{res})."""
+    """Detect the model from the MQTT client-id class ({did}@{cls}/{res})."""
     return MQTT_MODELS.get(device_class, DEFAULT_MQTT_MODEL)
 
 
 def detect_model_for(did: DeviceId) -> ModelInfo:
-    """Detecta el modelo desde un DeviceId, según su protocolo."""
+    """Detect the model from a DeviceId according to its protocol."""
     if did.protocol == "mqtt":
         return detect_model_mqtt(did.device_class)
     return detect_model(did.jid)

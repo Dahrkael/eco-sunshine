@@ -1,11 +1,11 @@
-"""MqttCommander — comandos JSON para robots eco-ng (T8+).
+"""MqttCommander — JSON commands for eco-ng robots (T8+).
 
-Espeja los nombres de método de RobotCommander (XMPP) para que serve.py,
-webpanel y HA funcionen con ambos protocolos por duck typing. Los comandos
-se disparan sin bloquear (fire); las respuestas llegan por on_data del
-transporte y actualizan RobotState.update_report igual que los reports.
+Mirrors RobotCommander's (XMPP) method names so serve.py, the web panel
+and HA work with both protocols via duck typing. Commands are fired
+without blocking; responses arrive through the transport's on_data and
+update RobotState.update_report just like reports.
 
-Vocabulario: docs/mqtt-json-spec.md §4 (decompile APK Home v3.16.1).
+Vocabulary: docs/mqtt-json-spec.md §4 (Home APK v3.16.1 decompile).
 """
 
 from __future__ import annotations
@@ -18,16 +18,16 @@ from .robot import LIFESPAN_JSON, RobotState, SPEED_JSON_REV
 
 log = logging.getLogger(__name__)
 
-# tipo de limpieza HA → content.type eco-ng
+# HA clean type → eco-ng content.type
 CLEAN_TYPE_JSON = {"auto": "auto", "spot": "spotArea", "spot_area": "spotArea",
                    "custom_area": "customArea", "single_room": "spotArea"}
 
 
-# reset/getLifeSpan: nombre HA/930 → componente eco-ng (spec §4.2)
+# reset/getLifeSpan: HA/930 name → eco-ng component (spec §4.2)
 LIFESPAN_CMD_JSON = {"Brush": "brush", "SideBrush": "sideBrush",
                      "DustCaseHeap": "unitCare", "AirFilter": "heap",
                      "IonSterilize": "dModule",
-                     # tolerantes a minúsculas desde HA/panel
+                     # tolerant of lowercase from HA/panel
                      **{k.lower(): v for k, v in {
                          "Brush": "brush", "SideBrush": "sideBrush",
                          "DustCaseHeap": "unitCare", "AirFilter": "heap",
@@ -35,25 +35,25 @@ LIFESPAN_CMD_JSON = {"Brush": "brush", "SideBrush": "sideBrush",
 
 
 class MqttCommander:
-    """API espejo de RobotCommander sobre el transporte MQTT de Bumper."""
+    """Mirror API of RobotCommander on top of Bumper's MQTT transport."""
 
     def __init__(self, transport: MqttTransport, robot: RobotState):
         self.transport = transport
         self.robot = robot
         self.did: DeviceId = robot.did  # type: ignore[assignment]
-        self.mid = "0"  # mapa activo (se actualiza con getMajorMap)
+        self.mid = "0"  # active map (updated by getMajorMap)
 
-    # ---------- envío ----------
+    # ---------- sending ----------
 
     def _fire(self, cmd: str, params: dict | list | None = None) -> None:
         self.transport.fire(self.did, cmd, params)
 
     async def cmd(self, name: str, params: dict | list | None = None,
                   timeout: float = 10.0) -> dict:
-        """Envía y espera la respuesta (para flujos que la necesitan)."""
+        """Sends and awaits the response (for flows that need it)."""
         return await self.transport.send_command(self.did, name, params, timeout)
 
-    # ---- limpieza ----
+    # ---- cleaning ----
 
     def start_clean(self, speed: str = "standard", clean_type: str = "auto",
                     value: str = "") -> None:
@@ -77,24 +77,24 @@ class MqttCommander:
     def clean_area(self, value: str, speed: str = "standard") -> None:
         self.start_clean(speed=speed, clean_type="custom_area", value=value)
 
-    # ---- movimiento ----
+    # ---- movement ----
 
     def dock(self) -> None:
         self._fire("charge", {"act": "go"})
 
     def move(self, action: str) -> None:
-        # control remoto: {"act": "turn", "a": 30} | {"act": "forward"}
+        # remote control: {"act": "turn", "a": 30} | {"act": "forward"}
         if action in ("forward", "backward", "left", "right"):
             self._fire("move", {"act": action})
         else:
             self._fire("move", {"act": "turn", "a": int(action)})
 
-    # ---- sonido ----
+    # ---- sound ----
 
     def play_sound(self, sid: int = 30) -> None:
         self._fire("playSound", {"sid": sid, "count": 1})
 
-    # ---- consultas ----
+    # ---- queries ----
 
     def get_pos(self) -> None:
         self._fire("getPos_V2", ["chargePos", "deebotPos"])
@@ -118,19 +118,19 @@ class MqttCommander:
         self._fire("getNetInfo")
 
     def get_life_span(self, kind: str = "Brush") -> None:
-        # una sola consulta con todos los componentes (respuesta única)
+        # a single query with all components (single response)
         self._fire("getLifeSpan", list(LIFESPAN_JSON.values()))
 
     def reset_life_span(self, kind: str = "Brush") -> None:
         self._fire("resetLifeSpan", {"component": LIFESPAN_CMD_JSON.get(kind, "brush")})
 
-    # ---- mapa ----
+    # ---- map ----
 
     def get_major_map(self) -> None:
         self._fire("getMajorMap")
 
     def get_map_info(self, mtype: str = "ol") -> None:
-        """Mapa chunked (T8/N8): el robot responde con N chunks getMapInfo."""
+        """Chunked map (T8/N8): the robot replies with N getMapInfo chunks."""
         self._fire("getMapInfo", {"type": mtype})
 
     def get_minor_map(self, piece_index: int, mid: str = "0", mtype: str = "ol") -> None:
@@ -140,17 +140,17 @@ class MqttCommander:
         self._fire("getMapTrace", {"traceStart": start, "pointCount": count})
 
     def get_map_set(self, tp: str = "vw") -> None:
-        # ar=habitaciones, vw=muros, mw=zonas no-fregar
+        # ar=rooms, vw=walls, mw=no-mop zones
         self._fire("getMapSet", {"type": tp, "mid": self.mid})
 
     def get_map_subset(self, mssid: str, tp: str = "vw", msid: str = "0") -> None:
-        """Contorno de un subconjunto (muro/zona/habitación), paginado."""
+        """Outline of a subset (wall/zone/room), paginated."""
         self._fire("getMapSubSet", {"mid": self.mid, "msid": msid, "mssid": mssid,
                                     "type": tp, "seq": 0, "count": 50, "seqIndex": 0})
 
     @staticmethod
     def _fmt_coords(coords) -> str:
-        """[x1,y1,x2,y2] → "x1,y1;x2,y2" (pares de puntos, spec §4.5)."""
+        """[x1,y1,x2,y2] → "x1,y1;x2,y2" (point pairs, spec §4.5)."""
         if isinstance(coords, (list, tuple)):
             pts = [f"{int(round(coords[i]))},{int(round(coords[i + 1]))}"
                    for i in range(0, len(coords) - 1, 2)]
@@ -159,7 +159,7 @@ class MqttCommander:
 
     def clean_room(self, rooms: str | list, mid: str = "0",
                    speed: str = "standard") -> None:
-        """Limpieza por habitaciones: clean_V2 spotArea value="mssid1,mssid2"."""
+        """Per-room cleaning: clean_V2 spotArea value="mssid1,mssid2"."""
         if isinstance(rooms, (list, tuple)):
             rooms = ",".join(str(r) for r in rooms)
         if speed in SPEED_JSON_REV:
@@ -171,7 +171,7 @@ class MqttCommander:
         })
 
     def add_wall(self, coords) -> None:
-        """Muro virtual: coords [x1,y1,x2,y2] mm → setMapSubSet (provisional)."""
+        """Virtual wall: coords [x1,y1,x2,y2] mm → setMapSubSet (provisional)."""
         self._fire("setMapSubSet", {"mid": self.mid, "msid": "0", "type": "vw",
                                     "value": self._fmt_coords(coords)})
 
@@ -180,7 +180,7 @@ class MqttCommander:
                                     "type": "vw", "value": ""})
 
     def add_zone(self, coords) -> None:
-        """Zona no-fregar: coords [x1,y1,x2,y2] mm."""
+        """No-mop zone: coords [x1,y1,x2,y2] mm."""
         self._fire("setMapSubSet", {"mid": self.mid, "msid": "0", "type": "mw",
                                     "value": self._fmt_coords(coords)})
 
@@ -194,7 +194,7 @@ class MqttCommander:
     def set_relocation(self) -> None:
         self._fire("setRelocationState", {"mode": "manu"})
 
-    # ---- velocidad / agua / volumen ----
+    # ---- speed / water / volume ----
 
     def set_clean_speed(self, speed: str) -> None:
         self._fire("setSpeed", {"speed": SPEED_JSON_REV.get(speed, 1)})
@@ -214,7 +214,7 @@ class MqttCommander:
     def set_volume(self, vol: int) -> None:
         self._fire("setVolume", {"volume": int(vol), "type": "system"})
 
-    # ---- DND / schedules / misc (paridad con HA/panel) ----
+    # ---- DND / schedules / misc (parity with HA/panel) ----
 
     def get_block_time(self) -> None:
         self._fire("getBlock")
@@ -236,7 +236,7 @@ class MqttCommander:
         self._fire("getSleep")
 
     def set_on_off(self, t: str, on: bool) -> None:
-        # t=g continuo (breakpoint), b=DND → eco-ng usa setBreakPoint/setBlock
+        # t=g continuous (breakpoint), b=DND → eco-ng uses setBreakPoint/setBlock
         if t == "g":
             self._fire("setBreakPoint", {"enable": bool(on)})
         elif t == "b":
@@ -246,4 +246,4 @@ class MqttCommander:
         self.set_clean_speed("silent" if on else "standard")
 
     def factory_reset(self) -> None:
-        log.warning("factory_reset no soportado en eco-ng — ignorado")
+        log.warning("factory_reset not supported on eco-ng — ignored")

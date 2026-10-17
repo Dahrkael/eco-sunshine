@@ -1,14 +1,14 @@
-"""Registro de dispositivos — sustituye a bumper.db (bots/clients).
+"""Device registry — replaces bumper.db (bots/clients).
 
-La superficie replica la que xmppserver.py de Bumper consumía
-(bot_add/bot_get/client_add/check_authcode/use_auth…), pero el modelo es
-nuestro: cada bot es un DeviceId con presencia XMPP. Persistencia JSON
-opcional junto al state_file — sin DB externa.
+The surface mirrors what Bumper's xmppserver.py consumed
+(bot_add/bot_get/client_add/check_authcode/use_auth…), but the model is
+ours: each bot is a DeviceId with XMPP presence. Optional JSON
+persistence next to state_file — no external DB.
 
-El plugin del broker MQTT embebido (FC) también registra aquí los bots
-eco-ng que conectan: un único registro para ambos protocolos (la costura
-DeviceId preparada en la fase de MQTT). El conf embebido (FD) lista estos
-mismos bots a la app (user.do GetDeviceList) y aplica sus renombrados
+The embedded MQTT broker plugin (FC) also registers the eco-ng bots that
+connect here: a single registry for both protocols (the DeviceId seam
+prepared during the MQTT phase). The embedded conf (FD) lists these same
+bots to the app (user.do GetDeviceList) and applies their renames
 (SetDeviceNick/DeleteOneDevice).
 """
 
@@ -29,9 +29,9 @@ class RegBot:
     device_class: str
     resource: str
     company: str
-    # nick lo fija la app (user.do SetDeviceNick); vacío = sin renombrar
+    # nick set by the app (user.do SetDeviceNick); empty = not renamed
     nick: str = ""
-    # presencia por protocolo (no persiste: se recupera al reconectar)
+    # per-protocol presence (not persisted: recovered on reconnect)
     xmpp: bool = False
     mqtt: bool = False
 
@@ -46,10 +46,10 @@ class RegClient:
 
 @dataclass
 class DeviceRegistry:
-    """Bots (robots) + clients (apps/bridge) conocidos, con presencia.
+    """Known bots (robots) + clients (apps/bridge), with presence.
 
-    use_auth=False replica el comportamiento por defecto de Bumper: se
-    acepta cualquier cliente (no hay cuentas que validar en LAN).
+    use_auth=False mirrors Bumper's default behaviour: any client is
+    accepted (there are no accounts to validate on a LAN).
     """
 
     use_auth: bool = False
@@ -66,9 +66,9 @@ class DeviceRegistry:
         existed = self.bots.get(bot.did)
         self.bots[bot.did] = bot
         if existed is None:
-            log.info("bot registrado: %s (did=%s clase=%s %s)",
+            log.info("bot registered: %s (did=%s class=%s %s)",
                      sn, bot.did, devclass, company)
-        # persistir solo si algo cambió (las reconexiones no reescriben)
+        # persist only if something changed (reconnects do not rewrite)
         if existed is None or asdict(existed) != asdict(bot):
             self._save()
 
@@ -89,16 +89,16 @@ class DeviceRegistry:
             self._save()
 
     def bot_set_nick(self, did: str, nick: str) -> None:
-        """Renombra un bot (la app lo pide por user.do SetDeviceNick)."""
+        """Renames a bot (the app asks via user.do SetDeviceNick)."""
         bot = self.bots.get(did)
         if bot:
             bot.nick = nick
             self._save()
 
     def bot_remove(self, did: str) -> None:
-        """Olvida un bot (user.do DeleteOneDevice): reaparece si reconecta."""
+        """Forgets a bot (user.do DeleteOneDevice): it reappears if it reconnects."""
         if self.bots.pop(did, None) is not None:
-            log.info("bot eliminado del registro: %s", did)
+            log.info("bot removed from registry: %s", did)
             self._save()
 
     # ---------- clients ----------
@@ -121,11 +121,11 @@ class DeviceRegistry:
     # ---------- auth ----------
 
     def check_authcode(self, uid: str, authcode: str) -> bool:
-        # sin cuentas locales: siempre cae al camino use_auth=False
-        # (idéntico a Bumper sin auth habilitada)
+        # no local accounts: always falls to the use_auth=False path
+        # (identical to Bumper without auth enabled)
         return False
 
-    # ---------- persistencia ----------
+    # ---------- persistence ----------
 
     def _save(self) -> None:
         if not self.persist_path:
@@ -141,7 +141,7 @@ class DeviceRegistry:
             tmp.write_text(json.dumps(doc))
             tmp.replace(path)
         except Exception:  # noqa: BLE001
-            log.exception("persistencia del registro falló")
+            log.exception("registry persistence failed")
 
     def load(self) -> None:
         if not self.persist_path or not Path(self.persist_path).exists():
@@ -149,13 +149,13 @@ class DeviceRegistry:
         try:
             doc = json.loads(Path(self.persist_path).read_text())
             for d, b in (doc.get("bots") or {}).items():
-                b.pop("xmpp", None)  # presencia no persiste
+                b.pop("xmpp", None)  # presence is not persisted
                 b.pop("mqtt", None)
                 self.bots[d] = RegBot(**b)
             for r, c in (doc.get("clients") or {}).items():
                 c.pop("xmpp", None)
                 self.clients[r] = RegClient(**c)
-            log.info("registro restaurado: %d bots, %d clients (de %s)",
+            log.info("registry restored: %d bots, %d clients (from %s)",
                      len(self.bots), len(self.clients), self.persist_path)
         except (json.JSONDecodeError, OSError, TypeError):
-            log.exception("registro persistido ilegible — ignorado")
+            log.exception("persisted registry unreadable — ignored")

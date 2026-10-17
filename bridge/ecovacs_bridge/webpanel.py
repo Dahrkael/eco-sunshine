@@ -1,12 +1,12 @@
-"""Panel web de control del bridge — canvas + WebSocket para tiempo real.
+"""Bridge control web panel — canvas + WebSocket for real time.
 
-Sirve en http://<host>:8181 — sin HA, standalone.
+Serves at http://<host>:8181 — standalone, no HA needed.
 
-Arquitectura:
-  - Canvas renderiza el mapa (paredes/suelo) desde datos del grid
-  - WebSocket empuja posición del robot en tiempo real (fluído)
-  - WebSocket empuja el mapa completo solo cuando cambian piezas
-  - Robot se mueve suavemente (interpolación entre posiciones)
+Architecture:
+  - Canvas renders the map (walls/floor) from grid data
+  - WebSocket pushes the robot position in real time (fluid)
+  - WebSocket pushes the full map only when pieces change
+  - The robot moves smoothly (interpolation between positions)
 """
 
 from __future__ import annotations
@@ -133,14 +133,14 @@ let CELL_MM = 50, ORIGIN_R = 401, ORIGIN_C = 401, Y_DOWN = true;
 
 let ws, gridData = null, currentRobot = null, robots = {}, gridW = 0, gridH = 0, cropR = 0, cropC = 0;
 let robot = null, charger = null, trace = [], animRobot = null, lastPos = null;
-let mapCache = {};   // slug → último payload de mapa (restaura al cambiar de robot)
-let lastState = {};  // último state doc (habitaciones/muros/stats para overlays)
+let mapCache = {};   // slug → last map payload (restored when switching robots)
+let lastState = {};  // last state doc (rooms/walls/stats for overlays)
 let drawMode = null, drawPts = [];  // 'wall' | 'zone' | null
 const canvas = document.getElementById('map-canvas');
 const ctx = canvas.getContext('2d');
 
 function cellToMm(c, r) {
-  // celda del canvas recortado → mm del frame del robot (inversa de mmToCell)
+  // cropped-canvas cell → robot-frame mm (inverse of mmToCell)
   const mmX = (c + cropC - ORIGIN_C) * CELL_MM;
   const drow = r + cropR - ORIGIN_R;
   const mmY = (Y_DOWN ? drow : -drow) * CELL_MM;
@@ -172,7 +172,7 @@ canvas.addEventListener('click', e => {
     const coords = [Math.round(drawPts[0][0]), Math.round(drawPts[0][1]),
                     Math.round(drawPts[1][0]), Math.round(drawPts[1][1])];
     cmd(drawMode === 'wall' ? 'add_wall' : 'add_zone', coords);
-    startDraw(drawMode); // limpia el modo (y desactiva)
+    startDraw(drawMode); // clears the mode (and disables it)
     drawMode = null; drawPts = [];
     document.getElementById('btn-wall').style.outline = 'none';
     document.getElementById('btn-zone').style.outline = 'none';
@@ -197,8 +197,8 @@ function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${proto}//${location.host}/api/ws`);
   ws.onmessage = (e) => { const d = JSON.parse(e.data); handle(d); };
-  ws.onclose = () => { setTimeout(connect, 3000); log('ws desconectado, reintentando…'); };
-  ws.onopen = () => { log('ws conectado'); };
+  ws.onclose = () => { setTimeout(connect, 3000); log('ws disconnected, retrying…'); };
+  ws.onopen = () => { log('ws connected'); };
 }
 
 function handle(d) {
@@ -218,7 +218,7 @@ function handle(d) {
       const np = mmToCell(d.position.x, d.position.y);
       if (np) {
         if (lastPos) {
-          // interpolar suavemente
+          // interpolate smoothly
           animRobot = {from: lastPos, to: np, t: 0, start: performance.now()};
         } else { lastPos = np; animRobot = null; }
         trace.push([np[0], np[1]]);
@@ -249,7 +249,7 @@ function draw() {
   const offY = Math.floor((ch - gridH * cellSize) / 2);
   ctx.fillStyle = COLORS[0];
   ctx.fillRect(0, 0, cw, ch);
-  // mapa
+  // map
   for (let r = 0; r < gridH; r++) {
     const row = gridData[r];
     for (let c = 0; c < gridW; c++) {
@@ -259,7 +259,7 @@ function draw() {
       ctx.fillRect(offX + c * cellSize, offY + r * cellSize, cellSize, cellSize);
     }
   }
-  // overlays: muros / zonas / habitaciones
+  // overlays: walls / zones / rooms
   const sets = lastState.map_sets || {};
   const mmToPx = (x, y) => {
     const cell = mmToCell(x, y);
@@ -278,7 +278,7 @@ function draw() {
     }
   }
   for (const w of (sets.vw?.entries || [])) {
-    if (w.x1 === undefined || w.kind) continue; // kind=mw viaja en vw en el 930
+    if (w.x1 === undefined || w.kind) continue; // kind=mw travels in vw on the 930
     const p1 = mmToPx(w.x1, w.y1), p2 = mmToPx(w.x2, w.y2);
     if (p1 && p2) {
       ctx.strokeStyle = '#f85149'; ctx.lineWidth = Math.max(2, cellSize * 0.4);
@@ -293,7 +293,7 @@ function draw() {
       if (p) ctx.fillText(room.name || room.mssid, p[0], p[1]);
     }
   }
-  // puntos pendientes del editor
+  // editor pending points
   for (const pt of drawPts) {
     const p = mmToPx(pt[0], pt[1]);
     if (p) {
@@ -301,7 +301,7 @@ function draw() {
       ctx.beginPath(); ctx.arc(p[0], p[1], 6, 0, Math.PI * 2); ctx.fill();
     }
   }
-  // traza (limpiado)
+  // trace (cleaned)
   if (trace.length > 1) {
     ctx.strokeStyle = 'rgba(63,185,80,0.3)';
     ctx.lineWidth = Math.max(1, cellSize * 0.3);
@@ -312,7 +312,7 @@ function draw() {
     }
     ctx.stroke();
   }
-  // base de carga
+  // charging dock
   if (charger) {
     ctx.fillStyle = '#d29922';
     const s = cellSize * 2;
@@ -338,7 +338,7 @@ function draw() {
     ctx.fillStyle = '#3fb950';
     ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
-    // dirección
+    // heading
     if (robot && robot.angle !== undefined) {
       const a = robot.angle * Math.PI / 180;
       ctx.strokeStyle = '#3fb950'; ctx.lineWidth = 2;
@@ -435,10 +435,10 @@ connect();
 
 
 class NullPanel:
-    """Panel desactivado (servers.panel=false) — mismo interface, no-op.
+    """Disabled panel (servers.panel=false) — same interface, no-op.
 
-    Evita guardar `if panel` por todo el serve: los broadcasts y el envío
-    de mapas simplemente no hacen nada.
+    Saves `if panel` checks all over serve: broadcasts and map sends
+    simply do nothing.
     """
 
     port = 0
@@ -467,15 +467,15 @@ class WebPanel:
         self.app.router.add_post("/api/cmd", self.api_cmd)
         self.app.router.add_get("/api/ws", self.api_ws)
         self._ws_clients: list[web.WebSocketResponse] = []
-        self._last_maps: dict[str, str] = {}  # slug → último mapa JSON
-        self._send_tasks: set[asyncio.Task] = set()  # refs anti-GC de envíos
+        self._last_maps: dict[str, str] = {}  # slug → last map JSON
+        self._send_tasks: set[asyncio.Task] = set()  # anti-GC refs for sends
 
     async def start(self) -> None:
         runner = web.AppRunner(self.app)
         await runner.setup()
         site = web.TCPSite(runner, self.host, self.port)
         await site.start()
-        log.info("panel web en http://%s:%d", self.host, self.port)
+        log.info("web panel at http://%s:%d", self.host, self.port)
 
     async def index(self, _: web.Request) -> web.Response:
         return web.Response(text=INDEX_HTML, content_type="text/html")
@@ -483,10 +483,11 @@ class WebPanel:
     def _build_map_data(self, slug: str | None = None,
                         map_id: str | None = None,
                         grid: list[list[int]] | None = None) -> dict | None:
-        """Ensambla el grid y lo serializa como filas de caracteres.
+        """Assembles the grid and serializes it as rows of characters.
 
-        slug/map_id/grid opcionales: si el serve ya resolvió el mapa del
-        robot (y lo ensambló), se reutilizan; si no, se resuelven aquí.
+        slug/map_id/grid optional: if serve already resolved the robot's
+        map (and assembled it) they are reused; otherwise they are
+        resolved here.
         """
         svc = self.service
         if not svc.asm.maps:
@@ -510,7 +511,7 @@ class WebPanel:
         rmin, rmax, cmin, cmax = min(rows), max(rows), min(cols), max(cols)
         h = rmax - rmin + 1
         w = cmax - cmin + 1
-        # serializar: cada celda = 1 carácter ('0'-'3')
+        # serialize: each cell = 1 character ('0'-'3')
         row_strs = ["".join(str(grid[r][c]) for c in range(cmin, cmax + 1)) for r in range(rmin, rmax + 1)]
         geo = svc.asm.geo(map_id)
         return {
@@ -520,8 +521,8 @@ class WebPanel:
             "crop_r": rmin, "crop_c": cmin,
             "rows": row_strs,
             "map_id": map_id,
-            # transform mm→celda del mapa (930: 50mm/origen 401/y-down;
-            # MQTT: pixel variable, origen centrado, y-up)
+            # map mm→cell transform (930: 50mm/origin 401/y-down;
+            # MQTT: variable pixel, centered origin, y-up)
             "cell_mm": geo.cell_mm,
             "origin_r": geo.origin_row,
             "origin_c": geo.origin_col,
@@ -543,7 +544,7 @@ class WebPanel:
                 "map_sets": {tp: ms.to_doc() for tp, ms in r.map_sets.items()},
                 "stats": r.stats,
             }
-        # lista para el selector del panel
+        # list for the panel selector
         robot_list = {r.slug: r.model.display for r in svc.robots.values()}
         docs["_robots"] = robot_list
         return web.json_response(docs)
@@ -577,17 +578,17 @@ class WebPanel:
             elif action.startswith("reset_"): self._call(c, "reset_life_span", value or "Brush")
             elif action in ("clean_room", "add_wall", "del_wall",
                             "add_zone", "del_zone"):
-                # delega en serve.on_command (resuelve mid del robot, etc.)
+                # delegates to serve.on_command (resolves the robot's mid, etc.)
                 await svc.on_command(r.slug, action, value)
             return web.json_response({"ok": True})
         return web.json_response({"ok": False, "error": "no robot"}, status=404)
 
     @staticmethod
     def _call(commander, method: str, *args) -> None:
-        """Duck typing tolerante: XMPP y MQTT no comparten el 100% del vocabulario."""
+        """Lenient duck typing: XMPP and MQTT do not share 100% of the vocabulary."""
         fn = getattr(commander, method, None)
         if fn is None:
-            log.info("comando %s no disponible para este robot", method)
+            log.info("command %s not available for this robot", method)
             return
         fn(*args)
 
@@ -595,13 +596,13 @@ class WebPanel:
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         self._ws_clients.append(ws)
-        # enviar lista de robots
+        # send robot list
         svc = self.service
         robot_list = {r.slug: r.model.display for r in svc.robots.values()}
         if robot_list:
             try: await ws.send_str(json.dumps({"type": "robots", "robots": robot_list}))
             except ConnectionResetError: pass
-        # enviar el mapa cacheado de cada robot al conectar
+        # send each robot's cached map on connect
         for msg in self._last_maps.values():
             try: await ws.send_str(msg)
             except ConnectionResetError: pass
@@ -614,11 +615,11 @@ class WebPanel:
         return ws
 
     def build_and_broadcast_map(self, grids: dict[str, list[list[int]]] | None = None) -> None:
-        """Llamado por serve cuando las piezas cambian — construye y difunde
-        el mapa de cada robot (con su slug) a todos los WebSocket.
+        """Called by serve when pieces change — builds and broadcasts each
+        robot's map (with its slug) to every WebSocket.
 
-        grids: cache {map_id: grid} ya ensamblados por el serve (evita
-        re-ensamblar por robot); si es None se ensamblan aquí (compat).
+        grids: {map_id: grid} cache already assembled by serve (avoids
+        re-assembling per robot); if None they are assembled here (compat).
         """
         svc = self.service
         for r in svc.robots.values():
@@ -631,7 +632,7 @@ class WebPanel:
                 msg = json.dumps(data)
                 self._last_maps[r.slug] = msg
                 self.broadcast_raw(msg)
-        # robots aún sin mapa propio → el más poblado (compat con 1 robot)
+        # robots without their own map yet → the most populated one (single-robot compat)
         if not self._last_maps:
             data = self._build_map_data(None, None, None)
             if data:
@@ -639,9 +640,9 @@ class WebPanel:
                 self.broadcast_raw(self._last_maps[""])
 
     def broadcast_raw(self, msg: str) -> None:
-        """Envío no bloqueante a todos los WS. La excepción de un cliente
-        roto llega DENTRO de su task (no en create_task): se captura en el
-        wrapper y se le expulsa de la lista."""
+        """Non-blocking send to all WS. A broken client's exception lands
+        INSIDE its task (not in create_task): it is caught in the wrapper
+        and the client is dropped from the list."""
 
         async def _send_to(ws) -> None:
             try:
@@ -653,13 +654,13 @@ class WebPanel:
         for ws in self._ws_clients[:]:
             try:
                 task = asyncio.get_running_loop().create_task(_send_to(ws))
-                self._send_tasks.add(task)  # (S7) referencia anti-GC
+                self._send_tasks.add(task)  # (S7) anti-GC reference
                 task.add_done_callback(self._send_tasks.discard)
             except RuntimeError:
-                log.warning("broadcast_raw sin event loop — mensaje perdido")
+                log.warning("broadcast_raw without event loop — message lost")
 
     async def broadcast(self, data: dict, slug: str = "") -> None:
-        """Envía estado a todos los WebSocket conectados (sin orden garantizado)."""
+        """Sends state to every connected WebSocket (no ordering guarantee)."""
         data.setdefault("type", "state")
         if slug:
             data["slug"] = slug

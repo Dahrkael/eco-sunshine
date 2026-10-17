@@ -1,18 +1,18 @@
-"""Transporte MQTT hacia el broker de Bumper (robots eco-ng / T8+).
+"""MQTT transport to Bumper's broker (eco-ng / T8+ robots).
 
 Topics (spec docs/mqtt-json-spec.md §2):
-  comandos:   iot/p2p/{cmd}/bridge/bumper/bridge/{sn}/{cls}/{res}/q/{reqid}/j
-  respuesta:  iot/p2p/{cmd}/{sn}/{cls}/{res}/bridge/bumper/bridge/p/{reqid}/j
+  commands:   iot/p2p/{cmd}/bridge/bumper/bridge/{sn}/{cls}/{res}/q/{reqid}/j
+  responses:  iot/p2p/{cmd}/{sn}/{cls}/{res}/bridge/bumper/bridge/p/{reqid}/j
   reports:    iot/atr/{name}/{sn}/{cls}/{res}/j
 
-El broker de Bumper (hbmqtt :8883, TLS con CA propia) acepta nuestro
-client-id `bridge@bumper/bridge` sin más auth (su plugin autentica a
-cualquier cliente con "bumper" en el realm — bumper/mqttserver.py:266).
+Bumper's broker (hbmqtt :8883, TLS with its own CA) accepts our client-id
+`bridge@bumper/bridge` with no further auth (its plugin authenticates any
+client with "bumper" in the realm — bumper/mqttserver.py:266).
 
-Este módulo es deliberadamente independiente de serve.py: es la costura
-("seam") para la futura absorción de Bumper — hoy es un cliente de red,
-mañana puede sustituirse por un adaptador in-process enganchado al broker
-embebido sin tocar ni serve.py ni MqttCommander (docs/absorcion-bumper.md).
+This module is deliberately independent of serve.py: it is the seam for
+the future absorption of Bumper — today a network client, tomorrow it
+can be swapped for an in-process adapter hooked to the embedded broker
+without touching serve.py or MqttCommander (docs/absorcion-bumper.md).
 """
 
 from __future__ import annotations
@@ -33,9 +33,9 @@ from .models import DeviceId
 log = logging.getLogger(__name__)
 
 PROTOCOL_VER = "0.0.22"
-TZM_MINUTES = 60  # España UTC+1
+TZM_MINUTES = 60  # Spain, UTC+1
 
-# callback(robot_key, name, data) — reports atr Y respuestas p2p (misma forma)
+# callback(robot_key, name, data) — atr reports AND p2p responses (same shape)
 DataHandler = Callable[[str, str, dict], Awaitable[None]]
 
 RECONNECT_DELAY = 3.0
@@ -43,7 +43,7 @@ RESPONSE_TIMEOUT = 10.0
 
 
 def build_envelope(params: dict | list | None) -> dict:
-    """Envelope de comando (spec §3.1): header + body.data + bdTaskID."""
+    """Command envelope (spec §3.1): header + body.data + bdTaskID."""
     ts = str(int(time.time() * 1000))
     data: Any = dict(params) if isinstance(params, dict) else params
     if isinstance(data, dict):
@@ -55,11 +55,11 @@ def build_envelope(params: dict | list | None) -> dict:
 
 
 def route_topic(topic: str) -> tuple[str, str, str, str] | None:
-    """Clasifica un topic MQTT del broker.
+    """Classify an MQTT topic from the broker.
 
-    Devuelve (kind, robot_key, name, request_id) o None si no interesa.
+    Returns (kind, robot_key, name, request_id) or None if uninteresting.
     kind: "report" (iot/atr) | "response" (p2p type=p) | "request" (p2p q)
-    robot_key: "{sn}@{cls}/{res}" — la clave canónica de DeviceId.
+    robot_key: "{sn}@{cls}/{res}" — DeviceId's canonical key.
     """
     parts = topic.split("/")
     if len(parts) < 6 or parts[0] != "iot":
@@ -70,10 +70,10 @@ def route_topic(topic: str) -> tuple[str, str, str, str] | None:
     if parts[1] == "p2p" and len(parts) == 12:
         cmd, fid, fcls, fres, _tid, _tcls, _tres, typ, rand, _fmt = parts[2:]
         if typ == "p":
-            # respuesta: el emisor (from) es el robot
+            # response: the sender (from) is the robot
             return ("response", f"{fid}@{fcls}/{fres}", cmd, rand)
         if typ == "q":
-            # comando dirigido a {to} (p.ej. si alguien más manda comandos)
+            # command addressed to {to} (e.g. someone else sending commands)
             return ("request", f"{parts[6]}@{parts[7]}/{parts[8]}", cmd, rand)
     return None
 
@@ -86,8 +86,8 @@ def command_topic(did: DeviceId, command: str, request_id: str) -> str:
 
 
 def _tls_context(ca_file: str | None) -> ssl.SSLContext:
-    """Misma política que el cliente XMPP: CA propia, sin check de hostname,
-    sin VERIFY_X509_STRICT (el CA generado por Bumper no lleva AKI)."""
+    """Same policy as the XMPP client: own CA, no hostname check, no
+    VERIFY_X509_STRICT (Bumper's generated CA carries no AKI)."""
     if ca_file:
         ctx = ssl.create_default_context(cafile=ca_file)
         ctx.check_hostname = False
@@ -101,12 +101,12 @@ def _tls_context(ca_file: str | None) -> ssl.SSLContext:
 
 
 class MqttTransport:
-    """Cliente MQTT del broker de Bumper para robots eco-ng.
+    """MQTT client of Bumper's broker for eco-ng robots.
 
-    Uso:
+    Usage:
         t = MqttTransport(host, port, ca_file, on_data=handler)
         await t.connect()
-        asyncio.create_task(t.listen())          # bucle con reconexión
+        asyncio.create_task(t.listen())          # loop with reconnection
         resp = await t.send_command(did, "getBattery", {})
     """
 
@@ -122,13 +122,13 @@ class MqttTransport:
         self.host, self.port, self.ca_file = host, port, ca_file
         self.on_data = on_data
         self.identifier = identifier
-        # None = heurístico histórico (TLS en 8883) para configs existentes;
-        # el serve lo fija explícitamente cuando arranca el broker embebido
-        # (el puerto puede no ser 8883 durante la migración de Bumper)
+        # None = legacy heuristic (TLS on 8883) for existing configs;
+        # serve pins it explicitly when it starts the embedded broker
+        # (the port may not be 8883 during the Bumper migration)
         self.tls = tls
         self.client: aiomqtt.Client | None = None
         self._pending: dict[str, asyncio.Future] = {}
-        self._fire_tasks: set[asyncio.Task] = set()  # refs anti-GC (S7)
+        self._fire_tasks: set[asyncio.Task] = set()  # anti-GC refs (S7)
 
     async def connect(self) -> None:
         kwargs: dict[str, Any] = {
@@ -141,17 +141,17 @@ class MqttTransport:
             kwargs["tls_context"] = _tls_context(self.ca_file)
         self.client = aiomqtt.Client(**kwargs)
         await self.client.__aenter__()
-        # Suscripción amplia + filtrado estructural en route_topic.
+        # Broad subscription + structural filtering in route_topic.
         #
-        # NO usamos filtros con '+' : el hbmqtt de Bumper compila '+' como la
-        # clase [/\$\s\w\d]+ (sin '-'), así que no matchea dids con guión
-        # (todos los eco-ng son tipo UUID). '#' funciona bien y el filtrado
-        # exacto lo hacemos aquí — robusto ante cualquier broker.
+        # NO '+' filters: Bumper's hbmqtt compiles '+' as the class
+        # [/\$\s\w\d]+ (no '-'), so it never matches dids with a dash
+        # (all eco-ng ones are UUID-like). '#' works fine and the exact
+        # filtering happens here — robust against any broker.
         await self.client.subscribe("iot/#", qos=0)
-        log.info("MQTT bumper conectado: %s:%d como %s", self.host, self.port, self.identifier)
+        log.info("bumper MQTT connected: %s:%d as %s", self.host, self.port, self.identifier)
 
     async def listen(self) -> None:
-        """Bucle de mensajes con reconexión exponencial-máx."""
+        """Message loop with capped exponential reconnection."""
         delay = RECONNECT_DELAY
         while True:
             try:
@@ -162,11 +162,11 @@ class MqttTransport:
                     try:
                         await self._on_message(msg)
                     except Exception:  # noqa: BLE001
-                        log.exception("error procesando mensaje MQTT")
+                        log.exception("error processing MQTT message")
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
-                log.warning("MQTT bumper desconectado (%s) — reintento en %.0fs", e, delay)
+                log.warning("bumper MQTT disconnected (%s) — retrying in %.0fs", e, delay)
                 try:
                     if self.client is not None:
                         await self.client.__aexit__(type(e), e, None)
@@ -183,15 +183,15 @@ class MqttTransport:
         if routed is None:
             return
         kind, key, name, reqid = routed
-        # (O2) requests p2p que vemos por iot/# = comandos en tránsito (los
-        # nuestros propios o de otra app): no son reports ni respuestas —
-        # procesarlos solo contamina el estado con el envelope.
+        # (O2) p2p requests seen on iot/# = commands in transit (ours or
+        # another app's): not reports nor responses — processing them only
+        # pollutes state with the envelope.
         if kind == "request":
             return
         try:
             payload = json.loads(msg.payload)
         except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
-            log.debug("payload no-JSON en %s", msg.topic)
+            log.debug("non-JSON payload on %s", msg.topic)
             return
         if not isinstance(payload, dict):
             return
@@ -205,9 +205,9 @@ class MqttTransport:
             try:
                 await self.on_data(key, name, payload)
             except Exception:  # noqa: BLE001
-                log.exception("on_data falló para %s/%s", name, key)
+                log.exception("on_data failed for %s/%s", name, key)
 
-    # ---------- comandos ----------
+    # ---------- commands ----------
 
     async def send_command(
         self,
@@ -216,7 +216,7 @@ class MqttTransport:
         params: dict | list | None = None,
         timeout: float = RESPONSE_TIMEOUT,
     ) -> dict:
-        """Publica un comando y espera su respuesta p2p (correlación por rand)."""
+        """Publishes a command and awaits its p2p response (correlated by rand)."""
         if self.client is None:
             return {"ret": "fail", "errno": 503, "debug": "transporte no conectado"}
         request_id = uuid.uuid4().hex[:16]
@@ -228,24 +228,24 @@ class MqttTransport:
             log.debug(">> %s %s", command, params or "")
             return await asyncio.wait_for(fut, timeout)
         except asyncio.TimeoutError:
-            log.debug("timeout esperando respuesta de %s (%s)", command, did.key)
+            log.debug("timeout waiting for response from %s (%s)", command, did.key)
             return {"ret": "fail", "errno": 500, "debug": "timeout respuesta p2p"}
         finally:
             self._pending.pop(request_id, None)
 
     def fire(self, did: DeviceId, command: str, params: dict | list | None = None) -> None:
-        """Comando sin bloqueo (estilo XMPP commander): la respuesta llegará
-        por on_data y actualizará el estado igual que un report."""
+        """Non-blocking command (XMPP commander style): the response arrives
+        via on_data and updates state like a report."""
 
         async def _run() -> None:
             try:
                 await self.send_command(did, command, params)
             except Exception:  # noqa: BLE001
-                log.exception("fire %s falló", command)
+                log.exception("fire %s failed", command)
 
         try:
             task = asyncio.get_running_loop().create_task(_run())
-            self._fire_tasks.add(task)  # (S7) referencia anti-GC
+            self._fire_tasks.add(task)  # (S7) anti-GC reference
             task.add_done_callback(self._fire_tasks.discard)
         except RuntimeError:
-            log.error("fire fuera de event loop: %s", command)
+            log.error("fire outside event loop: %s", command)

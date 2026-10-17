@@ -1,9 +1,9 @@
-"""Regresiones del panel: rutas registradas con binding correcto.
+"""Panel regressions: routes registered with correct binding.
 
-Caza el bug del deploy real: un @staticmethod huérfano dejó api_ws sin
-binding (TypeError: missing 'request') y la definición de _call desapareció
-— ningún test lo cubría porque la suite ejerce serve.on_command, no el
-dispatch del panel.
+A deploy slipped an orphan @staticmethod leaving api_ws unbound
+(TypeError: missing 'request') and dropped _call's definition — no test
+caught it because the suite exercises serve.on_command, not the panel
+dispatch.
 """
 
 from __future__ import annotations
@@ -29,10 +29,10 @@ def make_panel() -> WebPanel:
 
 class TestRutasPanel:
     def test_handlers_son_metodos_de_instancia(self):
-        """Cada handler registrado debe ser un bound method con (self, request).
+        """Every registered handler must be a bound method with (self, request).
 
-        Un @staticmethod accidental pasa el registro pero pierde el request
-        en runtime (el bug del monolito en el primer deploy).
+        An accidental @staticmethod passes registration but loses the
+        request at runtime (the first-deploy bug).
         """
         panel = make_panel()
         for route in panel.app.router.routes():
@@ -47,11 +47,11 @@ class TestRutasPanel:
     def test_api_ws_recibe_request(self):
         panel = make_panel()
         sig = inspect.signature(panel.api_ws)
-        assert "request" in sig.parameters  # bound: self implícito
+        assert "request" in sig.parameters  # bound: self implicit
 
     def test_call_existe_y_es_tolerante(self):
         panel = make_panel()
         c = FakeCommander()
         panel._call(c, "set_clean_speed", "strong")
         assert c.calls == [("set_clean_speed", "strong")]
-        panel._call(c, "metodo_inexistente")  # no lanza, solo loguea
+        panel._call(c, "metodo_inexistente")  # does not raise, only logs

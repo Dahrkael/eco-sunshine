@@ -1,14 +1,14 @@
-"""Tests de Fase FD: conf embebido (:443) — la API de la app Ecovacs.
+"""Phase FD tests: embedded conf (:443) — the Ecovacs app API.
 
-Shapes copiadas de los plugins del confserver de Bumper y verificadas
-contra el corpus (pairing-session.log, app antigua 1.4.9): login →
-getAuthCode → user.do loginByItToken → user.do GetDeviceList.
+Shapes copied from Bumper's confserver plugins and verified against the
+corpus (pairing-session.log, old app 1.4.9): login → getAuthCode →
+user.do loginByItToken → user.do GetDeviceList.
 
-- login acepta cualquier credencial (use_auth=False, como Bumper)
-- GetDeviceList lista los bots del DeviceRegistry (XMPP y MQTT)
-- loginByItToken canjea el authCode del getAuthCode
-- TLS con los certs de ensure_certs (FE) y verificación completa
-- wiring de serve: conf on/off, fallo de certs/puerto no tumba nada
+- login accepts any credentials (use_auth=False, like Bumper)
+- GetDeviceList lists the DeviceRegistry's bots (XMPP and MQTT)
+- loginByItToken exchanges getAuthCode's authCode
+- TLS with ensure_certs certs (FE) and full verification
+- serve wiring: conf on/off, certs/port failures take nothing down
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from ecovacs_bridge.servers.certs import ensure_certs
 from ecovacs_bridge.servers.conf import ConfAuth, ConfServer, login_data
 from ecovacs_bridge.servers.registry import DeviceRegistry
 
-# path privado de la app antigua tal como sale en el corpus (apptype i_eco_e)
+# old app's private path exactly as it appears in the corpus (apptype i_eco_e)
 APP_LOGIN = ("/v1/private/es/en/5d8a10c413d47b4194c29ef1580cbb04/i_eco_e"
              "/1.4.9/c_googleplay/1/user/login")
 APP_GET_AUTHCODE = APP_LOGIN.replace("/user/login", "/user/getAuthCode")
@@ -48,7 +48,7 @@ def _registry_con_bot() -> DeviceRegistry:
     return reg
 
 
-# ---------- sesiones (tokens/authcodes) ----------
+# ---------- sessions (tokens/authcodes) ----------
 
 
 class TestConfAuth:
@@ -56,19 +56,19 @@ class TestConfAuth:
         auth = ConfAuth()
         s1 = auth.login("dev1")
         assert re.fullmatch(r"[0-9a-f]{32}", s1.token)
-        assert auth.login("dev1").token != s1.token  # re-login = token nuevo
+        assert auth.login("dev1").token != s1.token  # re-login = new token
 
     def test_authcode_estable_por_sesion(self):
         auth = ConfAuth()
         auth.login("dev1")
         ac1 = auth.authcode("dev1", "es")
         assert re.fullmatch(r"es_[0-9a-f]{32}", ac1)
-        assert auth.authcode("dev1", "es") == ac1  # cacheado como Bumper
-        auth.login("dev1")  # re-login → authcode nuevo
+        assert auth.authcode("dev1", "es") == ac1  # cached like Bumper
+        auth.login("dev1")  # re-login → new authcode
         assert auth.authcode("dev1", "es") != ac1
 
     def test_authcode_sin_login_previo_crea_sesion(self):
-        """Reinicio del bridge a media sesión: la app rehace el flujo igual."""
+        """Bridge restart mid-session: the app just redoes the flow."""
         auth = ConfAuth()
         assert re.fullmatch(r"us_[0-9a-f]{32}", auth.authcode("dev9", "us"))
 
@@ -77,7 +77,7 @@ class TestConfAuth:
         auth.login("dev1")
         ac = auth.authcode("dev1", "es")
         assert auth.check_authcode("fuid_tmpuser", ac)
-        assert auth.check_authcode("tmpuser", ac)  # con/sin fuid_ (como Bumper)
+        assert auth.check_authcode("tmpuser", ac)  # with/without fuid_ (like Bumper)
         assert not auth.check_authcode("fuid_otro", ac)
         assert not auth.check_authcode("fuid_tmpuser", "es_nunca_emitido")
 
@@ -89,7 +89,7 @@ class TestConfAuth:
         assert not auth.check_authcode("fuid_tmpuser", ac)
 
 
-# ---------- shapes de login ----------
+# ---------- login shapes ----------
 
 
 class TestLoginData:
@@ -106,7 +106,7 @@ class TestLoginData:
         assert d["mobile"] is None and d["uid"] == "fuid_tmpuser"
 
 
-# ---------- servidor (HTTP plano, como los tests FA/FC) ----------
+# ---------- server (plain HTTP, like the FA/FC tests) ----------
 
 
 class TestConfServer:
@@ -118,7 +118,7 @@ class TestConfServer:
         try:
             async with ClientSession() as s:
                 base = f"http://127.0.0.1:{srv.port}"
-                # 1. login (la app manda credenciales cifradas: ignoradas)
+                # 1. login (the app sends encrypted credentials: ignored)
                 async with s.get(f"{base}{APP_LOGIN}",
                                  params={"account": "x", "password": "y"}) as r:
                     assert r.status == 200
@@ -130,7 +130,7 @@ class TestConfServer:
                 assert login["data"]["uid"] == "fuid_tmpuser"
                 assert login["data"]["country"] == "es"
 
-                # 2. getAuthCode (uid/accessToken en el query, como la app)
+                # 2. getAuthCode (uid/accessToken in the query, like the app)
                 async with s.get(f"{base}{APP_GET_AUTHCODE}", params={
                         "uid": "fuid_tmpuser",
                         "accessToken": login["data"]["accessToken"]}) as r:
@@ -138,7 +138,7 @@ class TestConfServer:
                 assert re.fullmatch(r"es_[0-9a-f]{32}", ac["authCode"])
                 assert ac["ecovacsUid"] == "fuid_tmpuser"
 
-                # 3. loginByItToken (form-urlencoded con el authCode)
+                # 3. loginByItToken (form-urlencoded with the authCode)
                 async with s.post(f"{base}/api/users/user.do", data={
                         "todo": "loginByItToken", "country": "ES",
                         "resource": "be9baaf0", "org": "ECOWW",
@@ -149,7 +149,7 @@ class TestConfServer:
                                 "todo": "result", "token": ac["authCode"],
                                 "userId": "fuid_tmpuser"}
 
-                # 4. GetDeviceList (json) — los bots del registry
+                # 4. GetDeviceList (json) — the registry's bots
                 async with s.post(
                         f"{base}/api/users/user.do?td=GetDeviceList",
                         json={"todo": "GetDeviceList", "userid": "fuid_tmpuser",
@@ -168,7 +168,7 @@ class TestConfServer:
             await srv.stop()
 
     async def test_login_by_it_token_rechazado_con_use_auth(self):
-        """use_auth=True: authcode desconocido → body vacío (como Bumper)."""
+        """use_auth=True: unknown authcode → empty body (like Bumper)."""
         reg = DeviceRegistry(use_auth=True)
         srv = ConfServer(reg, listen="127.0.0.1", port=free_port())
         await srv.start()
@@ -204,7 +204,7 @@ class TestConfServer:
             await srv.stop()
 
     async def test_estaticos_de_cortesia(self):
-        """Endpoints que la app sondea y Bumper contestaba con estáticos."""
+        """Endpoints the app probes and Bumper answered with statics."""
         srv = ConfServer(_registry_con_bot(), listen="127.0.0.1",
                          port=free_port())
         await srv.start()
@@ -226,7 +226,7 @@ class TestConfServer:
             await srv.stop()
 
     async def test_base_del_confserver(self):
-        """lookup.do/newauth.do también viven en el :443 (como Bumper)."""
+        """lookup.do/newauth.do also live on :443 (like Bumper)."""
         srv = ConfServer(DeviceRegistry(), announce_ip="10.1.2.3",
                          xmpp_port=5223, listen="127.0.0.1", port=free_port())
         await srv.start()
@@ -236,7 +236,7 @@ class TestConfServer:
                 async with s.post(f"{base}/lookup.do", json={
                         "todo": "FindBest", "service": "EcoMsgNew"}) as r:
                     text = await r.text()
-                assert " " not in text  # JSON compacto para el firmware
+                assert " " not in text  # compact JSON for the firmware
                 import json
 
                 assert json.loads(text) == {"ip": "10.1.2.3", "port": 5223,
@@ -246,14 +246,14 @@ class TestConfServer:
                     assert await r.json() == {"authCode": "es_abc",
                                               "result": "ok",
                                               "todo": "result"}
-                # GET del portal → fail (como Bumper)
+                # portal GET → fail (like Bumper)
                 async with s.get(f"{base}/api/users/user.do") as r:
                     assert (await r.json())["result"] == "fail"
         finally:
             await srv.stop()
 
     async def test_get_authcode_global(self):
-        """/v1/global/auth/getAuthCode (deviceId en el query, sin path)."""
+        """/v1/global/auth/getAuthCode (deviceId in the query, no path)."""
         srv = ConfServer(DeviceRegistry(), listen="127.0.0.1", port=free_port())
         await srv.start()
         try:
@@ -270,7 +270,7 @@ class TestConfServer:
             await srv.stop()
 
     async def test_post_en_login_tambien_valida(self):
-        """web.route('*') en la v1: la app a veces usa POST."""
+        """web.route('*') on v1: the app sometimes uses POST."""
         srv = ConfServer(DeviceRegistry(), listen="127.0.0.1", port=free_port())
         await srv.start()
         try:
@@ -305,7 +305,7 @@ class TestConfServerTLS:
             await srv.stop()
 
 
-# ---------- wiring de serve ----------
+# ---------- serve wiring ----------
 
 
 class TestServeWiringFD:
@@ -328,8 +328,8 @@ class TestServeWiringFD:
         return cfg
 
     async def test_conf_solo_arranca_y_crea_el_registry(self, tmp_path):
-        """conf=true (sin xmpp/mqtt): el :443 sube y el registry existe
-        (GetDeviceList lo necesita aunque no haya otros servidores)."""
+        """conf=true (no xmpp/mqtt): :443 comes up and the registry exists
+        (GetDeviceList needs it even without other servers)."""
         cfg = self._cfg(tmp_path)
         assert ensure_certs(cfg.servers.ca_file, cfg.servers.server_cert,
                             cfg.servers.server_key)
@@ -340,7 +340,7 @@ class TestServeWiringFD:
             assert svc.registry is not None
             conf = svc.embedded["conf"]
             assert conf.port == cfg.servers.conf_port
-            # el registry persiste junto al state_file (misma regla que FB)
+            # the registry persists next to state_file (same rule as FB)
             from ecovacs_bridge.servers.registry import DeviceRegistry
 
             assert isinstance(svc.registry, DeviceRegistry)
@@ -350,7 +350,7 @@ class TestServeWiringFD:
     async def test_certs_irrecuperables_desactivan_conf_sin_tirar_serve(self, tmp_path):
         cfg = self._cfg(tmp_path, certs=False)
         svc = Service(cfg, None)
-        await svc._start_embedded_servers()  # no lanza
+        await svc._start_embedded_servers()  # does not raise
         assert "conf" not in svc.embedded
         assert cfg.servers.conf is False
 
@@ -365,19 +365,19 @@ class TestServeWiringFD:
         await ocupante.start()
         try:
             svc = Service(cfg, None)
-            await svc._start_embedded_servers()  # OSError capturada
+            await svc._start_embedded_servers()  # OSError caught
             assert "conf" not in svc.embedded
         finally:
             await ocupante.stop()
             await svc._stop_embedded_servers()
 
     def test_not_yet_vacio(self):
-        """FA–FD completas: ningún flag avisa 'llega en la fase X'."""
+        """FA–FD complete: no flag warns 'arrives in phase X'."""
         assert NOT_YET == {}
 
 
 class TestRegresionesReviewFD:
-    """Fijan los bugs del review de FD."""
+    """Pin bugs found while reviewing FD."""
 
     def test_relogin_revoca_el_authcode_anterior(self):
         from ecovacs_bridge.servers.conf import ConfAuth
@@ -386,8 +386,8 @@ class TestRegresionesReviewFD:
         auth.login("devid-x")
         ac1 = auth.authcode("devid-x", "es")
         assert auth.check_authcode("fuid_tmpuser", ac1) is True
-        auth.login("devid-x")  # re-login: la sesión vieja muere DEL TODO
-        assert auth.check_authcode("fuid_tmpuser", ac1) is False  # zombi revocado
+        auth.login("devid-x")  # re-login: the old session dies COMPLETELY
+        assert auth.check_authcode("fuid_tmpuser", ac1) is False  # zombie revoked
         assert auth.authcode("devid-x", "es") != ac1
 
     def test_getauthcode_con_use_auth_exige_token_valido(self):
@@ -395,15 +395,15 @@ class TestRegresionesReviewFD:
 
         auth = ConfAuth(use_auth=True)
         s = auth.login("devid-x")
-        # accessToken incorrecto → sin authcode (fail como Bumper)
+        # wrong accessToken → no authcode (fail like Bumper)
         assert auth.authcode("devid-x", "es", access_token="inventado",
                              require_token=True) is None
-        # el token de la sesión sí
+        # the session's token does
         assert auth.authcode("devid-x", "es", access_token=s.token,
                              require_token=True) is not None
 
     async def test_fallo_broker_mqtt_no_salta_el_conf(self, tmp_path):
-        """mqtt con puerto ocupado + conf on → el conf ARRANCA igual."""
+        """mqtt with a busy port + conf on → conf STILL STARTS."""
         from ecovacs_bridge.config import Config
         from ecovacs_bridge.serve import Service
         from ecovacs_bridge.servers.certs import ensure_certs
@@ -420,7 +420,7 @@ class TestRegresionesReviewFD:
         cfg.servers.ca_file = str(tmp_path / "ca.crt")
         cfg.servers.server_cert = str(tmp_path / "s.crt")
         cfg.servers.server_key = str(tmp_path / "s.key")
-        # ocupa el puerto del broker MQTT
+        # occupy the MQTT broker's port
         import socket
 
         with socket.socket() as blk:
@@ -431,7 +431,7 @@ class TestRegresionesReviewFD:
             svc = Service(cfg, None)
             await svc._start_embedded_servers()
             try:
-                assert "mqtt" not in svc.embedded  # falló (puerto ocupado)
-                assert "conf" in svc.embedded      # pero el conf SÍ arrancó
+                assert "mqtt" not in svc.embedded  # failed (busy port)
+                assert "conf" in svc.embedded      # but conf DID start
             finally:
                 await svc._stop_embedded_servers()

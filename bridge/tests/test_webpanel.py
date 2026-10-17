@@ -1,4 +1,4 @@
-"""Tests del panel: broadcast_raw (bug B1) y serialización del mapa."""
+"""Panel tests: broadcast_raw (bug B1) and map serialization."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from ecovacs_bridge.webpanel import WebPanel
 
 
 class FakeWS:
-    """WebSocket falso: captura send_str sin red."""
+    """Fake WebSocket: captures send_str without a network."""
 
     def __init__(self):
         self.sent: list[str] = []
@@ -28,15 +28,16 @@ def make_panel() -> tuple[WebPanel, Service]:
 
 class TestBroadcastRaw:
     async def test_envia_a_todos_sin_excepciones(self, caplog):
-        """B1: asyncio sin importar mataba el broadcast y EXPULSABA a los
-        clientes — un mapa por WS debe llegar a todos y no tocar la lista."""
+        """B1: asyncio without the import was killing the broadcast and
+        KICKING clients out — one map per WS must reach everyone and the
+        list must stay intact."""
         panel, _ = make_panel()
         ws1, ws2 = FakeWS(), FakeWS()
         panel._ws_clients = [ws1, ws2]
         panel.broadcast_raw(json.dumps({"type": "map", "rows": []}))
-        await asyncio.sleep(0.05)  # deja fluir las tasks de envío
+        await asyncio.sleep(0.05)  # let the send tasks flow
         assert ws1.sent and ws2.sent
-        assert len(panel._ws_clients) == 2  # nadie expulsado
+        assert len(panel._ws_clients) == 2  # nobody kicked out
 
     async def test_ws_roto_se_expulsa_limpiamente(self):
         panel, _ = make_panel()

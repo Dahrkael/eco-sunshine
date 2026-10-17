@@ -1,4 +1,4 @@
-"""Tests de la ingesta de versión firmware (elemento <ver>, corpus 930)."""
+"""Firmware version ingestion tests (<ver> element, 930 corpus)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ class TestVersion:
         return RobotState.from_jid("E000105701860607AB7@115.ecorobot.net/atom")
 
     def test_elemento_ver_del_corpus(self):
-        """Formato REAL del 930 (corpus 2026-10-13): <ver name="FW">1.9.9</ver>."""
+        """The 930's REAL format (corpus 2026-10-13): <ver name="FW">1.9.9</ver>."""
         r = self._r()
         r.update({"td": "GetVersion", "ret": "ok"},
                  '<ver name="FW">1.9.9</ver>')

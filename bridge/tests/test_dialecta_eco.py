@@ -1,10 +1,10 @@
-"""Regresión de la dialecta ECO del 930 real (hallada en el monolito).
+"""Regression test for the real 930's ECO dialect (found on the monolith).
 
-El robot responde los comandos REPITIENDO el ctl-id, SIN td ni pid:
-    petición:  <ctl id="8467e033" pid="20" td="PullMP"/>
-    eco:       <ctl id="8467e033" ret="ok" i="409549211" p="XQA…"/>
-Sin correlación por ctl-id + reinyección de td/pid, TODO se descartaba
-(batería None, posición congelada, mapa sin piezas tras los primeros 2 min).
+The robot answers commands by ECHOING the ctl-id, WITHOUT td or pid:
+    request:  <ctl id="8467e033" pid="20" td="PullMP"/>
+    echo:     <ctl id="8467e033" ret="ok" i="409549211" p="XQA…"/>
+Without ctl-id correlation + td/pid re-injection, EVERYTHING was dropped
+(battery None, frozen position, no map pieces after the first 2 min).
 """
 
 from __future__ import annotations
@@ -16,13 +16,13 @@ from ecovacs_bridge.xmpp_client import BumperXMPPClient
 
 
 class FakeClient(BumperXMPPClient):
-    """Cliente sin red: procesamos stanzas a mano."""
+    """Network-less client: we feed stanzas by hand."""
 
     def __init__(self):
         super().__init__("h", 1, "u", "r", on_event=self._evt)
         self.events: list[dict] = []
 
-    def _send(self, data: str) -> None:  # sin writer: capturar en su lugar
+    def _send(self, data: str) -> None:  # no writer: capture instead
         self.sent = data
 
     async def _evt(self, jid, attrs, inner):
@@ -50,24 +50,24 @@ class TestDialectaEco:
                '<query xmlns="com:ctl">'
                '<ctl id="' + "PLACEHOLDER" + '" ret="ok" i="409549211" p="XQAABAAQ" />'
                "</query></iq>")
-        # recuperar el ctl_id real que generó send_command (está en _pending)
+        # recover the real ctl_id send_command generated (it is in _pending)
         ctl_key = next(k for k in c._pending if k.startswith("c:"))
         ctl_id = ctl_key[2:]
         asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
             self._feed(c, eco.replace("PLACEHOLDER", ctl_id)))
         assert c.events, "el eco no generó evento"
         attrs = c.events[-1]
-        assert attrs["td"] == "PullMP"      # inyectado
-        assert attrs["pid"] == "20"          # reinyectado de la petición
+        assert attrs["td"] == "PullMP"      # injected
+        assert attrs["pid"] == "20"          # re-injected from the request
         assert attrs["i"] == "409549211" and attrs["p"] == "XQAABAAQ"
 
     @staticmethod
     async def _feed(c, stanza):
         c.feed(stanza)
-        await asyncio.sleep(0.05)  # deja correr el create_task del emit
+        await asyncio.sleep(0.05)  # let the emit's create_task run
 
     def test_respuesta_con_td_no_se_toca(self):
-        """Frames con td propio (pushes MapP/Pos del robot y del mock) intactos."""
+        """Frames with their own td (robot and mock MapP/Pos pushes) untouched."""
         c = FakeClient()
         c.send_command("b@115.ecorobot.net/atom", '<ctl id="{ctl_id}" td="GetPos" />',
                        "GetPos")
@@ -79,7 +79,7 @@ class TestDialectaEco:
         assert c.events[-1]["td"] == "Pos"
 
     def test_sin_correlacion_pasa_limpio(self):
-        """Un eco cuyo ctl-id no conocemos no explota ni inyecta nada."""
+        """An echo whose ctl-id we do not know neither blows up nor injects anything."""
         c = FakeClient()
         asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
             self._feed(c,

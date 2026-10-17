@@ -1,4 +1,4 @@
-"""Tests de estado y routing: DeviceId, update_report (JSON), route_topic."""
+"""State and routing tests: DeviceId, update_report (JSON), route_topic."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ class TestUpdateReport:
         assert r.battery == 85
 
     def test_battery_response_get(self):
-        """getBattery (respuesta p2p) debe actualizarse igual que onBattery."""
+        """getBattery (p2p response) must update like onBattery does."""
         r = self._robot()
         r.update_report("getBattery", {"ret": "ok", "value": 42, "isLow": True})
         assert r.battery == 42
@@ -71,8 +71,8 @@ class TestUpdateReport:
         assert r.clean_seconds == 1234
 
     def test_clean_info_response_get(self):
-        """getCleanInfo_V2 (respuesta del poll) — bug B3: el prefijo get
-        debe quitarse al normalizar o 4 polls no actualizan estado."""
+        """getCleanInfo_V2 (poll response) — bug B3: the get prefix must be
+        stripped when normalizing or 4 polls update no state."""
         r = self._robot()
         r.update_report("getCleanInfo_V2", {
             "ret": "ok",
@@ -114,7 +114,7 @@ class TestUpdateReport:
         r = self._robot()
         r.battery = 50
         r.update_report("getBattery", {"ret": "fail", "errno": 3})
-        assert r.battery == 50  # sin cambios
+        assert r.battery == 50  # unchanged
 
     def test_speed(self):
         r = self._robot()
@@ -122,13 +122,13 @@ class TestUpdateReport:
         assert r.fan_speed_json == 2
 
     def test_speed_rev_in_spec(self):
-        """B4: el inverso debe mandar strong=2 (3 no existe en la spec)."""
+        """B4: the inverse must send strong=2 (3 does not exist in the spec)."""
         assert SPEED_JSON_REV == {"silent": 0, "standard": 1, "strong": 2}
 
 
 class TestRouteTopic:
     def test_report(self):
-        # iot/atr/{name}/{sn}/{cls}/{res}/{fmt} — niveles separados
+        # iot/atr/{name}/{sn}/{cls}/{res}/{fmt} — separate levels
         r = route_topic("iot/atr/onBattery/abc123/yna5xh/axm/j")
         assert r == ("report", "abc123@yna5xh/axm", "onBattery", "")
 
@@ -145,7 +145,7 @@ class TestRouteTopic:
     def test_ignora_otros(self):
         assert route_topic("iot/cfg/x/y/z/j") is None
         assert route_topic("otro/topic") is None
-        assert route_topic("iot/atr/onPos") is None  # demasiado corto
+        assert route_topic("iot/atr/onPos") is None  # too short
 
 
 class TestCommandTopic:

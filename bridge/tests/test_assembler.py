@@ -1,4 +1,4 @@
-"""Tests de MapAssembler: geometría por mapa (XML y JSON), transform mm→celda."""
+"""MapAssembler tests: per-map geometry (XML and JSON), mm→cell transform."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class TestGeometry:
         assert g.cell_mm == 50 and g.y_down
         row, col = g.mm_to_cell(0, 0)
         assert (row, col) == (401, 401)
-        # x+100mm → 2 columnas; y+50mm → 1 fila (y-down)
+        # x+100mm → 2 columns; y+50mm → 1 row (y-down)
         assert g.mm_to_cell(100, 50) == (402, 403)
 
     def test_json_centered_y_up(self):
@@ -32,7 +32,7 @@ class TestGeometry:
         assert g.total_cols == 400 and g.total_rows == 500
         assert (g.origin_col, g.origin_row) == (200, 250)
         assert not g.y_down
-        # x+100mm → 2 cols; y+100mm → 2 filas MENOS (y-up)
+        # x+100mm → 2 cols; y+100mm → 2 FEWER rows (y-up)
         assert g.mm_to_cell(100, 100) == (248, 202)
 
     def test_from_xml_attrs(self):
@@ -50,7 +50,7 @@ class TestAssembler:
         assert grid is not None
         assert len(grid) == 800 and len(grid[0]) == 800
         assert grid[0][0] == 1 and grid[0][99] == 1
-        assert grid[0][100] == 0  # pieza 1 no cargada
+        assert grid[0][100] == 0  # piece 1 not loaded
 
     def test_json_geometry_and_crc(self):
         asm = MapAssembler()
@@ -62,13 +62,13 @@ class TestAssembler:
         geo = asm.geo("0")
         assert (geo.piece_cols, geo.piece_rows) == (4, 5)
         assert asm.add_piece_json("0", 0, make_piece(1))
-        # CRC incorrecto → rechazada (pid 0, dentro del rango de la spec)
+        # wrong CRC → rejected (pid 0, inside the spec's range)
         asm.set_geometry_json("0", {"value": "12345", "pieceWidth": 4, "pieceHeight": 5,
                                     "cellWidth": 100, "cellHeight": 100, "pixel": 50})
         assert not asm.add_piece_json("0", 0, make_piece(2))
         grid = asm.assemble("0")
         assert grid is not None
-        assert len(grid) == 500 and len(grid[0]) == 400  # 5x100 filas, 4x100 cols
+        assert len(grid) == 500 and len(grid[0]) == 400  # 5x100 rows, 4x100 cols
 
     def test_piece_crc_accessor(self):
         asm = MapAssembler()
@@ -84,15 +84,15 @@ class TestAssembler:
         asm = MapAssembler()
         p = bytes([1]) * 10000
         v1 = str(zlib.crc32(p))
-        # primera spec con crcs → cuenta (dispara el minor walk inicial)
+        # first spec with crcs → counts (triggers the initial minor walk)
         asm.set_geometry_json("0", {"value": v1, "pieceWidth": 4, "pieceHeight": 5,
                                     "cellWidth": 100, "cellHeight": 100, "pixel": 50})
         assert asm.spec_changes == 1
-        # idéntica → no cuenta
+        # identical → does not count
         asm.set_geometry_json("0", {"value": v1, "pieceWidth": 4, "pieceHeight": 5,
                                     "cellWidth": 100, "cellHeight": 100, "pixel": 50})
         assert asm.spec_changes == 1
-        # cambia → cuenta
+        # changes → counts
         asm.set_geometry_json("0", {"value": v1 + "," + str(zlib.crc32(bytes([2]) * 10000)),
                                     "pieceWidth": 4, "pieceHeight": 5,
                                     "cellWidth": 100, "cellHeight": 100, "pixel": 50})

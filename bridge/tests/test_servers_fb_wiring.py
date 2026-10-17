@@ -1,4 +1,4 @@
-"""Tests del wiring FB/FE del XMPP embebido en serve (ca_file incluido)."""
+"""FB/FE wiring tests for the embedded XMPP in serve (ca_file included)."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ class TestXmppWiring:
         cfg.state_file = str(tmp_path / "state.json")
         cfg.servers.ca_file = str(tmp_path / "ca-mia.crt")
         if unwritable:
-            # destino inservible: un fichero regular donde iría el directorio
+            # unusable destination: a regular file where the directory would go
             blocker = tmp_path / "bloqueo"
             blocker.write_text("no soy un directorio")
             cfg.servers.server_cert = str(blocker / "srv.crt")
@@ -27,21 +27,21 @@ class TestXmppWiring:
         return cfg
 
     async def test_xmpp_falla_cliente_con_config_externa(self, tmp_path):
-        """Certs irrecuperables → el cliente [bumper] queda INTACTO (ca incluida)."""
+        """Unrecoverable certs → the [bumper] client stays INTACT (ca included)."""
         cfg = self._cfg(tmp_path, unwritable=True)
         cfg.bumper.host = "bumper-externo"
         cfg.bumper.ca_file = "/otra/ca.crt"
         svc = Service(cfg, None)
         await svc._start_embedded_servers()
-        assert "xmpp" not in svc.embedded  # ensure_certs falló → desactivado
+        assert "xmpp" not in svc.embedded  # ensure_certs failed → disabled
         assert cfg.bumper.host == "bumper-externo"
         assert cfg.bumper.ca_file == "/otra/ca.crt"
 
     async def test_xmpp_arranca_cliente_a_loopback_con_ca_del_server(self, tmp_path):
-        """XMPP arriba → host/port/ca_file del cliente apuntan al embebido."""
+        """XMPP up → the client's host/port/ca_file point at the embedded one."""
         from pathlib import Path
 
-        # generar certs reales para que arranque (usa el generador de FE)
+        # generate real certs so it starts (uses FE's generator)
         from ecovacs_bridge.servers.certs import ensure_certs
 
         cfg = self._cfg(tmp_path)
@@ -56,8 +56,8 @@ class TestXmppWiring:
             assert "xmpp" in svc.embedded
             assert cfg.bumper.host == "127.0.0.1"
             assert cfg.bumper.port == cfg.servers.xmpp_port
-            # la CA del cliente es la del servidor embebido (fix del review
-            # final: antes quedaba la de [bumper], potencialmente otra)
+            # the client's CA is the embedded server's (it used to stay
+            # [bumper]'s, potentially a different one)
             assert cfg.bumper.ca_file == cfg.servers.ca_file
         finally:
             await svc._stop_embedded_servers()

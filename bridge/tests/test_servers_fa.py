@@ -1,4 +1,4 @@
-"""Tests de Fase FA: config [servers], lookup embebido, ciclo de vida."""
+"""Phase FA tests: [servers] config, embedded lookup, lifecycle."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ class TestServersConfig:
         cfg = ServersConfig()
         assert cfg.lookup is False and cfg.xmpp is False
         assert cfg.mqtt is False and cfg.conf is False
-        assert cfg.panel is True  # nativo, sigue on por defecto
+        assert cfg.panel is True  # native, still on by default
         assert cfg.lookup_port == 8007 and cfg.conf_port == 443
 
     def test_parse_toml(self, tmp_path):
@@ -31,15 +31,15 @@ class TestServersConfig:
         assert cfg.servers.panel is False
 
     def test_sin_seccion(self, monkeypatch):
-        # DEEBOT_ANNOUNCE_IP en el entorno podría rellenar announce_ip (FE):
-        # sin él la config por defecto es exactamente ServersConfig()
+        # DEEBOT_ANNOUNCE_IP in the environment could fill announce_ip (FE):
+        # without it the default config is exactly ServersConfig()
         monkeypatch.delenv("DEEBOT_ANNOUNCE_IP", raising=False)
         assert load_config(None).servers == ServersConfig()
 
 
 class TestLookupResponse:
     def test_ecomsgnew_sin_espacios(self):
-        """El parser del robot es estricto: JSON compacto (truco de Bumper)."""
+        """The robot's parser is strict: compact JSON (Bumper's trick)."""
         r = lookup_response("EcoMsgNew", "192.168.1.50", 5223)
         body = r.text
         assert " " not in body
@@ -61,7 +61,7 @@ class TestLookupServer:
         await srv.start()
         try:
             async with ClientSession() as s:
-                # JSON (como el robot con wget)
+                # JSON (like the robot with wget)
                 async with s.post("http://127.0.0.1:18007/lookup.do",
                                   json={"todo": "FindBest",
                                         "service": "EcoMsgNew"}) as r:
@@ -69,7 +69,7 @@ class TestLookupServer:
                     body = await r.text()
                     assert " " not in body
                     assert json.loads(body)["port"] == 5223
-                # form-urlencoded (variante de la app)
+                # form-urlencoded (app variant)
                 async with s.post("http://127.0.0.1:18007/lookup.do",
                                   data={"todo": "FindBest",
                                         "service": "EcoUpdate"}) as r:
@@ -90,4 +90,4 @@ class TestNullPanel:
         await p.start()
         p.build_and_broadcast_map({})
         p.broadcast_raw("x")
-        await p.broadcast({"a": 1}, slug="s")  # no lanza nada
+        await p.broadcast({"a": 1}, slug="s")  # raises nothing

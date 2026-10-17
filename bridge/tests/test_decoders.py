@@ -1,4 +1,4 @@
-"""Tests de decoders: piezas LZMA/zstd (auto), traza 5B MQTT, envelope JSON."""
+"""Decoder tests: LZMA/zstd pieces (auto), 5-byte MQTT trace, JSON envelope."""
 
 from __future__ import annotations
 
@@ -19,15 +19,15 @@ from ecovacs_bridge.mqtt_transport import build_envelope
 
 
 def make_piece_bytes(size: int = 10000, fill: int = 1) -> bytes:
-    """Grid sintético de `size` celdas → payload LZMA-alone como el robot."""
+    """Synthetic grid of `size` cells → LZMA-alone payload like the robot's."""
     grid = bytes([fill]) * size
     comp = lzma.compress(
         grid,
         format=lzma.FORMAT_ALONE,
         filters=[{"id": lzma.FILTER_LZMA1, "preset": 6}],
     )
-    # LZMA-alone de stdlib incluye props(1)+dict(4)+size(8); el robot manda
-    # props(1)+dict(4)+size(4) → recortar a la cabecera de 9 bytes del wire
+    # stdlib's LZMA-alone includes props(1)+dict(4)+size(8); the robot
+    # sends props(1)+dict(4)+size(4) → trim to the wire's 9-byte header
     return comp[:9] + comp[13:]
 
 
@@ -56,7 +56,7 @@ class TestPieceAuto:
         assert decode_piece_auto(b64) == bytes([1]) * 10000
 
     def test_decode_piece_auto_size_hint_variable(self):
-        # pieza MQTT con geometría distinta (80x80 = 6400 celdas)
+        # MQTT piece with a different geometry (80x80 = 6400 cells)
         raw = make_piece_bytes(6400, fill=0)
         assert decompress_auto(raw, size_hint=6400) == bytes(6400)
 
@@ -67,13 +67,13 @@ class TestPieceAuto:
 
 class TestTraceMqtt:
     def _encode(self, buf: bytes) -> str:
-        # la traza viaja como LZMA-alone ESTÁNDAR (cabecera de 13 bytes)
+        # the trace travels as STANDARD LZMA-alone (13-byte header)
         comp = lzma.compress(buf, format=lzma.FORMAT_ALONE,
                              filters=[{"id": lzma.FILTER_LZMA1, "preset": 6}])
         return base64.b64encode(comp).decode()
 
     def test_roundtrip_5bytes(self):
-        # codificar puntos conocidos al formato wire: y+2000, x+2000, flags
+        # encode known points to the wire format: y+2000, x+2000, flags
         pts = [(0.0, 0.0, False), (100.0, -50.0, False), (250.0, 250.0, True)]
         buf = b"".join(
             struct.pack(">hhB", int(y) + 2000, int(x) + 2000, 0x80 if d else 0)

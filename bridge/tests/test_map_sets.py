@@ -1,4 +1,4 @@
-"""Tests de map_sets: parsers XML (930) y JSON (eco-ng), stats, comandos."""
+"""map_sets tests: XML (930) and JSON (eco-ng) parsers, stats, commands."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from ecovacs_bridge.robot import RobotState
 
 class TestParseMapSetXml:
     def test_set_vacio_del_corpus(self):
-        """El corpus manda <m/> vacíos cuando no hay nada configurado."""
+        """The corpus sends empty <m/> when nothing is configured."""
         ms = parse_mapset_xml(
             {"td": "MapSet", "tp": "vw", "msid": "", "ts": "123"},
             '<m mid="" n="" p="" />')
@@ -35,8 +35,8 @@ class TestParseMapSetXml:
         assert w.mid == "17"
 
     def test_muro_con_namespace_bumper(self):
-        """Bumper re-serializa y los hijos llegan como <ns0:m …/> — el
-        parser debe ser agnóstico al prefijo ( cazado en E2E )."""
+        """Bumper re-serializes and children arrive as <ns0:m …/> — the
+        parser must be prefix-agnostic."""
         ms = parse_mapset_xml(
             {"td": "MapSet", "tp": "vw", "msid": "0"},
             '<ns0:m xmlns:ns0="com:ctl" mid="17" n="" p="100,200,800,200" />'
@@ -67,7 +67,7 @@ class TestParseMapSetXml:
 
 class TestParseStatsXml:
     def test_attrs_planos(self):
-        # convención CleanSum (sucks): a=área t=tiempo c=cuenta
+        # CleanSum convention (sucks): a=area t=time c=count
         st = parse_stats_xml({"td": "CleanSum", "a": "1234", "t": "567", "c": "8"}, "")
         assert st == {"total_area": 1234.0, "total_time": 567.0, "total_count": 8}
 
@@ -163,7 +163,7 @@ class TestCommanders:
         c.add_wall([100, 200, 800, 200])
         cmd = [x for x in t.sent if x[0] == "setMapSubSet"][-1]
         assert cmd[2]["type"] == "vw"
-        assert cmd[2]["value"] == "100,200;800,200"  # pares de puntos (spec §4.5)
+        assert cmd[2]["value"] == "100,200;800,200"  # point pairs (spec §4.5)
 
     def test_xmpp_clean_room_xml(self):
         from ecovacs_bridge.robot import RobotCommander

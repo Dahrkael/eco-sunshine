@@ -1,4 +1,4 @@
-"""Tests del formato chunked (getMapInfo, T8/N8) — bug B9."""
+"""Chunked format tests (getMapInfo, T8/N8) — bug B9."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def make_chunked(grid: bytes, chunk_chars: int = 4000):
 
 
 def noisy_grid(n: int, seed: int = 7) -> bytes:
-    """Datos pseudo-aleatorios: no colapsan al comprimir (chunks reales)."""
+    """Pseudo-random data: does not collapse under compression (realistic chunks)."""
     import random
 
     rng = random.Random(seed)
@@ -43,8 +43,8 @@ class TestChunked:
         assert b"".join(bytes(row) for row in g) == grid
 
     def test_geometria_chunked_no_gigante(self):
-        """B9: from_chunked_json usa totalWidth/Height como CELDAS, no como
-        piezas — un width=100 no debe montar un grid de 100M celdas."""
+        """B9: from_chunked_json uses totalWidth/Height as CELLS, not as
+        pieces — width=100 must not build a 100M-cell grid."""
         geo = MapGeometry.from_chunked_json(
             {"width": 100, "height": 100, "totalWidth": 100, "totalHeight": 100,
              "pixel": 5})
@@ -53,7 +53,7 @@ class TestChunked:
 
     def test_geometria_absurda_rechazada(self):
         grid = bytes([1]) * 100
-        # metadata corrupta: totalWidth enorme
+        # corrupt metadata: huge totalWidth
         comp = lzma.compress(grid, format=lzma.FORMAT_ALONE,
                              filters=[{"id": lzma.FILTER_LZMA1, "preset": 6}])
         b64 = base64.b64encode(comp).decode()
@@ -61,7 +61,7 @@ class TestChunked:
         done = asm.add_chunk_json("0", 0, b64, 1,
                                   {"totalWidth": 5000, "totalHeight": 5000,
                                    "pixel": 5, "width": 100, "height": 100})
-        assert not done  # 25M celdas > límite 2000x2000 → descartado
+        assert not done  # 25M cells > 2000x2000 cap → discarded
 
     def test_chunks_incompletos_no_montan(self):
         grid = noisy_grid(5000)
@@ -73,15 +73,15 @@ class TestChunked:
         assert asm.piece_count("0") == 0
 
     def test_chunked_sustituye_piezas_viejas(self):
-        """B15: mismo mid migrando de piezas a chunked no mezcla formatos."""
+        """B15: the same mid migrating from pieces to chunked mixes no formats."""
         grid = noisy_grid(3000)
         chunks, meta = make_chunked(grid, chunk_chars=100)
         assert len(chunks) >= 2
         asm = MapAssembler()
-        asm.maps.setdefault("0", {})[0] = bytes([9]) * 10000  # pieza vieja
+        asm.maps.setdefault("0", {})[0] = bytes([9]) * 10000  # old piece
         for i, ch in enumerate(chunks):
             done = asm.add_chunk_json("0", i, ch, len(chunks),
                                       {**meta, "totalWidth": len(grid), "width": len(grid),
                                        "totalHeight": 1, "height": 1})
         assert done
-        assert set(asm.maps["0"].keys()) == {-1}  # solo el grid completo
+        assert set(asm.maps["0"].keys()) == {-1}  # only the full grid

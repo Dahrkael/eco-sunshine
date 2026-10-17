@@ -1,13 +1,13 @@
-"""Tests de Fase FC: broker MQTT embebido — auth estilo Bumper + routing.
+"""Phase FC tests: embedded MQTT broker — Bumper-style auth + routing.
 
-El broker es amqtt (matching de filtros por niveles, sin el bug de '+'
-de hbmqtt), así que estos tests fijan el contrato que el sistema usa:
+The broker is amqtt (per-level filter matching, without hbmqtt's '+'
+bug), so these tests pin the contract the system relies on:
 
-- auth: bots {did}@{cls}/{res} → DeviceRegistry; clients bumper/ecouser
-- wildcard '+' = UN nivel exacto, CON guiones (dids UUID eco-ng)
-- routing pub/sub estándar entre el MqttTransport (iot/#) y un robot mock
-- listener TLS con certs de ServersConfig
-- wiring de serve: servers.mqtt=true → cliente [bumper_mqtt] a loopback
+- auth: bots {did}@{cls}/{res} → DeviceRegistry; bumper/ecouser clients
+- '+' wildcard = exactly ONE level, WITH dashes (eco-ng UUID dids)
+- standard pub/sub routing between MqttTransport (iot/#) and a mock robot
+- TLS listener with ServersConfig certs
+- serve wiring: servers.mqtt=true → [bumper_mqtt] client to loopback
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from ecovacs_bridge.servers.mqtt import BridgeAuthPlugin, EmbeddedMqttBroker
 from ecovacs_bridge.servers.registry import DeviceRegistry
 from ecovacs_bridge.serve import Service
 
-# did eco-ng real: UUID con guiones — el caso que el '+' de hbmqtt rompía
+# real eco-ng did: dash-carrying UUID — the case hbmqtt's '+' broke
 DID = "b11fceaf-1234-5678-9abc-def012345678"
 CLS, RES = "yna5xh", "axm"
 BOT_KEY = f"{DID}@{CLS}/{RES}"
@@ -52,10 +52,10 @@ def sess(client_id: str, username: str | None = None,
 
 
 def make_plugin(registry: DeviceRegistry) -> BridgeAuthPlugin:
-    """Contexto como el que le da amqtt: copia con _broker_instance → broker."""
+    """Context like the one amqtt gives: copy with _broker_instance → broker."""
     broker = SimpleNamespace(registry=registry)
     ctx = BaseContext()
-    ctx._broker_instance = broker  # noqa: SLF001 (la copia de amqtt apunta al broker)
+    ctx._broker_instance = broker  # noqa: SLF001 (amqtt's copy points at the broker)
     return BridgeAuthPlugin(ctx)
 
 
@@ -70,7 +70,7 @@ class TestAuthPlugin:
         bot = reg.bot_get(DID)
         assert bot is not None
         assert bot["company"] == "eco-ng"
-        assert bot["sn"] == f"SN-{DID}"  # el SN viaja en el username
+        assert bot["sn"] == f"SN-{DID}"  # the SN travels in the username
         assert bot["device_class"] == CLS and bot["resource"] == RES
 
     async def test_bot_sin_username_usa_did_como_sn(self):
@@ -79,7 +79,7 @@ class TestAuthPlugin:
         assert reg.bot_get(DID)["sn"] == DID
 
     async def test_client_bumper_aceptado_y_registrado(self):
-        """bridge@bumper/bridge — el client-id del MqttTransport del bridge."""
+        """bridge@bumper/bridge — the client-id of the bridge's MqttTransport."""
         reg = DeviceRegistry()
         assert await make_plugin(reg).authenticate(session=sess("bridge@bumper/bridge")) is True
         cl = reg.client_get("bridge")
@@ -87,7 +87,7 @@ class TestAuthPlugin:
                       "resource": "bridge", "xmpp": False}
 
     async def test_client_ecouser_aceptado_sin_cuentas(self):
-        """use_auth=False (default): LAN sin passwords, como Bumper."""
+        """use_auth=False (default): passwordless LAN, like Bumper."""
         reg = DeviceRegistry()
         ok = await make_plugin(reg).authenticate(session=sess("fuid_x@ecouser/ios"))
         assert ok is True
@@ -112,12 +112,13 @@ class TestAuthPlugin:
         assert not reg.bots and not reg.clients
 
 
-# ---------- broker en vivo (TCP plano) ----------
+# ---------- live broker (plain TCP) ----------
 
 class TestBrokerRouting:
     async def test_report_atr_llega_al_bridge_y_bot_registrado(self):
-        """El robot publica iot/atr/…, el MqttTransport (suscrito a iot/#)
-        lo recibe — y el CONNECT del bot lo deja en el DeviceRegistry."""
+        """The robot publishes iot/atr/…, the MqttTransport (subscribed to
+        iot/#) receives it — and the bot's CONNECT lands it in the
+        DeviceRegistry."""
         reg = DeviceRegistry()
         broker = EmbeddedMqttBroker(("127.0.0.1", free_port()), reg)
         await broker.start()
@@ -149,11 +150,11 @@ class TestBrokerRouting:
             await broker.stop()
 
     async def test_comando_p2p_llega_al_robot_y_responde(self):
-        """Roundtrip completo con filtros '+' y did con guiones:
+        """Full roundtrip with '+' filters and a dash-carrying did:
 
-        send_command publica iot/p2p/{cmd}/bridge/bumper/bridge/{did}/…/q/…
-        → el robot (filtro 12 niveles con '+') lo recibe y responde p/…
-        → el transport correlaciona por reqid.
+        send_command publishes iot/p2p/{cmd}/bridge/bumper/bridge/{did}/…/q/…
+        → the robot (12-level filter with '+') gets it and replies p/…
+        → the transport correlates by reqid.
         """
         reg = DeviceRegistry()
         broker = EmbeddedMqttBroker(("127.0.0.1", free_port()), reg)
@@ -192,8 +193,8 @@ class TestBrokerRouting:
             await broker.stop()
 
     async def test_plus_es_un_nivel_exacto(self):
-        """'+' NO matchea varios niveles (MQTT-4.7.1) — con hbmqtt sí lo
-        hacía (clase regex con '/') y por eso 'funcionaban' filtros rotos."""
+        """'+' does NOT match several levels (MQTT-4.7.1) — hbmqtt did
+        (regex class with '/'), which is why broken filters 'worked'."""
         broker = EmbeddedMqttBroker(("127.0.0.1", free_port()), DeviceRegistry())
         await broker.start()
         try:
@@ -203,16 +204,16 @@ class TestBrokerRouting:
                                    identifier="pub@bumper/test") as pub:
                 await sub.subscribe("iot/atr/+/fin", qos=0)
                 await asyncio.sleep(0.1)
-                await pub.publish("iot/atr/a/b/fin", b"{}", qos=0)  # 2 niveles
-                await pub.publish("iot/atr/a/fin", b"{}", qos=0)     # 1 nivel
+                await pub.publish("iot/atr/a/b/fin", b"{}", qos=0)  # 2 levels
+                await pub.publish("iot/atr/a/fin", b"{}", qos=0)     # 1 level
                 msgs = [str(m.topic) async for m in _take(sub.messages, 1, 2)]
                 assert msgs == ["iot/atr/a/fin"]
         finally:
             await broker.stop()
 
     async def test_username_sin_password_conecta(self):
-        """hbmqtt rechazaba username sin password a nivel de protocolo
-        (CONNACK 0x4) — amqtt no; el bot conecta igual."""
+        """hbmqtt rejected username without password at protocol level
+        (CONNACK 0x4) — amqtt does not; the bot connects anyway."""
         reg = DeviceRegistry()
         broker = EmbeddedMqttBroker(("127.0.0.1", free_port()), reg)
         await broker.start()
@@ -230,7 +231,7 @@ class TestBrokerRouting:
 # ---------- listener TLS ----------
 
 def _generate_certs(tmp_path: Path) -> tuple[Path, Path, Path]:
-    """CA + cert de servidor autofirmados (cryptography, solo tests)."""
+    """Self-signed CA + server cert (cryptography, tests only)."""
     cryptography = pytest.importorskip("cryptography")
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
@@ -299,7 +300,7 @@ class TestTLSListener:
             await broker.stop()
 
 
-# ---------- wiring de serve ----------
+# ---------- serve wiring ----------
 
 class TestServeWiringFC:
     async def test_servers_mqtt_arranca_broker_y_cliente_a_loopback(self, tmp_path):
@@ -319,11 +320,11 @@ class TestServeWiringFC:
         try:
             assert "mqtt" in svc.embedded
             assert svc.registry is not None
-            # el cliente pasa a NUESTRO broker (mismo patrón que FB/xmpp)
+            # the client switches to OUR broker (same pattern as FB/xmpp)
             assert cfg.bumper_mqtt.host == "127.0.0.1"
             assert cfg.bumper_mqtt.port == cfg.servers.mqtt_port
             assert cfg.bumper_mqtt.ca_file == cfg.servers.ca_file
-            # el broker está vivo: conecta un bot por TLS
+            # the broker is alive: connect a bot over TLS
             ctx = ssl.create_default_context(cafile=str(ca))
             ctx.check_hostname = False
             if hasattr(ssl, "VERIFY_X509_STRICT"):
@@ -338,8 +339,8 @@ class TestServeWiringFC:
                 await svc.embedded["mqtt"].stop()
 
     async def test_servers_mqtt_off_cliente_intacto(self):
-        """servers.mqtt=false = todo como hoy: nada embebido, el cliente
-        sigue apuntando al broker externo de la config."""
+        """servers.mqtt=false = everything as today: nothing embedded,
+        the client keeps pointing at the config's external broker."""
         cfg = Config()
         cfg.bumper_mqtt.enabled = True
         cfg.bumper_mqtt.host = "10.0.0.9"
@@ -349,8 +350,8 @@ class TestServeWiringFC:
         assert cfg.bumper_mqtt.host == "10.0.0.9"
 
     async def test_broker_sin_cliente_por_config_no_rompe(self, tmp_path):
-        """Broker embebido pero [bumper_mqtt] off: arranca igual (solo avisa),
-        no toca la config del cliente."""
+        """Embedded broker but [bumper_mqtt] off: it still starts (only
+        warns) and does not touch the client config."""
         _ca, cert, key = _generate_certs(tmp_path)
         cfg = Config()
         cfg.servers.listen = "127.0.0.1"
@@ -362,33 +363,34 @@ class TestServeWiringFC:
         await svc._start_embedded_servers()
         try:
             assert "mqtt" in svc.embedded
-            assert cfg.bumper_mqtt.host == "localhost"  # intacto
+            assert cfg.bumper_mqtt.host == "localhost"  # untouched
         finally:
             await svc.embedded["mqtt"].stop()
 
     async def test_certs_irrecuperables_no_tumban_el_serve(self, tmp_path):
-        """Certs irrecuperables (destino inservible) → sin broker embebido,
-        pero serve sigue vivo — mismo criterio que el XMPP embebido (FA/FB).
+        """Unrecoverable certs (unusable destination) → no embedded broker,
+        but serve stays alive — same criterion as the embedded XMPP (FA/FB).
 
-        (FE cambió la premisa original "certs ausentes": si simplemente
-        FALTAN ya se auto-generan — ese caso lo cubre test_servers_fe.py.
-        Aquí el directorio del cert está bloqueado por un fichero normal.)
+        (FE changed the original "missing certs" premise: if they are
+        simply MISSING they now self-generate — that case is covered by
+        test_servers_fe.py. Here the cert directory is blocked by a
+        regular file.)
         """
         bloqueo = tmp_path / "bloqueo"
         bloqueo.write_text("no soy un directorio")
         cfg = Config()
         cfg.servers.listen = "127.0.0.1"
         cfg.servers.mqtt = True
-        # determinista: destino imposible en tmp y puerto libre (no 8883,
-        # que puede estar tomado por el bumper docker del entorno)
+        # deterministic: impossible destination in tmp and a free port
+        # (not 8883, which the environment's docker bumper may have taken)
         cfg.servers.server_cert = str(bloqueo / "no.crt")
         cfg.servers.server_key = str(bloqueo / "no.key")
         cfg.servers.mqtt_port = _free_port()
         svc = Service(cfg, None)
         await svc._start_embedded_servers()
-        assert "mqtt" not in svc.embedded  # no arrancó…
-        # promesa inversa: con [bumper_mqtt] enabled, la config del cliente
-        # NO se toca cuando el broker falla (sigue apuntando al externo)
+        assert "mqtt" not in svc.embedded  # did not start…
+        # inverse promise: with [bumper_mqtt] enabled, the client config
+        # is NOT touched when the broker fails (stays on the external one)
         cfg2 = Config()
         cfg2.servers.listen = "127.0.0.1"
         cfg2.servers.mqtt = True
@@ -401,8 +403,8 @@ class TestServeWiringFC:
         svc2 = Service(cfg2, None)
         await svc2._start_embedded_servers()
         assert "mqtt" not in svc2.embedded
-        assert cfg2.bumper_mqtt.host == "bumper-externo"  # intacto
-        assert cfg2.bumper_mqtt.tls is None  # sin tocar
+        assert cfg2.bumper_mqtt.host == "bumper-externo"  # untouched
+        assert cfg2.bumper_mqtt.tls is None  # untouched
 
 
 # ---------- helpers ----------
@@ -416,7 +418,7 @@ def _free_port() -> int:
 
 
 async def _wait_for(pred, timeout: float) -> None:
-    """Espera (fail si vence) a que pred() devuelva algo truthy."""
+    """Waits (fails on timeout) for pred() to return truthy."""
     deadline = asyncio.get_running_loop().time() + timeout
     while not pred():
         if asyncio.get_running_loop().time() > deadline:
@@ -425,7 +427,7 @@ async def _wait_for(pred, timeout: float) -> None:
 
 
 async def _take(aiter, n: int, timeout: float):
-    """Generador async: hasta n items del iterator con timeout GLOBAL."""
+    """Async generator: up to n items from the iterator with a GLOBAL timeout."""
     loop = asyncio.get_running_loop()
     it = aiter.__aiter__()
     deadline = loop.time() + timeout

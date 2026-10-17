@@ -310,7 +310,7 @@ class ConfServer:
         if authcode is None:
             log.warning("getAuthCode rejected (invalid accessToken) "
                         "devid=%s uid=%s", devid, uid)
-            return web.json_response({"time": _now(), "data": None,
+            return web.json_response({"time": _milli(), "data": None,
                                       "msg": "fail", "code": "0002"})
         log.info("getAuthCode: devid=%s uid=%s", devid, uid)
         return _ok({"authCode": authcode, "ecovacsUid": uid},

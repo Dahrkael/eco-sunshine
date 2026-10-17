@@ -8,12 +8,16 @@ dependencies = [
     "aiomqtt>=2.0",
     "aiohttp>=3.9",
     "zstandard>=0.22",
+    # broker MQTT embebido (FC): fork mantenido de hbmqtt, py3.12+
+    "amqtt>=0.12",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    # genera certs autofirmados para los tests TLS del broker (FC)
+    "cryptography>=42",
 ]
 
 [project.scripts]

@@ -154,8 +154,11 @@ class MockRobot:
                     tls_context=ctx,
                 )
                 async with self.client:
+                    # 12 niveles exactos (spec §2): '+' = UN nivel. El filtro
+                    # viejo tenía 11 y solo matcheaba por el bug de hbmqtt
+                    # ('+' se tragaba niveles con '/')
                     await self.client.subscribe(
-                        f"iot/p2p/+/+/+/{self.did}/{self.cls}/{self.res}/q/+/+", qos=0)
+                        f"iot/p2p/+/+/+/+/{self.did}/{self.cls}/{self.res}/q/+/+", qos=0)
                     log.info("conectado como %s@%s/%s", self.did, self.cls, self.res)
                     await self._announce()
                     await asyncio.gather(self._cmd_loop(), self._tick_loop())

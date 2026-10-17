@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Mock de robot Ecovacs eco-ng (MQTT/JSON) — banco de pruebas del bridge.
+"""Ecovacs eco-ng robot mock (MQTT/JSON) — test bench for the bridge.
 
-Se conecta al broker MQTT de Bumper :8883 como un robot T9 AIVI
-({did}@yna5xh/axm), responde a los comandos p2p del puente y emite reports
-iot/atr. El mapa usa piezas LZMA sintéticas (mismo formato wire que un robot
-real: base64(props+dict+size_u32+lzma)) y la traza usa el formato de 5
-bytes/punto — todo según docs/mqtt-json-spec.md.
+Connects to Bumper's MQTT broker :8883 as a T9 AIVI robot
+({did}@yna5xh/axm), answers the bridge's p2p commands and emits iot/atr
+reports. The map uses synthetic LZMA pieces (same wire format as a real
+robot: base64(props+dict+size_u32+lzma)) and the trace uses the
+5-bytes/point format — everything per docs/mqtt-json-spec.md.
 
-Uso:
+Usage:
     .venv/bin/python tools/mock_mqtt_robot.py [--host localhost] [--port 8883]
         [--ca-file data/certs/ca.crt] [--did mock-t9-0001] [--cls yna5xh]
 """
@@ -29,10 +29,10 @@ import aiomqtt
 
 log = logging.getLogger("mock-robot")
 
-# ---------- geometría del mapa sintético ----------
-PIECE_W, PIECE_H = 4, 5          # piezas por eje
-CELL_W, CELL_H = 100, 100        # celdas por pieza
-PIXEL = 50                       # mm por celda
+# ---------- synthetic map geometry ----------
+PIECE_W, PIECE_H = 4, 5          # pieces per axis
+CELL_W, CELL_H = 100, 100        # cells per piece
+PIXEL = 50                       # mm per cell
 TOTAL_COLS = PIECE_W * CELL_W    # 400
 TOTAL_ROWS = PIECE_H * CELL_H    # 500
 MAP_ID = "0"
@@ -43,18 +43,18 @@ SPEED_MMS = 300.0
 
 
 def build_grid() -> bytearray:
-    """Apartamento sintético 400x500: paredes, 3 habitaciones y alfombra."""
-    g = bytearray(TOTAL_ROWS * TOTAL_COLS)  # 0 = sin datos
+    """Synthetic 400x500 apartment: walls, 3 rooms and a carpet."""
+    g = bytearray(TOTAL_ROWS * TOTAL_COLS)  # 0 = no data
 
     def cell(r: int, c: int, v: int) -> None:
         if 0 <= r < TOTAL_ROWS and 0 <= c < TOTAL_COLS:
             g[r * TOTAL_COLS + c] = v
 
-    # suelo interior
+    # interior floor
     for r in range(60, 440):
         for c in range(60, 340):
             g[r * TOTAL_COLS + c] = 1
-    # paredes exteriores (grosor 3)
+    # outer walls (3 thick)
     for c in range(50, 350):
         for t in range(3):
             cell(50 + t, c, 2)
@@ -63,19 +63,19 @@ def build_grid() -> bytearray:
         for t in range(3):
             cell(r, 50 + t, 2)
             cell(r, 347 + t, 2)
-    # pared interior vertical (col 200) con hueco-puerta en filas 250-270
+    # vertical inner wall (col 200) with a door gap at rows 250-270
     for r in range(50, 450):
         if 250 <= r <= 270:
             continue
         for t in range(3):
             cell(r, 200 + t, 2)
-    # pared interior horizontal (fila 300, mitad derecha) con puerta
+    # horizontal inner wall (row 300, right half) with a door
     for c in range(203, 347):
         if 330 <= c <= 345:
             continue
         for t in range(3):
             cell(300 + t, c, 2)
-    # alfombra en la habitación superior derecha
+    # carpet in the upper-right room
     for r in range(120, 180):
         for c in range(250, 320):
             cell(r, c, 3)
@@ -83,14 +83,14 @@ def build_grid() -> bytearray:
 
 
 def encode_piece(data: bytes) -> str:
-    """Grid → LZMA wire del robot: base64(props+dict(4)+size_u32(4)+stream)."""
+    """Grid → the robot's LZMA wire: base64(props+dict(4)+size_u32(4)+stream)."""
     comp = lzma.compress(data, format=lzma.FORMAT_ALONE,
                          filters=[{"id": lzma.FILTER_LZMA1, "preset": 6}])
     return base64.b64encode(comp[:9] + comp[13:]).decode()
 
 
 def split_pieces(grid: bytearray) -> tuple[list[str], list[int]]:
-    """Grid completo → piezas row-major (pid = row*PIECE_W + col)."""
+    """Full grid → row-major pieces (pid = row*PIECE_W + col)."""
     pieces_b64: list[str] = []
     crcs: list[int] = []
     for pr in range(PIECE_H):
@@ -117,11 +117,11 @@ class MockRobot:
         self.trace: list[tuple[float, float]] = [DOCK_MM]
         self.grid = build_grid()
         self.pieces, self.crcs = split_pieces(self.grid)
-        # mapa chunked (getMapInfo): b64 del stream LZMA estándar del grid
+        # chunked map (getMapInfo): b64 of the grid's standard LZMA stream
         comp = lzma.compress(bytes(self.grid), format=lzma.FORMAT_ALONE,
                              filters=[{"id": lzma.FILTER_LZMA1, "preset": 6}])
         self._chunked_b64 = base64.b64encode(comp).decode()
-        # mapsets: 3 habitaciones + 1 muro + 1 zona no-fregar (spec §4.5)
+        # mapsets: 3 rooms + 1 wall + 1 no-mop zone (spec §4.5)
         self.map_msid = "0"
         self.rooms = [
             {"mssid": "1", "name": "Salón", "center": "-1500,2000", "index": 0},
@@ -133,9 +133,9 @@ class MockRobot:
         self.zones = [{"mssid": "8", "name": "alfombra", "kind": "mw",
                        "value": "-2500,1000;-1000,2500"}]
         self.stats = {"time": 3600 * 42, "area": 45_000_000, "count": 17}
-        log.info("mapa sintético: %d piezas, grid %dx%d", len(self.pieces), TOTAL_COLS, TOTAL_ROWS)
+        log.info("synthetic map: %d pieces, grid %dx%d", len(self.pieces), TOTAL_COLS, TOTAL_ROWS)
 
-    # ---------- conexión ----------
+    # ---------- connection ----------
 
     async def run(self) -> None:
         import ssl
@@ -149,28 +149,28 @@ class MockRobot:
                 self.client = aiomqtt.Client(
                     hostname=self.host, port=self.port,
                     identifier=f"{self.did}@{self.cls}/{self.res}",
-                    username=f"SN-{self.did}",   # el plugin lo registra como SN del bot
-                    password="mock",  # compat con Bumper/hbmqtt externo (exigía
-                                      # password con username; amqtt ya no)
+                    username=f"SN-{self.did}",   # the plugin registers it as the bot's SN
+                    password="mock",  # compat with an external Bumper/hbmqtt
+                                      # (demanded a password with username; amqtt no longer does)
                     tls_context=ctx,
                 )
                 async with self.client:
-                    # 12 niveles exactos (spec §2): '+' = UN nivel. El filtro
-                    # viejo tenía 11 y solo matcheaba por el bug de hbmqtt
-                    # ('+' se tragaba niveles con '/')
+                    # exactly 12 levels (spec §2): '+' = ONE level. The old
+                    # filter had 11 and only matched thanks to hbmqtt's bug
+                    # ('+' swallowed levels containing '/')
                     await self.client.subscribe(
                         f"iot/p2p/+/+/+/+/{self.did}/{self.cls}/{self.res}/q/+/+", qos=0)
-                    log.info("conectado como %s@%s/%s", self.did, self.cls, self.res)
+                    log.info("connected as %s@%s/%s", self.did, self.cls, self.res)
                     await self._announce()
                     await asyncio.gather(self._cmd_loop(), self._tick_loop())
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
-                log.warning("desconectado (%s) — reintento en 3s", e)
+                log.warning("disconnected (%s) — retrying in 3s", e)
                 await asyncio.sleep(3)
 
     async def _announce(self) -> None:
-        """Primer chorro de reports para que el bridge adopte el robot."""
+        """First burst of reports so the bridge adopts the robot."""
         await self.publish_report("onBattery", {"value": self.battery, "isLow": False})
         await self.publish_report("onMajorMap", self._major_map())
         await self.publish_report("onPos", self._pos_payload())
@@ -204,7 +204,7 @@ class MockRobot:
             await self.client.publish(topic, json.dumps(resp), qos=0)
             log.debug(">> %s → %.120s", cmd, resp)
 
-    # ---------- lógica del robot ----------
+    # ---------- robot logic ----------
 
     def _pos_payload(self) -> dict:
         return {"mid": MAP_ID, "deebotPos": self.pos,
@@ -237,13 +237,13 @@ class MockRobot:
                 "totalCount": len(pts),
                 "traceValue": base64.b64encode(comp).decode()}
 
-    # ---- formato chunked (T8/N8): getMapInfo divide el b64 en N partes ----
+    # ---- chunked format (T8/N8): getMapInfo splits the b64 into N parts ----
 
     def _chunked_response(self, data) -> dict:
-        """Responde UN chunk por llamada (index), como un T8/N8 real.
+        """Answers ONE chunk per call (index), like a real T8/N8.
 
-        Spec §4.5: concatenar `value` por index → base64 → LZMA estándar →
-        grid totalWidth×totalHeight. Los chunks son TROZOS del b64.
+        Spec §4.5: concatenate `value` by index → base64 → standard LZMA
+        → totalWidth×totalHeight grid. Chunks are SLICES of the b64.
         """
         mtype = data.get("type", "ol") if isinstance(data, dict) else "ol"
         b64 = self._chunked_b64
@@ -270,17 +270,17 @@ class MockRobot:
                 "count": len(subs), "subsets": subs}
 
     def _set_map_subset(self, data: dict) -> dict:
-        """setMapSubSet: value vacío+mssid = borrar; value con coords = crear."""
+        """setMapSubSet: empty value+mssid = delete; value with coords = create."""
         tp = str(data.get("type", "vw"))
         mssid = str(data.get("mssid", ""))
         value = str(data.get("value", ""))
         entries = self.walls if tp == "vw" else self.zones
-        if mssid and not value:  # borrar
+        if mssid and not value:  # delete
             before = len(entries)
             entries[:] = [e for e in entries if e["mssid"] != mssid]
             if len(entries) == before:
                 return {"ret": "fail", "errno": 2, "error": "mssid desconocido"}
-        elif value:  # crear
+        elif value:  # create
             new_id = str(int(max((int(e["mssid"]) for e in entries), default=100)) + 1)
             entries.append({"mssid": new_id, "name": str(data.get("name", "")),
                             "kind": tp, "value": value})
@@ -316,8 +316,8 @@ class MockRobot:
         if cmd in ("getMajorMap",):
             return {"ret": "ok", **self._major_map()}
         if cmd in ("getMinorMap",):
-            # endurecido: valida type/mid como haría un robot real — el
-            # bridge debe mandar el mid CRUDO (sin namespace interno)
+            # hardened: validates type/mid like a real robot would — the
+            # bridge must send the RAW mid (no internal namespace)
             if not isinstance(data, dict):
                 return {"ret": "fail", "errno": 3, "error": "payload inválido"}
             if data.get("type") not in ("ol", "st", "wa"):
@@ -381,7 +381,7 @@ class MockRobot:
             return {"ret": "ok"}
         return {"ret": "ok", "mock": True, "cmd": cmd}
 
-    # ---------- simulación ----------
+    # ---------- simulation ----------
 
     async def _tick_loop(self) -> None:
         seg = 0
@@ -407,7 +407,7 @@ class MockRobot:
         return math.hypot(self.pos["x"] - DOCK_MM[0], self.pos["y"] - DOCK_MM[1]) < 150
 
     def _advance(self, dist_mm: float) -> None:
-        """Mueve el robot según su modo (patrulla rectangular o vuelta a base)."""
+        """Moves the robot according to its mode (rectangular patrol or dock return)."""
         x, y = self.pos["x"], self.pos["y"]
 
         if self.mode in ("charging", "paused", "idle"):
@@ -415,9 +415,9 @@ class MockRobot:
 
         if self.mode == "returning":
             tx, ty = DOCK_MM
-        else:  # cleaning → siguiente vértice de la patrulla
+        else:  # cleaning → next patrol vertex
             tx, ty = min(PATROL, key=lambda p: math.hypot(p[0] - x, p[1] - y))
-            # si ya está encima, avanza al siguiente en el ciclo
+            # already on top of it: move to the next one in the cycle
             if math.hypot(tx - x, ty - y) < dist_mm:
                 i = (PATROL.index((tx, ty)) + 1) % len(PATROL)
                 tx, ty = PATROL[i]

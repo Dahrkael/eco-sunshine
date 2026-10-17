@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Correlacion completa: colocacion de piezas + ejes + offset de origen.
+"""Full correlation: piece placement + axes + origin offset.
 
-Las posiciones (mm) y el grid (celdas) tienen origenes distintos: se resuelve
-alineando bounding boxes y barriendo offsets alrededor.
+Positions (mm) and grid (cells) have different origins: solved by
+aligning bounding boxes and sweeping offsets around them.
 """
 import base64, lzma, re, struct, zlib
 
 LOG = 'data/captures/pairing-session.log'
 MAP_ID = '273073661'
-CELL = 50  # mm por celda
+CELL = 50  # mm per cell
 
-# --- piezas ---
+# --- pieces ---
 best = {}
 for line in open(LOG, errors='replace'):
     if 'td="MapP"' not in line:
@@ -25,7 +25,7 @@ for line in open(LOG, errors='replace'):
     except Exception:
         continue
 
-# --- posiciones (unicas en celdas base) ---
+# --- positions (unique in base cells) ---
 pos_cells = set()
 for line in open(LOG, errors='replace'):
     m = re.search(r'<ctl ([^>]*td="Pos"[^>]*)>', line)
@@ -50,7 +50,7 @@ def build(order):
         for r in range(100):
             for c in range(100):
                 g[r0 + r][c0 + c] = piece[r * 100 + c]
-    # bbox de contenido
+    # content bbox
     rows = [r for r in range(800) if any(g[r])]
     cols = [c for c in range(800) if any(g[r][c] for r in range(800))]
     return g, min(rows), max(rows), min(cols), max(cols)
@@ -69,7 +69,7 @@ for order in ('fila', 'columna'):
     for sx in (1, -1):
         for sy in (1, -1):
             for swap in (False, True):
-                # bbox de la traza transformada
+                # bbox of the transformed trace
                 pts = set()
                 for x, y in pos_cells:
                     cx, cy = (y * sx, x * sy) if swap else (x * sx, y * sy)
@@ -80,7 +80,7 @@ for order in ('fila', 'columna'):
                 pys = [p[1] for p in pts]
                 dx0 = min(rows for rows in [rmin]) - min(pxs)
                 dy0 = rmin - min(pys)
-                # alinear bbox traza → bbox mapa, y barrer ±30 celdas
+                # align trace bbox → map bbox, and sweep ±30 cells
                 best_local = (0.0, dx0, dy0)
                 for ddx in range(-30, 31, 5):
                     for ddy in range(-30, 31, 5):

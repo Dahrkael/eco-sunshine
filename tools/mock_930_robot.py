@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Mock del Deebot OZMO 930 (XMPP) — clon del comportamiento del robot real.
+"""Deebot OZMO 930 (XMPP) mock — a clone of the real robot's behaviour.
 
-Se conecta al XMPP de Bumper :5223 como bot (SERIAL@115.ecorobot.net/atom)
-y responde a los comandos del bridge con los frames EXACTOS que el robot
-real mandó, extraídos del corpus (tools/extract_930_corpus.py a partir del
-log de Bumper): misma spec de mapa (mismos CRCs), mismas piezas LZMA, la
-trayectoria real de limpieza, lifespans y batería reales.
+Connects to Bumper's XMPP :5223 as a bot (SERIAL@115.ecorobot.net/atom)
+and answers the bridge's commands with the EXACT frames the real robot
+sent, extracted from the corpus (tools/extract_930_corpus.py over
+Bumper's log): same map spec (same CRCs), same LZMA pieces, the real
+cleaning trajectory, real lifespans and battery.
 
-Flujo de conexión (igual que el robot): stream to=115.ecorobot.net →
-STARTTLS (CA de Bumper) → SASL PLAIN (uid=SN) → bind "atom" → session →
-responde pings de ecouser.net.
+Connection flow (like the robot): stream to=115.ecorobot.net → STARTTLS
+(Bumper CA) → SASL PLAIN (uid=SN) → bind "atom" → session → answers
+ecouser.net pings.
 
-Uso:
+Usage:
     .venv/bin/python tools/mock_930_robot.py [--host localhost] [--port 5223]
         [--sn E00010570MOCK9301] [--corpus data/mock930-corpus.json]
 """
@@ -42,12 +42,12 @@ STREAM_OPENER = (
 
 
 def iq_id() -> str:
-    """El real genera ids hex de 12 (ej: 069F9910AEA0)."""
+    """The real one generates 12-hex ids (e.g. 069F9910AEA0)."""
     return f"{random.randrange(0x100000000000):012X}"
 
 
 def ctl_id() -> str:
-    """El real genera ids decimales de 8 (ej: 23259737)."""
+    """The real one generates 8-decimal ids (e.g. 23259737)."""
     return f"{random.randrange(10000000, 99999999)}"
 
 
@@ -60,23 +60,23 @@ class Mock930:
         self.reader: asyncio.StreamReader | None = None
         self.writer: asyncio.StreamWriter | None = None
         self._buf = ""
-        # estado del robot (arranca como el real al final del corpus: en base)
+        # robot state (starts like the real one at the corpus' end: docked)
         self.mode = "charging"          # charging|idle|cleaning|paused|returning
         self.battery = int((corpus.get("battery") or {}).get("power", 100))
         self.speed = "standard"
         self.map_id = (corpus.get("spec_mapm") or {}).get("i", "0")
-        # trayectoria real: replay cíclico mientras limpia
+        # real trajectory: cyclic replay while cleaning
         self.path = corpus.get("trayectoria") or [["0,0", "0"]]
         self.path_i = 0
         self.pos = self.path[0] if self.path else ["0,0", "0"]
-        # último cliente que nos habló → destino de los pushes
+        # last client that talked to us → push destination
         self.client_jid: str | None = None
-        # muros/zonas dinámicos (AddM/DelM mutan; el corpus no tenía ninguno)
+        # dynamic walls/zones (AddM/DelM mutate them; the corpus had none)
         self.walls = [{"mid": "17", "p": "-1000,2000,1000,2000"}]
         self.zones = [{"mid": "18", "p": "-3500,-4500,-2500,-3500"}]
         self.stats = {"area": 12345678, "time": 4200, "count": 14}
 
-    # ---------- conexión (dialecto bot del 930) ----------
+    # ---------- connection (930 bot dialect) ----------
 
     async def run(self) -> None:
         while True:
@@ -86,7 +86,7 @@ class Mock930:
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
-                log.warning("desconectado (%s) — reintento en 3s", e)
+                log.warning("disconnected (%s) — retrying in 3s", e)
                 await asyncio.sleep(3)
 
     async def _send(self, data: str) -> None:
@@ -105,7 +105,7 @@ class Mock930:
         return buf
 
     async def _session(self) -> None:
-        log.info("conectando a %s:%d como %s", self.host, self.port, self.jid)
+        log.info("connecting to %s:%d as %s", self.host, self.port, self.jid)
         self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
         self._buf = ""
         await self._send(STREAM_OPENER.format(cls=self.cls))
@@ -117,12 +117,12 @@ class Mock930:
         self._buf = ""
         await self._send(STREAM_OPENER.format(cls=self.cls))
         await self._expect("mechanism")
-        # SASL del bot: uid = SN (bumper registra SN@cls/atom como bot eco-legacy)
+        # bot SASL: uid = SN (bumper registers SN@cls/atom as an eco-legacy bot)
         token = base64.b64encode(f"\x00{self.sn}\x00atom".encode()).decode()
         await self._send(
             f'<auth xmlns="urn:ietf:params:xml:ns:xmpp-sasl">{token}/atom/0</auth>')
         await self._expect("success")
-        log.info("autenticado como bot %s", self.sn)
+        log.info("authenticated as bot %s", self.sn)
 
         self._buf = ""
         await self._send(STREAM_OPENER.format(cls=self.cls))
@@ -135,19 +135,19 @@ class Mock930:
             f'<iq type="set" id="{iq_id()}"><session xmlns="urn:ietf:params:xml:ns:xmpp-session"/></iq>')
         await self._expect('type="result"')
         await self._send("<presence/>")
-        # presentación, como el real al arrancar
+        # introduction, like the real one on boot
         await self.push_ctl(
             f'<ctl td="DeviceInfo"><MID>{self.jid}</MID><class>{self.cls}</class>'
             f'<chn v="xb" /><wd>0</wd></ctl>')
-        log.info("sesión bot lista: %s", self.jid)
+        log.info("bot session ready: %s", self.jid)
 
     async def _starttls(self) -> None:
         ctx = ssl.create_default_context(cafile=self._ca_file())
         ctx.check_hostname = False
         if hasattr(ssl, "VERIFY_X509_STRICT"):
             ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        # bumper es py3.7: TLS1.3 pierde datos post-handshake (mismo workaround
-        # que el xmpp_client del bridge)
+        # bumper is py3.7: TLS1.3 loses post-handshake data (same
+        # workaround as the bridge's xmpp_client)
         ctx.maximum_version = ssl.TLSVersion.TLSv1_2
         loop = asyncio.get_running_loop()
         transport = await loop.start_tls(
@@ -161,10 +161,10 @@ class Mock930:
                 return cand
         return "/mnt/t/ecovacs/data/certs/ca.crt"
 
-    # ---------- frames (formatos exactos del corpus) ----------
+    # ---------- frames (exact corpus formats) ----------
 
     async def send_iq(self, ctl: str, to: str | None = None) -> None:
-        """iq como los del robot: xmlns ns0, id hex12, type=set."""
+        """iq like the robot's: xmlns ns0, hex12 id, type=set."""
         dst = to or self.client_jid or "ecouser.net"
         await self._send(
             f'<iq xmlns:ns0="com:ctl" id="{iq_id()}" to="{dst}" type="set">'
@@ -174,13 +174,13 @@ class Mock930:
         await self.send_iq(ctl)
 
     async def ack(self, cid: str, errs: str = "") -> None:
-        """ACK del real: <ctl id=.. ret='ok' errs=''/> (sin td)."""
+        """The real one's ACK: <ctl id=.. ret='ok' errs=''/> (no td)."""
         await self.send_iq(f"<ctl id='{cid}' ret='ok' errs='{errs}'/>")
 
     def _ts(self) -> str:
         return str(int(time.time()))
 
-    # ---------- bucle principal ----------
+    # ---------- main loop ----------
 
     async def _loop(self) -> None:
         assert self.reader is not None
@@ -199,7 +199,7 @@ class Mock930:
 
     async def _handle(self, stanza: str) -> None:
         if "type=\"get\"" in stanza or "type='get'" in stanza:
-            # ping de ecouser.net → result (como el cliente del bridge)
+            # ecouser.net ping → result (like the bridge's client)
             m_id = _attr(stanza, "id")
             await self._send(f'<iq type="result" id="{m_id}" to="ecouser.net"/>')
             return
@@ -213,14 +213,14 @@ class Mock930:
         attrs = dict(re.findall(r'(\w+)="([^"]*)"', m.group(1)))
         frm = _attr(stanza, "from")
         if frm and "ecouser.net" in frm:
-            self.client_jid = frm  # pushes dirigidos a quien pregunta
+            self.client_jid = frm  # pushes addressed to whoever asks
         await self._on_ctl(attrs)
 
     async def _on_ctl(self, a: dict) -> None:
         td = a.get("td", "")
         log.info("<< td=%s %s", td, {k: v for k, v in a.items() if k != "td"})
 
-        # ---- control de limpieza (cambia el modo + pushes como el real)
+        # ---- cleaning control (changes mode + pushes like the real one)
         if td == "Clean":
             act = a.get("act", "s")
             self.speed = a.get("speed", self.speed)
@@ -248,7 +248,7 @@ class Mock930:
                 f'<charge h="" r="" s="" type="Going" /></ctl>')
             return
 
-        # ---- consultas: respuestas con datos REALES del corpus
+        # ---- queries: replies with REAL corpus data
         if td == "GetPos":
             await self.send_iq(
                 f'<ctl a="{self.pos[1]}" p="{self.pos[0]}" t="p" td="Pos" valid="1" />')
@@ -261,8 +261,8 @@ class Mock930:
                 f'<ctl td="ChargeState" ts="{self._ts()}">'
                 f'<charge h="" r="" s="" type="{typ}" /></ctl>')
         elif td == "GetBatteryInfo":
-            # el 930 REAL responde BatteryInfo en broadcast a de.ecorobot.net
-            # (corpus) — así validamos esa ruta de routing contra el server
+            # the REAL 930 answers BatteryInfo as a broadcast to
+            # de.ecorobot.net (corpus) — this validates that routing path
             await self._send(
                 f'<iq xmlns:ns0="com:ctl" id="{iq_id()}" to="de.ecorobot.net" '
                 f'type="set"><query><ctl td="BatteryInfo" ts="{self._ts()}">'
@@ -283,7 +283,7 @@ class Mock930:
             else:
                 await self.ack(a.get("id", ctl_id()))
         elif td == "GetMapSet":
-            # vw = muros + zonas no-fregar; sa/ar = vacío (como el corpus)
+            # vw = walls + no-mop zones; sa/ar = empty (like the corpus)
             await self._push_mapset(a.get("tp", "vw"))
         elif td == "AddM":
             tp, m_val = a.get("tp", "vw"), a.get("m", "")
@@ -330,7 +330,7 @@ class Mock930:
             await self.push_ctl(f'<ctl st="0" td="SleepStatus" ts="{self._ts()}" />')
         elif td == "SetMapAutoReport":
             await self.ack(a.get("id", ctl_id()))
-            # el real re-envía piezas al armarlo: replay de las piezas del corpus
+            # the real one re-sends pieces when armed: replay the corpus pieces
             for pid, piece in (self.corpus.get("piezas") or {}).items():
                 await self.push_ctl(
                     f'<ctl i="{self.map_id}" p="{piece}" pid="{pid}" td="MapP" />')
@@ -360,7 +360,7 @@ class Mock930:
         await self.push_ctl(
             f'<ctl msid="0" td="MapSet" tp="{tp}" ts="{self._ts()}">{children}</ctl>')
 
-    # ---------- simulación ----------
+    # ---------- simulation ----------
 
     async def _push_loop(self) -> None:
         tick = 0
@@ -368,7 +368,7 @@ class Mock930:
             await asyncio.sleep(1.2)
             tick += 1
             if self.mode == "cleaning":
-                # replay de la TRAYECTORIA REAL (cíclico)
+                # replay of the REAL trajectory (cyclic)
                 self.path_i = (self.path_i + 1) % len(self.path)
                 self.pos = self.path[self.path_i]
                 if tick % 60 == 0:
@@ -386,7 +386,7 @@ class Mock930:
             elif self.mode == "charging":
                 if tick % 20 == 0 and self.battery < 100:
                     self.battery = min(100, self.battery + 1)
-            # Pos en vivo (el real lo empuja constantemente mientras despierto)
+            # live Pos (the real one pushes it constantly while awake)
             if self.mode in ("cleaning", "returning"):
                 await self.push_ctl(
                     f'<ctl a="{self.pos[1]}" p="{self.pos[0]}" t="p" td="Pos" valid="1" />')

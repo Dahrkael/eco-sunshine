@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Busqueda objetiva de la transformacion correcta del mapa.
+"""Objective search for the correct map transform.
 
-Score: % de posiciones del robot (mm→celdas) cayendo sobre celdas con datos.
-Auto-alineacion de origen por bounding box + barrido.
+Score: % of robot positions (mm→cells) landing on cells with data.
+Origin auto-alignment by bounding box + sweep.
 """
 import base64, lzma, re, struct, zlib
 
@@ -10,7 +10,7 @@ LOG = 'data/captures/pairing-session.log'
 MAP_ID = '273073661'
 CELL = 50
 
-# pasada 1: spec
+# pass 1: spec
 spec = None
 for line in open(LOG, errors='replace'):
     m = re.search(r'<ctl c="(\d+)" h="(\d+)" i="(\d+)" id="[0-9a-f]+" m="([^"]+)" p="(\d+)" r="(\d+)" w="(\d+)"', line)
@@ -21,7 +21,7 @@ if not spec:
     sys.exit(1)
 print(f"spec: {len(spec)} crcs")
 
-# pasada 2: piezas CRC-validas
+# pass 2: CRC-valid pieces
 pieces = {}
 for line in open(LOG, errors='replace'):
     if 'td="MapP"' not in line:
@@ -39,7 +39,7 @@ for line in open(LOG, errors='replace'):
         pass
 print(f"piezas CRC-validas: {len(pieces)}: {sorted(pieces)}")
 
-# posiciones
+# positions
 pos = []
 for line in open(LOG, errors='replace'):
     m = re.search(r'<ctl ([^>]*td="Pos"[^>]*)>', line)
@@ -98,7 +98,7 @@ for placement in ('rowmajor', 'user', 'colmajor'):
                         base_cells.append((int(a * sx / CELL), int(b * sy / CELL)))
                     pxs = [c[0] for c in base_cells]
                     pys = [c[1] for c in base_cells]
-                    # alinear centro traza → centro mapa, barrer ±20
+                    # align trace center → map center, sweep ±20
                     pcx, pcy = (min(pxs) + max(pxs)) / 2, (min(pys) + max(pys)) / 2
                     gcx, gcy = (cmin + cmax) / 2, (rmin + rmax) / 2
                     ddx0, ddy0 = int(gcx - pcx), int(gcy - pcy)

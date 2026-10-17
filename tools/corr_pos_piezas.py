@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Correlacion posiciones (mm) vs piezas MapP para determinar colocacion."""
+"""Correlates positions (mm) vs MapP pieces to determine placement."""
 import base64, lzma, re, struct, itertools, sys
 
 LOG = 'data/captures/pairing-session.log'

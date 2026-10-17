@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Siembra el state.json del bridge con el mapa REAL del corpus del 930.
+"""Seeds the bridge's state.json with the REAL map from the 930 corpus.
 
-Caso de uso: el robot perdió su mapa (spec con CRCs de pieza vacía) o el
-estado del bridge se borró — este script reconstruye la copia persistida
-del bridge desde data/mock930-corpus.json (extraído del log de Bumper con
-tools/extract_930_corpus.py), decodificando las piezas al formato interno.
+Use case: the robot lost its map (spec with empty piece CRCs) or the
+bridge state was wiped — this script rebuilds the bridge's persisted
+copy from data/mock930-corpus.json (extracted from Bumper's log with
+tools/extract_930_corpus.py), decoding pieces to the internal format.
 
-Uso:
+Usage:
     python tools/seed_state_from_corpus.py [--corpus data/mock930-corpus.json]
         [--out data/bridge/state.json] [--jid E0001057…@115.ecorobot.net/atom]
         [--pos -37,-595,0]
@@ -41,12 +41,12 @@ def main() -> int:
               file=sys.stderr)
         return 1
 
-    # el estado persiste piezas DECODIFICADAS (formato interno del assembler)
+    # the state persists DECODED pieces (the assembler's internal format)
     pieces = {str(pid): base64.b64encode(decode_piece(p)).decode()
               for pid, p in corpus["piezas"].items()}
     x, y, a = (float(v) for v in args.pos.split(","))
 
-    # slug = modelo detectado del JID + 6 últimos del serial (como RobotState)
+    # slug = model detected from the JID + last 6 of the serial (like RobotState)
     from ecovacs_bridge.models import detect_model
 
     model = detect_model(args.jid)
@@ -59,7 +59,7 @@ def main() -> int:
             "piece_cols": int(spec.get("c", 8)), "piece_rows": int(spec.get("r", 8)),
             "cell_mm": int(spec.get("p", 50)),
             "origin_row": 401, "origin_col": 401, "y_down": True}},
-        # sin CRCs: las piezas sembradas son la verdad por defecto
+        # no CRCs: the seeded pieces are the truth by default
         "crcs": {spec["i"]: []},
         "version": 1,
         "map_owner": {spec["i"]: args.jid},

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Extrae del log de Bumper los frames XMPP del robot a ficheros estructurados.
+"""Extracts the robot's XMPP frames from a Bumper log into structured files.
 
-Uso: python3 tools/extract_corpus.py <log> <outdir>
-Genera: positions.jsonl, traces.jsonl, mapm.jsonl, other.jsonl, resumen.tsv
+Usage: python3 tools/extract_corpus.py <log> <outdir>
+Generates: positions.jsonl, traces.jsonl, mapm.jsonl, other.jsonl, resumen.tsv
 """
 
 import base64

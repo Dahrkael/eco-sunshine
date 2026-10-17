@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Regenera el cert de servidor de Bumper firmado por el CA EXISTENTE.
+"""Regenerates Bumper's server cert signed by the EXISTING CA.
 
-Mantiene el CA intacto (los moviles no necesitan reinstalar nada) y amplia
-los SANs para cubrir los subdominios de doble nivel que usa la app moderna
-(eco-es.api.ecovacs.com y similares) mas la IP del host.
+Keeps the CA intact (phones need no reinstall) and widens the SANs to
+cover the two-level subdomains the modern app uses (eco-es.api.ecovacs.com
+and friends) plus the host IP.
 
-Uso (desde el raiz del proyecto):
+Usage (from the project root):
   docker run --rm -v "$(pwd)/data/certs:/certs" -v "$(pwd)/tools:/tools" \
       python:3-alpine sh -c "pip -q install cryptography && python /tools/regen_server_cert.py"
 """
@@ -20,18 +20,18 @@ from cryptography.x509.oid import NameOID
 
 DOMAINS = [
     "localhost",
-    # ecovacs.com — simple y doble nivel (la app moderna usa X.api / X.openapi)
+    # ecovacs.com — one and two levels (the modern app uses X.api / X.openapi)
     "ecovacs.com", "*.ecovacs.com",
     "*.api.ecovacs.com", "*.openapi.ecovacs.com", "*.appsvr.ecovacs.com",
     # ecovacs.net
     "ecovacs.net", "*.ecovacs.net", "*.api.ecovacs.net",
-    # ecouser.net — simple, doble y triple nivel (v2+)
+    # ecouser.net — one, two and three levels (v2+)
     "ecouser.net", "*.ecouser.net", "*.api.ecouser.net", "*.msg.ecouser.net",
     "*.ww.ecouser.net", "*.dc-eu.ww.ecouser.net", "*.dc.ww.ecouser.net",
     "*.area.ww.ecouser.net",
 ]
 
-IPS = ["127.0.0.1", "192.0.2.10"]  # dev; en produccion, IP del minipc
+IPS = ["127.0.0.1", "192.0.2.10"]  # dev; in production, the minipc's IP
 
 
 def main() -> None:

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Decodifica los chunks 'trace' y los correlaciona con las 'Pos' cercanas.
+"""Decodes 'trace' chunks and correlates them with nearby 'Pos' frames.
 
-Uso: python3 tools/decode_trace.py <extracted_dir>
+Usage: python3 tools/decode_trace.py <extracted_dir>
 """
 
 import json
@@ -33,14 +33,14 @@ def main(d: str) -> None:
     for t in traces:
         raw = bytes.fromhex(t["tr_hex"])
         body = raw[len(HEADER):] if raw.startswith(HEADER) else raw
-        # consumir pares int16 hasta que todo lo que quede sean ceros
+        # consume int16 pairs until all that remains is zeros
         vals = []
         for i in range(0, len(body) - 1, 2):
             v = struct.unpack_from("<h", body, i)[0]
             if v == 0 and all(b == 0 for b in body[i:]):
                 break
             vals.append(v)
-        # pos mas cercana en tiempo
+        # closest position in time
         tt = ts(t["ts"])
         near = min(poss, key=lambda p: abs((ts(p["ts"]) - tt).total_seconds()))
         dt = (ts(near["ts"]) - tt).total_seconds()

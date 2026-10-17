@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Decodifica las piezas MapP de un log de Bumper y renderiza PNG por mapa.
+"""Decodes MapP pieces from a Bumper log and renders one PNG per map.
 
-Las piezas se agrupan por el atributo i= (map id) del mismo frame — mezclar
-mapas de sesiones distintas produce renders corruptos (aprendido a pulidas).
+Pieces are grouped by the same frame's i= attribute (map id) — mixing
+maps from different sessions produces corrupt renders.
 
-Uso: python3 tools/decode_map.py <log> <salida_prefijo>
-Genera <prefijo>-<mapid>.png por cada map id encontrado.
+Usage: python3 tools/decode_map.py <log> <output_prefix>
+Generates <prefix>-<mapid>.png for every map id found.
 """
 
 import re
@@ -33,7 +33,7 @@ def extract(log_path: str) -> MapAssembler:
             if not (i and p and pid.isdigit() and P_RE.match(p)):
                 continue
             key = (i, int(pid))
-            if key in seen:  # el log duplica frames; nos quedamos con la última versión
+            if key in seen:  # the log duplicates frames; only take each once
                 continue
             seen.add(key)
             asm.add_piece(i, int(pid), p)

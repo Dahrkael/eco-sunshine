@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Extrae el corpus del 930 real (log de Bumper) a un JSON compacto para el mock.
+"""Extracts the real 930's corpus (Bumper log) into a compact JSON for the mock.
 
-Una pasada streaming por el log (681 MB): solo se quedan la última spec
-GetMapM, la última pieza por pid, la trayectoria de Pos, la traza varint y
-muestras de BatteryInfo/ChargeState/CleanSt. El resultado alimenta a
-tools/mock_930_robot.py para que se comporte EXACTAMENTE como el robot real.
+One streaming pass over the log (681 MB): keeps only the last GetMapM
+spec, the last piece per pid, the Pos trajectory, the varint trace and
+samples of BatteryInfo/ChargeState/CleanSt. The result feeds
+tools/mock_930_robot.py so it behaves EXACTLY like the real robot.
 
-Uso:
+Usage:
     python tools/extract_930_corpus.py [log] [-o corpus.json]
 """
 
@@ -40,10 +40,10 @@ def main() -> int:
         print(f"log no encontrado: {log_path}", file=sys.stderr)
         return 1
 
-    spec: dict | None = None          # última respuesta GetMapM (attrs del ctl)
-    pieces: dict[str, str] = {}       # pid → última pieza b64
-    positions: list[tuple[str, str]] = []  # (p, a) en orden
-    trace: str | None = None          # último tr varint
+    spec: dict | None = None          # last GetMapM reply (ctl attrs)
+    pieces: dict[str, str] = {}       # pid → last piece b64
+    positions: list[tuple[str, str]] = []  # (p, a) in order
+    trace: str | None = None          # last varint tr
     battery: dict | None = None
     charge: dict | None = None
     clean_st: dict | None = None
@@ -84,7 +84,7 @@ def main() -> int:
             elif td == "GetChargerPos" and "p" in attrs:
                 charge_pos = attrs
 
-    # compresión de trayectoria: quitar posiciones duplicadas consecutivas
+    # trajectory compression: drop consecutive duplicate positions
     dedup: list[tuple[str, str]] = []
     for pos in positions:
         if not dedup or dedup[-1] != pos:

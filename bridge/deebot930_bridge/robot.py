@@ -309,8 +309,8 @@ class RobotCommander:
         self.client = client
         self.robot = robot
 
-    def _cmd(self, ctl: str, td: str = "") -> str:
-        return self.client.send_command(self.robot.jid, ctl, td)
+    def _cmd(self, ctl: str, td: str = "", extra_attrs: dict | None = None) -> str:
+        return self.client.send_command(self.robot.jid, ctl, td, extra_attrs)
 
     # ---- limpieza ----
 
@@ -385,7 +385,9 @@ class RobotCommander:
         return self._cmd('<ctl id="{ctl_id}" name="FW" td="GetVersion" />', "GetVersion")
 
     def get_life_span(self, kind: str = "Brush") -> str:
-        return self._cmd(f'<ctl id="{{ctl_id}}" td="GetLifeSpan" type="{kind}" />', "GetLifeSpan")
+        # type en extra_attrs: el eco no lo repite y el parser lo usa de clave
+        return self._cmd(f'<ctl id="{{ctl_id}}" td="GetLifeSpan" type="{kind}" />',
+                         "GetLifeSpan", extra_attrs={"type": kind})
 
     def get_more_life_span(self, kind: str) -> str:
         return self._cmd(f'<ctl id="{{ctl_id}}" td="GetMoreLifeSpan" type="{kind}" />', "GetMoreLifeSpan")
@@ -402,7 +404,10 @@ class RobotCommander:
         return self._cmd('<ctl id="{ctl_id}" td="GetMapM" />', "GetMapM")
 
     def pull_map_piece(self, pid: int) -> str:
-        return self._cmd(f'<ctl id="{{ctl_id}}" pid="{pid}" td="PullMP" />', "PullMP")
+        # pid en extra_attrs: el eco del robot no lo repite, pero el handler
+        # de piezas lo necesita para colocar la MapP
+        return self._cmd(f'<ctl id="{{ctl_id}}" pid="{pid}" td="PullMP" />', "PullMP",
+                         extra_attrs={"pid": str(pid)})
 
     def get_map_st(self) -> str:
         return self._cmd('<ctl id="{ctl_id}" td="GetMapSt" />', "GetMapSt")

@@ -169,7 +169,7 @@ class TestCommanders:
         from deebot930_bridge.robot import RobotCommander
 
         class FakeClient:
-            def send_command(self, jid, ctl, td=""):
+            def send_command(self, jid, ctl, td="", extra_attrs=None):
                 self.last = ctl
                 return "1"
 
@@ -184,7 +184,7 @@ class TestCommanders:
         from deebot930_bridge.robot import RobotCommander
 
         class FakeClient:
-            def send_command(self, jid, ctl, td=""):
+            def send_command(self, jid, ctl, td="", extra_attrs=None):
                 self.last = ctl
                 return "1"
 

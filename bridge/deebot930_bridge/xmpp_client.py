@@ -80,8 +80,8 @@ class BumperXMPPClient:
         self.writer: asyncio.StreamWriter | None = None
         self._buf = ""
         self.ready = asyncio.Event()
-        self._pending: dict[str, str] = {}
-        self._iq_counter: int = 2600  # iq_id -> td esperado (correlacion)
+        self._pending: dict[str, dict] = {}
+        self._iq_counter: int = 2600  # iq_id/ctl_id → td+attrs esperados (correlación)
 
     # ---------- transporte ----------
 
@@ -190,15 +190,23 @@ class BumperXMPPClient:
         if "m=" in ET.tostring(xml, encoding="unicode")[:400]:
             log.debug("frame con m=: %s...", ET.tostring(xml, encoding="unicode")[:300])
         iq_id = xml.get("id", "")
-        # correlacion respuesta→peticion: inyectar el td esperado
-        expected_td = self._pending.pop(iq_id, None)
         for child in xml:
             if not child.tag.endswith("query"):
                 continue
             for ctl in child:
                 attrs = dict(ctl.attrib)
-                if expected_td and "td" not in attrs:
-                    attrs["td"] = expected_td
+                # Correlación de la DIALECTA ECO del 930: responde sin td
+                # (ni pid) pero repite el CTL id que le mandamos. Se inyectan
+                # el td esperado y los attrs de la petición (p.ej. pid de un
+                # PullMP → el handler lo procesa como MapP con su pid).
+                pending = self._pending.pop(f"c:{attrs.get('id')}", None) \
+                    or self._pending.pop(iq_id, None)
+                if pending:
+                    attrs.setdefault("td", pending["td"])
+                    for k, v in pending.get("attrs", {}).items():
+                        attrs.setdefault(k, v)
+                    # limpiar la clave hermana (evita fuga en _pending)
+                    self._pending.pop(str(pending.get("_iq", "")), None)
                 inner = "".join(ET.tostring(c, encoding="unicode") for c in ctl)
                 if self.on_event:
                     asyncio.create_task(self._emit(frm, attrs, inner))
@@ -212,17 +220,25 @@ class BumperXMPPClient:
 
     # ---------- comandos ----------
 
-    def send_command(self, bot_jid: str, ctl_template: str, td: str = "") -> str:
+    def send_command(self, bot_jid: str, ctl_template: str, td: str = "",
+                     extra_attrs: dict | None = None) -> str:
         """Envuelve un ctl plantilla (con {ctl_id}) en el iq EXACTO de la app.
 
         Formato corpus: <iq xmlns:ns0="com:ctl" from=... id=<decimal> to=...
         type="set"><query>{ctl}</query></iq>
+
+        La correlación de la respuesta se guarda por CTL id (el robot repite
+        ese id en sus ecos, no el iq id) y por iq id (por si acaso).
+        extra_attrs: attrs de la petición a reinyectar en la respuesta
+        (p.ej. {"pid": N} en un PullMP — el eco no trae pid).
         """
         iq_id = str(self._iq_counter)
         self._iq_counter += 1
         ctl_id = uuid.uuid4().hex[:8]
         if td:
-            self._pending[iq_id] = td
+            pending = {"td": td, "attrs": extra_attrs or {}, "_iq": iq_id}
+            self._pending[f"c:{ctl_id}"] = pending
+            self._pending[iq_id] = pending
         stanza = (
             f'<iq xmlns:ns0="com:ctl" from="{self.jid}" id="{iq_id}" to="{bot_jid}" type="set">'
             f"<query>{ctl_template.format(ctl_id=ctl_id)}</query></iq>"

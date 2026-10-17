@@ -528,15 +528,15 @@ class Service:
         # material TLS de los servidores embebidos (FE): en una instalación
         # limpia se genera CA+cert al primer arranque; los existentes JAMÁS
         # se tocan (los robots ya confían en la CA de producción)
-        if srv.xmpp or srv.mqtt:
+        if srv.xmpp or srv.mqtt or srv.conf:
             from .servers.certs import ensure_certs
 
             if not ensure_certs(srv.ca_file, srv.server_cert, srv.server_key,
                                 cn=srv.announce_ip or "bumper"):
                 log.error("sin certs TLS utilizables — servidores embebidos "
-                          "XMPP/MQTT desactivados en este arranque (los "
+                          "XMPP/MQTT/conf desactivados en este arranque (los "
                           "clientes siguen con su config externa)")
-                srv.xmpp = srv.mqtt = False
+                srv.xmpp = srv.mqtt = srv.conf = False
                 if srv.lookup:
                     # no anunciar un XMPP muerto: sin certs no hay servidor
                     # al que el lookup mande el robot
@@ -544,9 +544,10 @@ class Service:
                               "(anunciaría un XMPP inexistente)")
                     srv.lookup = False
 
-        # registro unificado de bots/clients: lo comparten el XMPP (FB) y el
-        # broker MQTT (FC) — persistente junto al state_file (si hay)
-        if srv.xmpp or srv.mqtt:
+        # registro unificado de bots/clients: lo comparten el XMPP (FB), el
+        # broker MQTT (FC) y el conf de la app (FD, GetDeviceList) —
+        # persistente junto al state_file (si hay)
+        if srv.xmpp or srv.mqtt or srv.conf:
             from .servers.registry import DeviceRegistry
 
             reg_path = None
@@ -623,6 +624,24 @@ class Service:
             else:
                 log.warning("broker eco-ng en :%d pero [bumper_mqtt] enabled=false "
                             "— sin cliente T8+", srv.mqtt_port)
+
+        if srv.conf:
+            from .servers.conf import ConfServer
+
+            try:
+                conf = ConfServer(self.registry,
+                                  announce_ip=srv.announce_ip,
+                                  xmpp_port=srv.xmpp_port,
+                                  listen=srv.listen, port=srv.conf_port,
+                                  server_cert=srv.server_cert,
+                                  server_key=srv.server_key)
+                await conf.start()
+            except Exception:  # noqa: BLE001  (certs ilegibles, 443 ocupado…)
+                log.exception("conf embebido (:443, API de la app) no pudo "
+                              "arrancar — la app no podrá loguearse contra "
+                              "el bridge (los demás servidores siguen)")
+            else:
+                self.embedded["conf"] = conf
 
     # ---------- bucle principal ----------
 

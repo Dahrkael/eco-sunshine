@@ -98,12 +98,21 @@ class ConfAuth:
     con ``use_auth=False``, así que el authcode solo se valida aquí.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, use_auth: bool = False) -> None:
+        self.use_auth = use_auth
         self._by_devid: dict[str, AppSession] = {}
         self._by_authcode: dict[str, str] = {}  # authcode → devid
 
     def login(self, devid: str) -> AppSession:
-        """(Re)login de un dispositivo: token nuevo, authcode limpio."""
+        """(Re)login de un dispositivo: token nuevo, authcode limpio.
+
+        El authcode de la sesión saliente se REVOCA (como hacía Bumper en
+        el login) — sin esto, re-logins dejarían authcodes válidos para
+        siempre en _by_authcode (fuga + authcode zombi).
+        """
+        old = self._by_devid.get(devid)
+        if old is not None and old.authcode:
+            self._by_authcode.pop(old.authcode, None)
         session = AppSession(token=uuid.uuid4().hex)
         self._by_devid[devid] = session
         return session
@@ -113,17 +122,25 @@ class ConfAuth:
         if session and session.authcode:
             self._by_authcode.pop(session.authcode, None)
 
-    def authcode(self, devid: str, country: str) -> str:
+    def authcode(self, devid: str, country: str,
+                 access_token: str | None = None,
+                 require_token: bool = False) -> str | None:
         """AuthCode del dispositivo, generándolo si es la primera vez.
 
         Bumper lo cacheaba en la tabla tokens (mismo authcode mientras
         viviera el token); aquí igual: estable por sesión de login.
         Sin login previo (p.ej. reinicio del bridge a media sesión) se
         crea la sesión al vuelo — coherente con use_auth=False.
+
+        Con require_token (use_auth=True), el accessToken del query debe
+        casar con el de la sesión: sin eso, getAuthCode emitiría authcodes
+        válidos sin validar nada (la cadena de auth sería teatro).
         """
         session = self._by_devid.get(devid)
         if session is None:
             session = self.login(devid)
+        if require_token and access_token != session.token:
+            return None
         if session.authcode is None:
             session.authcode = f"{country}_{uuid.uuid4().hex}"
             self._by_authcode[session.authcode] = devid
@@ -185,7 +202,7 @@ class ConfServer:
         self.port = port
         self.server_cert = server_cert
         self.server_key = server_key
-        self.auth = ConfAuth()
+        self.auth = ConfAuth(use_auth=registry.use_auth)
         self._runner: web.AppRunner | None = None
 
     # ---------- ciclo de vida ----------
@@ -276,13 +293,22 @@ class ConfServer:
 
         La app antigua manda el devid en el path y uid/accessToken en el
         query; la global (Ecovacs Home) usa ``deviceId`` en el query.
+        Con use_auth=True el accessToken del query debe casar con la
+        sesión (si no: fail, como Bumper que validaba el token).
         """
         apptype = request.match_info.get("apptype", "")
         devid = (request.match_info.get("devid", "")
                  or request.query.get("deviceId", "") or "dummy")
         country = request.match_info.get("country", "us")
         uid = request.query.get("uid", DEFAULT_UID)
-        authcode = self.auth.authcode(devid, country)
+        authcode = self.auth.authcode(devid, country,
+                                      access_token=request.query.get("accessToken"),
+                                      require_token=self.auth.use_auth)
+        if authcode is None:
+            log.warning("getAuthCode rechazado (accessToken inválido) "
+                        "devid=%s uid=%s", devid, uid)
+            return web.json_response({"time": _now(), "data": None,
+                                      "msg": "fail", "code": "0002"})
         log.info("getAuthCode: devid=%s uid=%s", devid, uid)
         return _ok({"authCode": authcode, "ecovacsUid": uid},
                    **({"success": True} if "global" in apptype else {}))
@@ -320,7 +346,10 @@ class ConfServer:
         if request.method == "GET":
             return web.json_response({"result": "fail", "todo": "result"})
         if request.content_type == "application/x-www-form-urlencoded":
-            post: dict = dict(await request.post())
+            try:
+                post: dict = dict(await request.post())
+            except Exception:  # noqa: BLE001  (body roto a nivel transporte)
+                return web.json_response({"result": "fail", "todo": "result"})
         else:
             try:
                 post = json.loads(await request.text())

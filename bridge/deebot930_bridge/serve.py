@@ -605,25 +605,28 @@ class Service:
                     server_cert=srv.server_cert, server_key=srv.server_key)
                 await broker.start()
             except Exception:  # noqa: BLE001  (certs ausentes, puerto ocupado…)
+                # degrada SIN return: el conf (o lo que venga después) debe
+                # poder arrancar igual (patrón FA-FE de degradación por servidor)
+                broker = None
                 log.exception("broker MQTT embebido no pudo arrancar")
-                return
-            self.embedded["mqtt"] = broker
-            # el cliente eco-ng del bridge habla con NUESTRO broker (loopback)
-            bm = self.cfg.bumper_mqtt
-            if bm.enabled:
-                if (bm.host, bm.port) != ("127.0.0.1", srv.mqtt_port):
-                    log.info("mqtt eco-ng embebido activo: cliente [bumper_mqtt] → "
-                             "127.0.0.1:%d (config %s:%d ignorada)",
-                             srv.mqtt_port, bm.host, bm.port)
-                bm.host, bm.port = "127.0.0.1", srv.mqtt_port
-                # el cert que presenta el broker es el nuestro (ServersConfig)
-                bm.ca_file = srv.ca_file
-                # TLS explícito: el heurístico por puerto (8883) rompería si
-                # mqtt_port se cambia para convivir con un Bumper externo
-                bm.tls = True
-            else:
-                log.warning("broker eco-ng en :%d pero [bumper_mqtt] enabled=false "
-                            "— sin cliente T8+", srv.mqtt_port)
+            if broker is not None:
+                self.embedded["mqtt"] = broker
+                # el cliente eco-ng del bridge habla con NUESTRO broker (loopback)
+                bm = self.cfg.bumper_mqtt
+                if bm.enabled:
+                    if (bm.host, bm.port) != ("127.0.0.1", srv.mqtt_port):
+                        log.info("mqtt eco-ng embebido activo: cliente [bumper_mqtt] → "
+                                 "127.0.0.1:%d (config %s:%d ignorada)",
+                                 srv.mqtt_port, bm.host, bm.port)
+                    bm.host, bm.port = "127.0.0.1", srv.mqtt_port
+                    # el cert que presenta el broker es el nuestro (ServersConfig)
+                    bm.ca_file = srv.ca_file
+                    # TLS explícito: el heurístico por puerto (8883) rompería si
+                    # mqtt_port se cambia para convivir con un Bumper externo
+                    bm.tls = True
+                else:
+                    log.warning("broker eco-ng en :%d pero [bumper_mqtt] enabled=false "
+                                "— sin cliente T8+", srv.mqtt_port)
 
         if srv.conf:
             from .servers.conf import ConfServer

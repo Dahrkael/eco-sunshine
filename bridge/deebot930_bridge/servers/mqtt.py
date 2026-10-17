@@ -21,6 +21,7 @@ Dos bugs de hbmqtt desaparecen gratis con amqtt:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -91,6 +92,7 @@ class BridgeAuthPlugin(BaseAuthPlugin):
         sn = session.username or did  # el SN viaja en el username del CONNECT
         if registry is not None:
             registry.bot_add(sn, did, devclass, resource, "eco-ng")
+            registry.bot_set_mqtt(did, True)
         log.info("bot eco-ng autenticado: did=%s sn=%s clase=%s/%s",
                  did, sn, devclass, resource)
         return True
@@ -142,8 +144,32 @@ class EmbeddedMqttBroker(Broker):  # type: ignore[misc]
     async def start(self) -> None:
         tls = " (TLS)" if self.config.listeners["default"].ssl else ""
         await super().start()
+        self._presence_task = asyncio.get_running_loop().create_task(
+            self._presence_loop())
         log.info("broker MQTT embebido en %s:%d%s", *self.address, tls)
+
+    async def _presence_loop(self) -> None:
+        """Sincroniza mqtt_connection del registro con las sesiones vivas
+        (amqtt no expone hook de desconexión a plugins; _sessions sí)."""
+        while True:
+            await asyncio.sleep(15)
+            try:
+                live = set(self._sessions)
+                for did, bot in list(self.registry.bots.items()):
+                    online = (f"{did}@{bot.device_class}/{bot.resource}" in live)
+                    if bot.mqtt != online:
+                        self.registry.bot_set_mqtt(did, online)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                log.exception("sync de presencia MQTT falló")
 
     async def stop(self) -> None:
         log.info("broker MQTT embebido: parando")
+        if getattr(self, "_presence_task", None):
+            self._presence_task.cancel()
         await self.shutdown()
+        # nadie conectado tras el apagado
+        for did, bot in list(self.registry.bots.items()):
+            if bot.mqtt:
+                self.registry.bot_set_mqtt(did, False)

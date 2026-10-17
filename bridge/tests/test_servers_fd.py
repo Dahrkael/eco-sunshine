@@ -374,3 +374,64 @@ class TestServeWiringFD:
     def test_not_yet_vacio(self):
         """FA–FD completas: ningún flag avisa 'llega en la fase X'."""
         assert NOT_YET == {}
+
+
+class TestRegresionesReviewFD:
+    """Fijan los bugs del review de FD."""
+
+    def test_relogin_revoca_el_authcode_anterior(self):
+        from deebot930_bridge.servers.conf import ConfAuth
+
+        auth = ConfAuth()
+        auth.login("devid-x")
+        ac1 = auth.authcode("devid-x", "es")
+        assert auth.check_authcode("fuid_tmpuser", ac1) is True
+        auth.login("devid-x")  # re-login: la sesión vieja muere DEL TODO
+        assert auth.check_authcode("fuid_tmpuser", ac1) is False  # zombi revocado
+        assert auth.authcode("devid-x", "es") != ac1
+
+    def test_getauthcode_con_use_auth_exige_token_valido(self):
+        from deebot930_bridge.servers.conf import ConfAuth
+
+        auth = ConfAuth(use_auth=True)
+        s = auth.login("devid-x")
+        # accessToken incorrecto → sin authcode (fail como Bumper)
+        assert auth.authcode("devid-x", "es", access_token="inventado",
+                             require_token=True) is None
+        # el token de la sesión sí
+        assert auth.authcode("devid-x", "es", access_token=s.token,
+                             require_token=True) is not None
+
+    async def test_fallo_broker_mqtt_no_salta_el_conf(self, tmp_path):
+        """mqtt con puerto ocupado + conf on → el conf ARRANCA igual."""
+        from deebot930_bridge.config import Config
+        from deebot930_bridge.serve import Service
+        from deebot930_bridge.servers.certs import ensure_certs
+        from tests.test_servers_fc import _free_port
+
+        cfg = Config()
+        cfg.servers.listen = "127.0.0.1"
+        cfg.servers.mqtt = True
+        cfg.servers.conf = True
+        cfg.servers.state_file = str(tmp_path / "s.json")
+        cfg.state_file = str(tmp_path / "s.json")
+        ensure_certs(str(tmp_path / "ca.crt"), str(tmp_path / "s.crt"),
+                     str(tmp_path / "s.key"))
+        cfg.servers.ca_file = str(tmp_path / "ca.crt")
+        cfg.servers.server_cert = str(tmp_path / "s.crt")
+        cfg.servers.server_key = str(tmp_path / "s.key")
+        # ocupa el puerto del broker MQTT
+        import socket
+
+        with socket.socket() as blk:
+            blk.bind(("127.0.0.1", 0))
+            cfg.servers.mqtt_port = blk.getsockname()[1]
+            blk.listen(1)
+            cfg.servers.conf_port = _free_port()
+            svc = Service(cfg, None)
+            await svc._start_embedded_servers()
+            try:
+                assert "mqtt" not in svc.embedded  # falló (puerto ocupado)
+                assert "conf" in svc.embedded      # pero el conf SÍ arrancó
+            finally:
+                await svc._stop_embedded_servers()

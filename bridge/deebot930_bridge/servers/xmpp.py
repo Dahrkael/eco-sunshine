@@ -94,6 +94,15 @@ class XMPPServerProtocol(asyncio.Protocol):
     def connection_lost(self, error):
         if self.aclient in XMPPServer.clients:
             XMPPServer.clients.remove(self.aclient)
+        import time as _t
+
+        self.aclient.disconnected_at = _t.time()
+        log.info("conexión cerrada (%s:%s | %s | bot=%s tras %.0fs): %s",
+                 self.aclient.address[0], self.aclient.address[1],
+                 self.aclient.bumper_jid or "?",
+                 self.aclient.type == self.aclient.BOT,
+                 _t.time() - getattr(self.aclient, "authenticated_at", _t.time()),
+                 error or "EOF/cierre del peer")
         self.aclient._set_state("DISCONNECT")
         log.debug("End Connection for (%s:%s | %s)", self.aclient.address[0],
                   self.aclient.address[1], self.aclient.bumper_jid)
@@ -424,6 +433,9 @@ class XMPPAsyncClient:
                 self.server.registry.bot_add(self.uid, self.uid, self.devclass,
                                              "atom", "eco-legacy")
                 self.type = self.BOT
+                import time as _t
+
+                self.authenticated_at = _t.time()
                 log.info("bot autenticado SN=%s clase=%s", self.uid, self.devclass)
                 self.send('<success xmlns="urn:ietf:params:xml:ns:xmpp-sasl"/>')
                 self._set_state("INIT")

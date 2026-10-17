@@ -244,6 +244,13 @@ def cmd_serve(args: argparse.Namespace) -> int:
     if getattr(args, "mqtt", False):
         cfg.bumper_mqtt.enabled = True
     jid = args.jid or (cfg.robots[0] if cfg.robots else None)
+    # nivel de log por entorno (DEBUG revela el wire XMPP/MQTT completo)
+    import logging as _logging
+    import os
+
+    if os.environ.get("DEEBOT_LOG_LEVEL"):
+        _logging.basicConfig(level=os.environ["DEEBOT_LOG_LEVEL"].upper(),
+                             format="%(levelname)s %(name)s: %(message)s")
     try:
         import asyncio
 

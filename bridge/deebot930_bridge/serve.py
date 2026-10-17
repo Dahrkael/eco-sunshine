@@ -10,14 +10,17 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import logging
 import time
+from pathlib import Path
 
 from .config import Config
-from .map_pieces import MapAssembler, decode_trace_mqtt, render_png
+from .map_pieces import MapAssembler, MapGeometry, decode_trace_mqtt, render_png
 from .models import DeviceId
 from .mqtt_pub import MqttPublisher
-from .robot import SPEED_JSON, RobotCommander, RobotState
+from .robot import SPEED_JSON, Position, RobotCommander, RobotState
 from .webpanel import WebPanel
 from .xmpp_client import BumperXMPPClient
 
@@ -70,11 +73,15 @@ class Service:
         # map_id → robot key: cada robot renderiza SU mapa (evita colisión
         # de mids entre protocolos — el 930 y un eco-ng pueden usar ambos "0")
         self._map_owner: dict[str, str] = {}
+        # posiciones persistidas por slug (semilla al adoptar, para overlays
+        # inmediatos tras reinicio sin esperar al robot)
+        self._seed_positions: dict[str, dict] = {}
 
     # ---------- adopción ----------
 
     def _adopt_xmpp(self, jid: str) -> None:
         r = RobotState.from_jid(jid)
+        self._seed_robot(r)
         self.robots[jid] = r
         self.commanders[jid] = RobotCommander(self.client, r)  # type: ignore[arg-type]
         log.info("robot XMPP adoptado: %s (%s)", jid, r.slug)
@@ -82,12 +89,26 @@ class Service:
     def _adopt_mqtt(self, key: str) -> RobotState:
         did = DeviceId.from_key(key, protocol="mqtt")
         r = RobotState.from_device_id(did)
+        self._seed_robot(r)
         self.robots[key] = r
         from .mqtt_commander import MqttCommander
 
         self.commanders[key] = MqttCommander(self.mqtt_transport, r)  # type: ignore[arg-type]
         log.info("robot eco-ng adoptado: %s (%s)", key, r.slug)
         return r
+
+    def _seed_robot(self, r: RobotState) -> None:
+        """Aplica la última posición/base persistida (overlays inmediatos
+        tras reinicio, sin esperar a que el robot hable)."""
+        seed = self._seed_positions.get(r.slug)
+        if not seed:
+            return
+        pos = seed.get("position")
+        if pos and r.position is None:
+            r.position = Position(*pos)
+        ch = seed.get("charger")
+        if ch and r.charger is None:
+            r.charger = Position(*ch)
 
     async def _adopt_and_discover(self, key: str, mqtt: bool) -> None:
         r = self._adopt_mqtt(key) if mqtt else (self._adopt_xmpp(key) or self.robots[key])
@@ -135,7 +156,9 @@ class Service:
             self._map_owner.setdefault(map_id, jid)
             before = self.asm.spec_changes
             self.asm.set_geometry(map_id, attrs)
-            if self.asm.spec_changes > before:
+            # walk si la spec cambió O si aún no hay piezas de ese mapa
+            # (robot en base no empuja MapP: sin walk inicial, deadlock)
+            if self.asm.spec_changes > before or not self.asm.maps.get(map_id):
                 log.info(
                     "spec mapa %s: %d crcs — lanzando pull walk",
                     map_id, len(self.asm.crcs[map_id]),
@@ -374,6 +397,9 @@ class Service:
                         self._poll_xmpp_robot(c, deep)
                 except Exception:  # noqa: BLE001
                     log.exception("poll falló para %s", key)
+            # posiciones/mapsets cambian sin tocar el mapa: guardar igual
+            # (la huella evita escrituras redundantes)
+            self._save_state()
             await asyncio.sleep(POLL_SECONDS)
 
     def _poll_xmpp_robot(self, c, deep: bool = False) -> None:
@@ -517,6 +543,9 @@ class Service:
 
         # cargar mapa del log de Bumper (sobrevive a reinicios del serve)
         self._load_map_from_log()
+        # restaurar estado persistido (piezas + posiciones): el mapa se
+        # publica sin depender del robot
+        self._load_state()
 
         # adopción inicial de robots conocidos: un robot en base no emite
         # frames por sí solo — el sondeo inicial (con NUESTRO jid como from)
@@ -584,12 +613,89 @@ class Service:
         else:
             log.warning("precarga: 0 piezas validas para mapa %s", latest_mapid)
 
+    # ---------- persistencia ----------
+
+    def _save_state(self) -> None:
+        """Piezas por map_id + geometría + posiciones → JSON atómico.
+
+        El mapa sobrevive a reinicios del bridge sin depender del robot
+        (un robot en base no empuja piezas) y el panel/HA lo pintan nada
+        más arrancar. Sólo escribe si algo cambió (huella).
+        """
+        if not self.cfg.state_file:
+            return
+        fp = (self.asm.version,
+              tuple((r.slug,
+                     (r.position.x, r.position.y) if r.position else None,
+                     (r.charger.x, r.charger.y) if r.charger else None)
+                    for r in self.robots.values()),
+              len(self._map_owner))
+        if fp == getattr(self, "_state_fp", None):
+            return
+        self._state_fp = fp
+        try:
+            doc = {
+                "maps": {
+                    mid: {str(pid): base64.b64encode(piece).decode()
+                          for pid, piece in pieces.items()}
+                    for mid, pieces in self.asm.maps.items()
+                },
+                "geometry": {mid: vars(g) for mid, g in self.asm.geometry.items()},
+                "crcs": self.asm.crcs,
+                "version": self.asm.version,
+                "map_owner": self._map_owner,
+                "positions": {
+                    r.slug: {
+                        "position": [r.position.x, r.position.y, r.position.angle]
+                        if r.position else None,
+                        "charger": [r.charger.x, r.charger.y, r.charger.angle]
+                        if r.charger else None,
+                    } for r in self.robots.values()
+                },
+            }
+            path = Path(self.cfg.state_file)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(doc))
+            tmp.replace(path)
+            log.debug("estado persistido en %s (%d mapas)", path, len(doc["maps"]))
+        except Exception:  # noqa: BLE001
+            log.exception("persistencia de estado falló")
+
+    def _load_state(self) -> None:
+        """Restaura el estado persistido: el mapa se publica al primer ciclo
+        del publisher (version != -1) sin esperar al robot."""
+        if not self.cfg.state_file or not Path(self.cfg.state_file).exists():
+            return
+        try:
+            doc = json.loads(Path(self.cfg.state_file).read_text())
+        except (json.JSONDecodeError, OSError):
+            log.exception("estado persistido ilegible — ignorado")
+            return
+        restored = 0
+        for mid, geo_d in (doc.get("geometry") or {}).items():
+            try:
+                self.asm.geometry[mid] = MapGeometry(**geo_d)
+            except TypeError:
+                continue
+        for mid, crcs in (doc.get("crcs") or {}).items():
+            self.asm.crcs[mid] = [int(c) for c in crcs]
+        for mid, pieces in (doc.get("maps") or {}).items():
+            for pid_s, p_b64 in pieces.items():
+                try:
+                    self.asm.maps.setdefault(mid, {})[int(pid_s)] = base64.b64decode(p_b64)
+                    restored += 1
+                except (ValueError, base64.binascii.Error):
+                    continue
+        self.asm.version = int(doc.get("version", 0)) + 1  # fuerza publicación
+        self._map_owner.update(doc.get("map_owner") or {})
+        self._seed_positions = doc.get("positions") or {}
+        if restored:
+            log.info("estado restaurado: %d piezas en %d mapas (de %s)",
+                     restored, len(self.asm.maps), self.cfg.state_file)
+
     def _render_map_png(self, map_id: str, robot: RobotState | None = None,
                         grid: list[list[int]] | None = None) -> bytes:
-        """Render PNG del mapa para MQTT/HA (overlay del robot indicado).
-
-        grid: opcional, ya ensamblado por el publisher (O1).
-        """
         grid = grid if grid is not None else self.asm.assemble(map_id)
         if not grid:
             return b""
@@ -636,8 +742,10 @@ class Service:
             await asyncio.sleep(5)
             now = time.monotonic()
 
-            # re-walk XMPP: reponer piezas cada 60s (la app hace lo mismo al abrir el mapa)
-            if not walking and now - last_walk > 60 and self.asm.maps:
+            # re-walk XMPP: reponer piezas cada 60s. Basta conocer la spec
+            # (crcs) aunque aún no haya piezas — sin esto, deadlock: sin
+            # piezas no hay walk y sin walk nunca llegan piezas.
+            if not walking and now - last_walk > 60 and (self.asm.maps or self.asm.crcs):
                 has_xmpp = any(r.did and r.did.protocol == "xmpp"
                                for r in self.robots.values()) or not self.robots
                 if has_xmpp:
@@ -647,8 +755,10 @@ class Service:
                     async def walk() -> None:
                         nonlocal walking, last_version
                         try:
-                            await self._pull_walk(max(self.asm.maps,
-                                                      key=lambda m: self.asm.piece_count(m)))
+                            await self._pull_walk(
+                                max(set(self.asm.maps) | set(self.asm.crcs),
+                                    key=lambda m: self.asm.piece_count(m)
+                                    + len(self.asm.crcs.get(m, []))))
                         finally:
                             walking = False
                             last_version = -1  # fuerza republicación tras cada walk
@@ -676,5 +786,6 @@ class Service:
                               self.asm.version,
                               sum(self.asm.piece_count(m) for m in self.asm.maps),
                               len(self.asm.maps))
+                    self._save_state()  # persiste piezas + posiciones actuales
                 except Exception:  # noqa: BLE001
                     log.exception("publicación de mapa falló")

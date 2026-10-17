@@ -1,10 +1,56 @@
 name: deebot930
 
 services:
+  # ── Bridge: TODO el flujo en un solo contenedor (absorción de Bumper, FE) ──
+  # lookup :8007 (bootstrap del robot) + XMPP :5223 (era 930) + broker MQTT
+  # TLS :8883 (eco-ng T8+) embebidos en el proceso, más el panel :8181.
+  # El 443 (conf de la app Ecovacs) queda para la fase FD.
+  bridge:
+    build: ./bridge
+    container_name: deebot930-bridge
+    restart: unless-stopped
+    depends_on: [mosquitto]
+    environment:
+      TZ: ${TZ:-Europe/Madrid}
+      # servers.announce_ip del bridge (el toml no lee entorno): misma IP
+      # que antes consumía Bumper — se anuncia a robots/app en lookup.do
+      DEEBOT_ANNOUNCE_IP: ${BUMPER_ANNOUNCE_IP}
+    ports:
+      - "5223:5223"     # XMPP embebido   <- OZMO 930
+      - "8007:8007"     # lookup.do (bootstrap del robot)
+      - "8883:8883"     # broker MQTT embebido (eco-ng T8+)
+      - "8181:8181"     # panel web del bridge
+    volumes:
+      - ./data/certs:/certs          # RW: se auto-generan al primer arranque si faltan (FE)
+      - ./configs/bridge.toml:/config/bridge.toml:ro
+      - ./data/bridge:/data          # state_file + registry persistentes
+    command: ["serve", "-c", "/config/bridge.toml", "--mqtt"]
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: deebot930-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./configs/mosquitto:/mosquitto/config:ro
+
+  # ── Bumper LEGACY (transición) ──
+  # Sustituido por los servidores embebidos del bridge (FA-FC, ver
+  # docs/absorcion-bumper.md). Se conserva bajo el profile `legacy` para
+  # rollback o comparación durante la transición:
+  #
+  #   docker compose --profile legacy up -d bumper
+  #
+  # ⚠️ NO lo actives a la vez que el bridge: publican los mismos puertos
+  # (5223/8883/8007) y se pegarían por el robot. Si lo arrancas, para el
+  # bridge antes (y recuerda: el bridge con [servers] off es cliente puro
+  # de este Bumper, como antes de la fusión).
   bumper:
     build: ./bumper          # fuente vendorizado (instrumentable en fase 2)
     container_name: deebot930-bumper
     restart: unless-stopped
+    profiles: ["legacy"]
     environment:
       TZ: ${TZ:-Europe/Madrid}
       BUMPER_ANNOUNCE_IP: ${BUMPER_ANNOUNCE_IP}   # IP que se anuncia al robot/app (host Windows en dev)
@@ -21,28 +67,3 @@ services:
     volumes:
       - ./data/bumper:/bumper/data
       - ./data/certs:/bumper/certs
-
-  mosquitto:
-    image: eclipse-mosquitto:2.0
-    container_name: deebot930-mosquitto
-    restart: unless-stopped
-    ports:
-      - "1883:1883"
-    volumes:
-      - ./configs/mosquitto:/mosquitto/config:ro
-
-  bridge:
-    build: ./bridge
-    container_name: deebot930-bridge
-    restart: unless-stopped
-    profiles: ["bridge"]
-    depends_on: [bumper, mosquitto]
-    environment:
-      TZ: ${TZ:-Europe/Madrid}
-    ports:
-      - "8181:8181"      # panel web del bridge
-    volumes:
-      - ./data/certs:/certs:ro
-      - ./configs/bridge.toml:/config/bridge.toml:ro
-      - ./data/bridge:/data
-    command: ["serve", "-c", "/config/bridge.toml", "--mqtt"]

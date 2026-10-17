@@ -4,18 +4,24 @@ state_file = "/data/state.json"   # piezas+posiciones persistentes (volumen ./da
 
 # ── Servidores embebidos (absorción de Bumper, docs/absorcion-bumper.md) ──
 # Cada componente se enciende por separado; con todos off el bridge es
-# cliente puro contra un Bumper externo.
+# cliente puro contra un Bumper externo. En producción (configs/bridge.toml)
+# van lookup+xmpp+mqtt on: el bridge ES el servidor.
 [servers]
 lookup = false             # :8007  bootstrap del robot (lookup.do) — FA
-xmpp = false               # :5223  servidor XMPP era 930 — llega en FB
-mqtt = false               # :8883  broker eco-ng — llega en FC
-conf = false               # :443   API app Ecovacs — llega en FD
+xmpp = false               # :5223  servidor XMPP era 930 — FB
+mqtt = false               # :8883  broker eco-ng — FC
+conf = false               # :443   API app Ecovacs — FD (pendiente)
 panel = true               # panel web del bridge
-announce_ip = ""           # IP que se anuncia a robots (obligatoria si lookup=on)
+announce_ip = ""           # IP que se anuncia a robots (obligatoria si lookup=on;
+                           # vacía → usa la env DEEBOT_ANNOUNCE_IP del deploy)
 # lookup_port = 8007
 # xmpp_port = 5223
 # mqtt_port = 8883
 # conf_port = 443
+# TLS de xmpp/mqtt: si falta el material se auto-genera al primer arranque (FE)
+# ca_file = "/certs/ca.crt"
+# server_cert = "/certs/bumper.crt"
+# server_key = "/certs/bumper.key"
 [bumper]
 host = "bumper"          # nombre del servicio en la red de compose
 port = 5223

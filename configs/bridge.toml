@@ -5,8 +5,26 @@ state_file = "/data/state.json"   # piezas+posiciones persistentes
 # robots conocidos (adopción al arranque + sondeo inicial)
 robots = ["E000105701860607AB7@115.ecorobot.net/atom"]
 
+# ── Servidores embebidos (absorción de Bumper, docs/absorcion-bumper.md) ──
+# lookup+XMPP+broker MQTT dentro del proceso del bridge: sin Bumper externo.
+# conf (:443, API de la app) llega en FD — off.
+[servers]
+lookup = true              # :8007  bootstrap del robot (lookup.do)
+xmpp = true                # :5223  servidor XMPP (robots era 930)
+mqtt = true                # :8883  broker MQTT TLS (robots eco-ng T8+)
+# announce_ip: la inyecta el compose vía DEEBOT_ANNOUNCE_IP (= BUMPER_ANNOUNCE_IP
+# del .env). Descomenta para fijarla aquí (el toml gana al entorno):
+# announce_ip = "192.0.2.10"
+# certs: nombres legacy de Bumper — en producción ya existen en ./data/certs
+# y NO se regeneran; si faltasen (instalación limpia) se auto-generan (FE)
+ca_file = "/certs/ca.crt"
+server_cert = "/certs/bumper.crt"
+server_key = "/certs/bumper.key"
+
+# Cliente XMPP del bridge — con el XMPP embebido activo, serve lo apunta a
+# 127.0.0.1 (reescritura automática); explícito por claridad
 [bumper]
-host = "bumper"          # servicio compose (server XMPP de Bumper)
+host = "127.0.0.1"
 port = 5223
 uid = "fuid_tmpuser"
 resource = "bridge"
@@ -17,8 +35,9 @@ host = "mosquitto"
 port = 1883
 base_topic = "deebot"
 
+# Cliente eco-ng (T8+) — al broker embebido, igual que el XMPP
 [bumper_mqtt]
-host = "bumper"          # broker MQTT eco-ng de Bumper
+host = "127.0.0.1"
 port = 8883
 ca_file = "/certs/ca.crt"
 enabled = true

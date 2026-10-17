@@ -234,6 +234,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     import logging
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    # amqtt (broker embebido FC) loguea su máquina de estados a INFO — ruido
+    logging.getLogger("transitions").setLevel(logging.WARNING)
 
     from .config import load_config
     from .serve import Service

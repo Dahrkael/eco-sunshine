@@ -96,6 +96,7 @@ class EmbeddedMqttBroker(Broker):  # type: ignore[misc]
     - listener TLS con los certs de ServersConfig (TCP plano si no se pasan,
       solo para tests)
     - auth delegada a BridgeAuthPlugin (config ``plugins`` de amqtt)
+    - sin plugin $SYS (topics de sistema) ni topic-check, como Bumper
     - QoS0/retained/ping los cubre amqtt; este sistema solo usa QoS0
     """
 
@@ -113,7 +114,6 @@ class EmbeddedMqttBroker(Broker):  # type: ignore[misc]
             listener.update(ssl=True, certfile=server_cert, keyfile=server_key)
         config: dict[str, Any] = {
             "listeners": {"default": listener},
-            "sys_interval": 0,  # sin topics $SYS (como Bumper)
             "timeout_disconnect_delay": 0,
             "plugins": {f"{__name__}.BridgeAuthPlugin": {}},
         }

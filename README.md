@@ -7,10 +7,17 @@ Assistant, escribiendo el código que falta en el ecosistema.
 ## Arquitectura
 
 ```
-Robot 930 ──XMPP:5223──► Bumper (vendorizado, instrumentable) ──► docker (WSL dev → minipc prod)
-App "Ecovacs" antigua ──► (oraculo de emparejamiento/captura; movil con DNS del Pi-hole)
-bridge (nuevo, Python) ──► decoder mapa → renderer PNG → MQTT (formato Valetudo) ──► HA
+Robot 930 ────XMPP :5223───►┐
+Robot eco-ng ──MQTT :8883───►┤  bridge (servidores embebidos: lookup :8007,
+                             │  XMPP, broker MQTT TLS, panel :8181)
+App "Ecovacs" antigua ──────►┘  (oráculo de emparejamiento; DNS del Pi-hole)
+
+bridge ──► decoder mapa → renderer PNG → MQTT (formato Valetudo) ──► HA (mosquitto :1883)
 ```
+
+Desde la absorción de Bumper (fase 7) el bridge YA NO necesita el
+contenedor `bumper`: los servidores (lookup, XMPP, broker MQTT eco-ng)
+viven en el proceso del bridge. Bumper queda como `legacy` opcional.
 
 ## Estado del proyecto
 
@@ -23,7 +30,7 @@ bridge (nuevo, Python) ──► decoder mapa → renderer PNG → MQTT (formato
 | 4 | Bridge → MQTT + discovery HA | **✅ hecho** (14 entidades, panel web, multi-robot) |
 | 5 | Aislamiento (firewall) + dashboard HA | **✅ hecho** |
 | 6 | Transporte MQTT robots T8+ (eco-ng) | **✅ hecho** (spec mqtt-json-spec.md §10) |
-| 7 | Absorción de Bumper en el bridge | plan: `docs/absorcion-bumper.md` |
+| 7 | Absorción de Bumper en el bridge | **en marcha**: FA–FE hechos (`docs/absorcion-bumper.md`), FD opcional |
 
 El bridge soporta **48 modelos XMPP** (detección por JID) y robots **eco-ng
 MQTT** (T8+; class ids conocidos + fallback genérico). Un solo `serve`
@@ -64,10 +71,17 @@ bridge lo esquiva suscribiendo `iot/#` y filtrando por estructura de topic
 un monkey-patch con matching MQTT-4.7 correcto (aplica al reconstruir la
 imagen de Bumper).
 
-## Decision pendiente: futuro de Bumper (upstream abandonado)
+## Decisión tomada: futuro de Bumper (upstream abandonado)
 
-El robot habla XMPP (lookup.do pide `EcoMsgNew`) → el protocolo no es
-negociable. Vias evaluadas:
+Resuelta en la fase 7 con la vía **(b) backend propio**: los servidores de
+Bumper (lookup, XMPP, broker MQTT) se absorbieron DENTRO del bridge
+(fases FA–FC) y el despliegue es un solo contenedor (FE). El código de
+Bumper queda vendorizado bajo `bumper/` y su contenedor pasa al profile
+`legacy` para rollback durante la transición. La API de la app (`:443`,
+confserver) no se absorbió todavía (FD, opcional).
+
+El robot habla XMPP (lookup.do pide `EcoMsgNew`) → el protocolo no era
+negociable. Vias evaluadas en su día:
 - (a) FORK propio (actual): ya vendorizado + parcheado; xmppserver ~800 lineas
   que conocemos a fondo y corpus para regresion. Coste de mantenimiento bajo.
 - (b) Backend minimo propio (lookup.do + XMPP + HTTPS de la app): el corpus
@@ -81,17 +95,33 @@ negociable. Vias evaluadas:
 
 ## Operación (DEV, WSL + Docker Desktop)
 
+Desde la absorción de Bumper (fase 7) el despliegue son **dos
+contenedores**: el bridge (todo embebido: lookup+XMPP+broker MQTT+panel)
+y mosquitto.
+
 ```bash
 cd /mnt/t/ecovacs
-docker compose up -d --build
-docker logs -f deebot930-bumper     # ver conexiones del robot/app
+docker compose up -d --build          # bridge + mosquitto
+docker logs -f deebot930-bridge       # servidores embebidos + robots
 ```
 
-Puertos publicados en el host Windows (**192.0.2.10**): 443, 5223, 8007, 8883.
+Puertos publicados en el host Windows (**192.0.2.10**): 5223 (XMPP),
+8007 (lookup), 8883 (MQTT eco-ng), 8181 (panel). El 443 ya no se publica
+(API de la app = FD, opcional).
 
-- `BUMPER_ANNOUNCE_IP` (`.env`) = IP que Bumper comunica al robot como
-  servidor XMPP. **DEV**: IP LAN de Windows. **PROD**: IP del minipc.
-- Certs/db persistentes en `./data/` (no versionar).
+- `BUMPER_ANNOUNCE_IP` (`.env`) = IP que el bridge comunica al robot como
+  servidor (vía `DEEBOT_ANNOUNCE_IP` → `servers.announce_ip`; el toml
+  puede fijarla y gana). **DEV**: IP LAN de Windows. **PROD**: IP del minipc.
+- Certs: `./data/certs` montado RW — en una instalación limpia el bridge
+  auto-genera CA+cert al primer arranque (los robots deberán emparejar
+  contra esa CA). Si ya existen (migración desde Bumper) NO se tocan: los
+  robots siguen confiando en la CA legada.
+- Estado persistente en `./data/bridge/` (mapa, posiciones, registry) —
+  no versionar (`data/` está en `.gitignore`).
+- **Bumper legacy** (rollback/comparación durante la transición):
+  `docker compose --profile legacy up -d bumper` — nunca a la vez que el
+  bridge (mismos puertos publicados). Con `[servers]` off en el toml, el
+  bridge vuelve a ser cliente puro de ese Bumper.
 
 ## DNS (Pi-hole) — hacer ANTES de emparejar el robot
 
@@ -128,22 +158,27 @@ inbound 443/tcp, 5223/tcp, 8007/tcp, 8883/tcp para `com.docker.backend`
 1. [ ] Reserva DHCP con IP fija para el robot (router).
 2. [ ] Pi-hole respondiendo por el wildcard (probar desde el móvil:
        `nslookup lbo.ecovacs.net` → 192.0.2.10).
-3. [ ] Bumper arriba (`docker compose ps`).
+3. [ ] Bridge arriba (`docker compose ps` — servidores embebidos on).
 4. [ ] Robot en modo emparejamiento (botón WiFi hasta voz/parpadeo).
 5. [ ] App antigua "Ecovacs" → añadir dispositivo → red del robot →
        credenciales Wi-Fi de casa.
-6. [ ] Verificar en `docker logs deebot930-bumper`: login del bot XMPP
+6. [ ] Verificar en `docker logs deebot930-bridge`: login del bot XMPP
        (~30 s tras reiniciar el robot).
 7. [ ] Probar comando de limpieza desde la app (todo local).
 
 ## Migración a producción (minipc)
 
 1. Copiar el proyecto (incluido `./data/` para conservar certs y estado).
-2. `.env`: `BUMPER_ANNOUNCE_IP=<IP-minipc>`.
-3. `docker compose up -d --build`.
+2. `.env`: `BUMPER_ANNOUNCE_IP=<IP-minipc>` (la consume el bridge).
+3. `docker compose up -d --build` (bridge + mosquitto; bumper solo con
+   `--profile legacy`).
 4. Pi-hole: actualizar las 3 líneas `address=` a la IP del minipc y
    recargar FTL.
 5. Reiniciar el robot y el móvil (re-resolución DNS).
+
+Los certs de `./data/certs` viajan con la copia: los robots NO tienen que
+re-emparejar (la CA que ya confían es la misma que presentan los
+servidores embebidos del bridge).
 
 ## Referencias
 

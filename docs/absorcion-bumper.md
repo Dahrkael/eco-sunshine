@@ -1,8 +1,8 @@
 # Absorción de Bumper en el bridge — mapa de fusión
 
-> Estado: plan. Este documento describe cómo llevar los servidores de Bumper
-> DENTRO del proceso del bridge para tener un solo programa gestionando el
-> flow completo (DNS-spoof → auth → XMPP/MQTT → HA).
+> Estado: **FA–FE implementadas** (rama `feat/absorcion-bumper`); queda
+> **FD** (confserver `:443`) como opcional. Este documento empezó como plan
+> y ahora registra lo realmente hecho — ver el checklist final.
 
 ## Principio
 
@@ -22,11 +22,11 @@ Bumper ya son librerías asyncio dentro de su proceso (`xmppserver.py`,
 
 | Módulo Bumper | Destino | Notas |
 |---|---|---|
-| `mqttserver.py` (MQTTServer + plugin auth) | `deebot930_bridge/bumper_server/mqtt.py` | broker hbmqtt embebido; el helperbot se ELIMINA (MqttTransport lo sustituye) |
-| `xmppserver.py` | `deebot930_bridge/bumper_server/xmpp.py` | sin cambios funcionales |
-| `confserver.py` (:443/:8007) | `deebot930_bridge/bumper_server/conf.py` | auth de app + lbo lookup; el robot lo necesita para encontrar el servidor |
-| `db.py` (bots/tokens/users) | migrar a `DeviceId` + store propio | la tabla `bots` pasa a ser el registro del bridge |
-| `create_certs` + data/certs | gestión de certs del bridge | generar al primer arranque si no existen |
+| `mqttserver.py` (MQTTServer + plugin auth) | `deebot930_bridge/servers/mqtt.py` | **hecho (FC)**: broker `amqtt` embebido; el helperbot se ELIMINÓ (MqttTransport lo sustituye) |
+| `xmppserver.py` | `deebot930_bridge/servers/xmpp.py` | **hecho (FB)**: vendorizado casi literal, registro inyectado |
+| `confserver.py` (:443/:8007) | `servers/lookup.py` (:8007) + `servers/conf.py` (:443) | lookup **hecho (FA)**; el resto del confserver (auth de la app) = **FD, pendiente** |
+| `db.py` (bots/tokens/users) | `deebot930_bridge/servers/registry.py` | **hecho (FB)**: DeviceRegistry JSON junto al state_file (bumper.db muere) |
+| `create_certs` + data/certs | `deebot930_bridge/servers/certs.py` | **hecho (FE)**: CA+cert auto-generados al primer arranque si faltan; los existentes jamás se tocan |
 
 ## Qué se elimina
 
@@ -35,6 +35,11 @@ Bumper ya son librerías asyncio dentro de su proceso (`xmppserver.py`,
 - Contenedor bumper del docker-compose (uno menos).
 
 ## Trabajo real que supondrá (por orden de dolor)
+
+> Nota: sección del plan original — así salió en la práctica: (1) amqtt
+> sin fricción, (2) los clientes TLS ya lo sorteaban y FE genera CAs con
+> AKI/SKI, (3) resuelto en FA (solo lo activo) con shutdown graceful en FC,
+> (4) `[servers]` en FA + `DEEBOT_ANNOUNCE_IP` en FE (el toml no lee env).
 
 1. **Dependencias py3.7 → 3.12+**: `hbmqtt` está archivado → fork `amqtt`;
    `pkg_resources` (eliminado en 3.12) → `importlib`; `passlib` → opcional.
@@ -48,8 +53,30 @@ Bumper ya son librerías asyncio dentro de su proceso (`xmppserver.py`,
 
 ## Checklist de la fusión
 
-- [ ] `bridge serve` arranca xmppserver+broker+confserver embebidos
-- [ ] 930 real conecta y funciona (regresión XMPP: corpus + panel)
-- [ ] mock eco-ng conecta al broker embebido y funciona (regresión MQTT)
-- [ ] helperbot eliminado, `docker-compose` con un solo servicio bridge
-- [ ] tests: suite existente + smoke test de arranque de servidores
+Estado por fases (una saga de commits cada una, `git log --oneline`):
+
+- [x] **FA** — config `[servers]` (toggles/puertos/certs por componente),
+  lookup embebido `:8007` (POST /lookup.do, JSON compacto) y ciclo de vida
+  "serve arranca SOLO lo activo"
+- [x] **FB** — `DeviceRegistry` (persistencia JSON junto al state_file,
+  sustituye a bumper.db) + servidor XMPP embebido `:5223` vendorizado; el
+  cliente XMPP del bridge pasa a `127.0.0.1`. E2E: mock 930 autentica
+  contra el embebido, corpus aceptado, estado/mapa/base OK
+- [x] **FC** — broker MQTT embebido `:8883` (amqtt; auth estilo Bumper,
+  '+' = un nivel exacto con guiones, TLS explícito sin downgrade); el
+  cliente eco-ng pasa a `127.0.0.1`. E2E: roundtrip p2p y TLS
+- [x] **FE** — certs auto-generados al primer arranque (`servers/certs.py`:
+  CA con AKI/SKI — el ssl estricto de py≥3.13 rechazaba las CAs del
+  create_certs de Bumper — y los existentes JAMÁS se tocan), fallback
+  `DEEBOT_ANNOUNCE_IP` para `servers.announce_ip`, y despliegue de un solo
+  contenedor: bridge sin profile (5223/8007/8883/8181, sin 443), Bumper al
+  profile `legacy`, certs `./data/certs` montados RW
+- [ ] **FD** — confserver `:443` (login/API de la app Ecovacs): opcional,
+  solo si se quiere volver a usar la app como cliente/oráculo. Hasta
+  entonces el 443 no se publica y `servers.conf` avisa "llega en FD"
+
+Compatibilidad: con `[servers]` todo off el bridge sigue siendo cliente
+puro contra un Bumper externo (los 97 tests de antes de FE siguen igual).
+
+Pendiente tras el merge: regresión en producción con el 930 real y un
+eco-ng real (los E2E de FB/FC usaron los mocks del corpus).

@@ -1,10 +1,16 @@
 # Firmware Ecovacs — investigación completa (OZMO 930 y familia)
 
-> Worktree `research/firmware` (2026-10-17). Fuentes: corpus propio (log
-> Bumper 681 MB + pcaps), decompile de ambas apps (Ecovacs 1.4.9 y Home
-> 3.16.1), fuente de `ecovacs-firmware-tools` (denysvitali, 2025), charlas
-> DEF CON 32 / HITCON CMT 2024 (Giese & Luedtke), probes en vivo contra la
-> API OTA oficial.
+> **Alcance de ESTE repo**: sustituir la nube oficial de Ecovacs (lookup,
+> XMPP/MQTT, API de la app) — ya conseguido con el monolito. La línea
+> futura de **custom firmware** (dump/UART/parcheo/flasheo) se investiga
+> en un proyecto aparte; este documento deja recogido todo lo aprendido
+> para reutilizarlo allí (§3-§5).
+>
+> Worktree `research/firmware` (2026-10-17, mergeado). Fuentes: corpus
+> propio (log Bumper 681 MB + pcaps), decompile de ambas apps (Ecovacs
+> 1.4.9 y Home 3.16.1), fuente de `ecovacs-firmware-tools` (denysvitali,
+> 2025), charlas DEF CON 32 / HITCON CMT 2024 (Giese & Luedtke), probes
+> en vivo contra la API OTA oficial.
 
 ## 1. Qué firmware lleva nuestro robot
 
@@ -134,7 +140,10 @@ seríamos primeros — y con ventaja: ya controlamos el servidor XMPP del
 robot (QuickUpgrade cuando queramos) y tenemos corpus completo de su
 dialecta.
 
-## 5. Plan de dissección (cuando haya imagen)
+## 5. Plan de dissección (cuando haya imagen) — PROYECTO APARTE
+
+> El dump/parcheo/flasheo de firmware se investigará en un proyecto
+> dedicado; esto queda como mapa de partida.
 
 1. **Conseguir una imagen del 930**:
    a. Comunidad: buscar dumps (GitHub issues de sucks/bumper, foros HA,

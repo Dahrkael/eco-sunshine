@@ -95,5 +95,12 @@ Compatibilidad: con `[servers]` todo off el bridge sigue siendo cliente
 puro contra un Bumper externo (la suite de antes de cada fase sigue
 pasando; FD añade 19 tests sin tocar los existentes).
 
-Pendiente tras el merge: regresión en producción con el 930 real y un
-eco-ng real (los E2E de FB/FC usaron los mocks del corpus).
+Pendiente tras el merge: ~~regresión en producción con el 930 real~~ **HECHA
+(2026-10-17)**: el 930 real conecta al monolito, negocia lookup→XMPP→TLS,
+reporta fw 1.9.9 / batería 100 / consumibles / posición, y el mapa fluye
+(requirió el fix de la dialecta eco: el robot responde por ctl-id sin
+td/pid — `fix(xmpp): correlación por ctl-id`). El eco-ng real queda
+pendiente de hardware T8+. La app antigua contra el conf (FD) queda
+pendiente de probar con un móvil.
+
+Rollback si hiciera falta: `backup/pre-absorcion` + `--profile legacy`.

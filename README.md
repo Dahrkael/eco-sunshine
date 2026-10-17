@@ -1,37 +1,43 @@
-# deebot930 — OZMO 930 cloud-free + mapa en vivo en Home Assistant
+# deebot930 — reemplazo 100% LAN de la nube Ecovacs + mapa en vivo en HA
 
-Proyecto: eliminar la dependencia del backend de Ecovacs para un Deebot
-OZMO 930 (XMPP, 2018) y darle control 100% LAN + **mapa en vivo** en Home
-Assistant, escribiendo el código que falta en el ecosistema.
+Proyecto: eliminar la dependencia del backend de Ecovacs para robots
+Deebot — el OZMO 930 (XMPP, 2018) y los eco-ng T8+ (MQTT) — con un solo
+servicio propio que sustituye a la nube oficial: bootstrap (lookup), XMPP,
+broker MQTT, API de la app antigua y panel web, más integración Home
+Assistant con mapa en vivo. **La nube de Ecovacs ya no interviene en
+nada** (su OTA oficial de la era XMPP está retirada — ver
+`docs/firmware.md`).
 
-## Arquitectura
+## Arquitectura (contenedor único)
 
 ```
 Robot 930 ────XMPP :5223───►┐
-Robot eco-ng ──MQTT :8883───►┤  bridge (servidores embebidos: lookup :8007,
-                             │  XMPP, broker MQTT TLS, panel :8181)
-App "Ecovacs" antigua ──────►┘  (oráculo de emparejamiento; DNS del Pi-hole)
+Robot eco-ng ──MQTT :8883───►┤  bridge = MONOLITO (lookup :8007, XMPP,
+                             │  broker MQTT TLS, panel :8181, conf :443*)
+App "Ecovacs" antigua ──────►┘  *off por defecto (para emparejar robots
+                                nuevos: `servers.conf = true` + 443)
 
-bridge ──► decoder mapa → renderer PNG → MQTT (formato Valetudo) ──► HA (mosquitto :1883)
+bridge ──► decoder mapa → renderer PNG → MQTT (discovery HA) ──► mosquitto :1883
 ```
 
-Desde la absorción de Bumper (fase 7) el bridge YA NO necesita el
-contenedor `bumper`: los servidores (lookup, XMPP, broker MQTT eco-ng y,
-opcionalmente, la API `:443` de la app) viven en el proceso del bridge.
-Bumper queda como `legacy` opcional.
+Ya NO hay contenedor bumper (queda como `--profile legacy` para rollback).
+Certs TLS auto-generados en instalaciones limpias; los existentes nunca
+se tocan. Rollback completo: rama `backup/pre-absorcion` + legacy.
 
-## Estado del proyecto
+## Estado del proyecto — VALIDADO CON ROBOT REAL
 
 | Fase | Contenido | Estado |
 |---|---|---|
-| 0 | Entorno: compose, DNS, IP fija, app antigua | **✅ hecho** |
-| 1 | Emparejamiento controlado contra Bumper | **✅ hecho** |
-| 2 | Captura de trazas XMPP (oraculo: app) | **✅ hecho** (corpus sesiones 1-3) |
-| 3 | Ingeniería inversa: posición + mapa | **✅ hecho** (origen 86.8% traza/suelo) |
-| 4 | Bridge → MQTT + discovery HA | **✅ hecho** (14 entidades, panel web, multi-robot) |
-| 5 | Aislamiento (firewall) + dashboard HA | **✅ hecho** |
+| 0-5 | Entorno, emparejamiento, corpus, ingeniería inversa, bridge HA | **✅ hecho** |
 | 6 | Transporte MQTT robots T8+ (eco-ng) | **✅ hecho** (spec mqtt-json-spec.md §10) |
-| 7 | Absorción de Bumper en el bridge | **✅ hecho** (FA–FD, `docs/absorcion-bumper.md`; FD = API de la app, off por defecto) |
+| 7 | Absorción de Bumper en el bridge (monolito) | **✅ hecho** (FA–FD, `docs/absorcion-bumper.md`) |
+| 8 | Regresión con el 930 real en producción | **✅ hecha** — conecta, fw 1.9.9, batería, consumibles, mapa |
+| — | eco-ng real (T8+), app antigua contra FD | pendientes de hardware/móvil |
+| — | Custom firmware | **proyecto aparte** (mapa en `docs/firmware.md`) |
+
+Hitos de la regresión real: la **dialecta eco** del 930 (responde por
+ctl-id sin td/pid — todo se descartaba hasta que se cazó en el wire) y el
+**broadcast de.ecorobot.net** (la batería que Bumper nunca enrutó bien).
 
 El bridge soporta **48 modelos XMPP** (detección por JID) y robots **eco-ng
 MQTT** (T8+; class ids conocidos + fallback genérico). Un solo `serve`

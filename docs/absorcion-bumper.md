@@ -23,11 +23,11 @@ Bumper ya son librerías asyncio dentro de su proceso (`xmppserver.py`,
 
 | Módulo Bumper | Destino | Notas |
 |---|---|---|
-| `mqttserver.py` (MQTTServer + plugin auth) | `deebot930_bridge/servers/mqtt.py` | **hecho (FC)**: broker `amqtt` embebido; el helperbot se ELIMINÓ (MqttTransport lo sustituye) |
-| `xmppserver.py` | `deebot930_bridge/servers/xmpp.py` | **hecho (FB)**: vendorizado casi literal, registro inyectado |
+| `mqttserver.py` (MQTTServer + plugin auth) | `ecovacs_bridge/servers/mqtt.py` | **hecho (FC)**: broker `amqtt` embebido; el helperbot se ELIMINÓ (MqttTransport lo sustituye) |
+| `xmppserver.py` | `ecovacs_bridge/servers/xmpp.py` | **hecho (FB)**: vendorizado casi literal, registro inyectado |
 | `confserver.py` (:443/:8007) | `servers/lookup.py` (:8007) + `servers/conf.py` (:443) | lookup **hecho (FA)**; conf **hecho (FD)**: login/getAuthCode/user.do de la app antigua contra el DeviceRegistry — detalle abajo |
-| `db.py` (bots/tokens/users) | `deebot930_bridge/servers/registry.py` | **hecho (FB)**: DeviceRegistry JSON junto al state_file (bumper.db muere) |
-| `create_certs` + data/certs | `deebot930_bridge/servers/certs.py` | **hecho (FE)**: CA+cert auto-generados al primer arranque si faltan; los existentes jamás se tocan |
+| `db.py` (bots/tokens/users) | `ecovacs_bridge/servers/registry.py` | **hecho (FB)**: DeviceRegistry JSON junto al state_file (bumper.db muere) |
+| `create_certs` + data/certs | `ecovacs_bridge/servers/certs.py` | **hecho (FE)**: CA+cert auto-generados al primer arranque si faltan; los existentes jamás se tocan |
 
 ## Qué se elimina
 

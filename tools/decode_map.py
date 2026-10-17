@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bridge"))
 
-from deebot930_bridge.map_pieces import MapAssembler, render_png  # noqa: E402
+from ecovacs_bridge.map_pieces import MapAssembler, render_png  # noqa: E402
 
 CTL_RE = re.compile(r"<ctl\s+([^>]*)>")
 ATTR_RE = re.compile(r'(\w+)="([^"]*)"')

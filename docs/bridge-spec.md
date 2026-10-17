@@ -1,4 +1,4 @@
-# deebot930-bridge — especificación (todo-en-uno, multi-robot)
+# ecovacs-bridge — especificación (todo-en-uno, multi-robot)
 
 Un solo servicio que sustituye a la app **y** al componente custom de HA:
 habla XMPP con Bumper como cliente, controla y escucha al robot, decodifica
@@ -8,7 +8,7 @@ el mapa y publica todo por MQTT con discovery nativo de Home Assistant.
 
 ```
                       ┌─────────────────────────────────────────────┐
-                      │  deebot930-bridge (asyncio)                 |
+                      │  ecovacs-bridge (asyncio)                 |
  Bumper (XMPP 5223) ←──┤  ├─ sesion XMPP por robot (auto-login fake) │
                       │  ├─ comando ←→ MQTT                          │
    robot 930 ⇄ bumper │  ├─ colector: Pos/trace/MapP/CleanSt/...    │
@@ -59,7 +59,7 @@ el mapa y publica todo por MQTT con discovery nativo de Home Assistant.
 | Mapa | `deebot/<slug>/map` (PNG b64) + `/map_data` | cámara mqtt + valetudo-map-card compatible |
 | Posición/path | `deebot/<slug>/state` | incl. en payload del mapa |
 
-## Módulos (bridge/deebot930_bridge/)
+## Módulos (bridge/ecovacs_bridge/)
 
 - `xmpp_client.py` — sesión TLS contra Bumper (CA propio), login usuario fake,
   envío iq/ctl, parse de eventos (a partir del formato de Bumper xmppserver).

@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import xml.etree.ElementTree as ET
 
-from deebot930_bridge.xmpp_client import BumperXMPPClient
+from ecovacs_bridge.xmpp_client import BumperXMPPClient
 
 
 class FakeClient(BumperXMPPClient):

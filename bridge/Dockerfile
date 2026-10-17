@@ -6,7 +6,7 @@ FROM python:3.12-alpine
 # necesita build deps.
 WORKDIR /app
 COPY pyproject.toml ./
-COPY deebot930_bridge ./deebot930_bridge
+COPY ecovacs_bridge ./ecovacs_bridge
 
 RUN pip install --no-cache-dir .
 
@@ -15,5 +15,5 @@ RUN pip install --no-cache-dir .
 # en FD y no se publica.
 EXPOSE 8007 5223 8883 8181
 
-ENTRYPOINT ["python", "-m", "deebot930_bridge"]
+ENTRYPOINT ["python", "-m", "ecovacs_bridge"]
 CMD ["serve", "--mqtt"]

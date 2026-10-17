@@ -6,7 +6,7 @@ import base64
 import lzma
 import zlib
 
-from deebot930_bridge.map_pieces import MapAssembler, MapGeometry
+from ecovacs_bridge.map_pieces import MapAssembler, MapGeometry
 
 
 def make_piece(fill: int, size: int = 10000) -> str:

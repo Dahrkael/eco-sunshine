@@ -8,14 +8,14 @@ import struct
 
 import pytest
 
-from deebot930_bridge.map_pieces import (
+from ecovacs_bridge.map_pieces import (
     ZSTD_MAGIC,
     decode_piece,
     decode_piece_auto,
     decode_trace_mqtt,
     decompress_auto,
 )
-from deebot930_bridge.mqtt_transport import build_envelope
+from ecovacs_bridge.mqtt_transport import build_envelope
 
 
 def make_piece_bytes(size: int = 10000, fill: int = 1) -> bytes:

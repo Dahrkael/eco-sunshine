@@ -1,4 +1,4 @@
-name: deebot930
+name: ecovacs
 
 services:
   # ── Bridge: TODO el flujo en un solo contenedor (absorción de Bumper, FE) ──
@@ -8,7 +8,7 @@ services:
   # defecto: publica el puerto solo si activas servers.conf (abajo).
   bridge:
     build: ./bridge
-    container_name: deebot930-bridge
+    container_name: ecovacs-bridge
     restart: unless-stopped
     depends_on: [mosquitto]
     environment:
@@ -35,7 +35,7 @@ services:
 
   mosquitto:
     image: eclipse-mosquitto:2.0
-    container_name: deebot930-mosquitto
+    container_name: ecovacs-mosquitto
     restart: unless-stopped
     ports:
       - "1883:1883"
@@ -55,7 +55,7 @@ services:
   # de este Bumper, como antes de la fusión).
   bumper:
     build: ./bumper          # fuente vendorizado (instrumentable en fase 2)
-    container_name: deebot930-bumper
+    container_name: ecovacs-bumper
     restart: unless-stopped
     profiles: ["legacy"]
     environment:

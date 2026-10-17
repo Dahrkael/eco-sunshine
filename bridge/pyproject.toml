@@ -1,5 +1,5 @@
 [project]
-name = "deebot930-bridge"
+name = "ecovacs-bridge"
 version = "0.2.0"
 description = "Bridge XMPP+MQTT -> MQTT para robots Ecovacs: decoder de mapa en vivo + integracion Home Assistant"
 requires-python = ">=3.10"
@@ -22,7 +22,7 @@ dev = [
 ]
 
 [project.scripts]
-deebot930-bridge = "deebot930_bridge.__main__:main"
+ecovacs-bridge = "ecovacs_bridge.__main__:main"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from deebot930_bridge.map_sets import (
+from ecovacs_bridge.map_sets import (
     MapSetData,
     Room,
     VirtualWall,
@@ -12,8 +12,8 @@ from deebot930_bridge.map_sets import (
     parse_stats_json,
     parse_stats_xml,
 )
-from deebot930_bridge.models import DeviceId
-from deebot930_bridge.robot import RobotState
+from ecovacs_bridge.models import DeviceId
+from ecovacs_bridge.robot import RobotState
 
 
 class TestParseMapSetXml:
@@ -104,7 +104,7 @@ class TestParseJson:
     def test_subset_resuelve_muro(self):
         sets = {"vw": MapSetData(tp="vw", msid="0", entries=[
             {"mssid": "7", "name": "muro", "_pending_outline": True}])}
-        from deebot930_bridge.map_sets import parse_subset_json
+        from ecovacs_bridge.map_sets import parse_subset_json
 
         parse_subset_json({"ret": "ok", "type": "vw", "mssid": "7",
                            "value": "100,200;800,200"}, sets)
@@ -142,7 +142,7 @@ class TestRobotStateIngest:
 
 class TestCommanders:
     def test_mqtt_clean_room_payload(self):
-        from deebot930_bridge.mqtt_commander import MqttCommander
+        from ecovacs_bridge.mqtt_commander import MqttCommander
         from tests.test_serve_wiring import FakeTransport
 
         t = FakeTransport()
@@ -154,7 +154,7 @@ class TestCommanders:
         assert cmd[2]["content"]["value"] == "1,3"
 
     def test_mqtt_add_wall_payload(self):
-        from deebot930_bridge.mqtt_commander import MqttCommander
+        from ecovacs_bridge.mqtt_commander import MqttCommander
         from tests.test_serve_wiring import FakeTransport
 
         t = FakeTransport()
@@ -166,7 +166,7 @@ class TestCommanders:
         assert cmd[2]["value"] == "100,200;800,200"  # pares de puntos (spec §4.5)
 
     def test_xmpp_clean_room_xml(self):
-        from deebot930_bridge.robot import RobotCommander
+        from ecovacs_bridge.robot import RobotCommander
 
         class FakeClient:
             def send_command(self, jid, ctl, td="", extra_attrs=None):
@@ -181,7 +181,7 @@ class TestCommanders:
         assert 'p="0,1"' in c.client.last
 
     def test_xmpp_add_wall_xml(self):
-        from deebot930_bridge.robot import RobotCommander
+        from ecovacs_bridge.robot import RobotCommander
 
         class FakeClient:
             def send_command(self, jid, ctl, td="", extra_attrs=None):

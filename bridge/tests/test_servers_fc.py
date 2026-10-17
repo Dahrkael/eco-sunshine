@@ -24,12 +24,12 @@ import aiomqtt
 import pytest
 from amqtt.plugins.base import BaseContext
 
-from deebot930_bridge.config import Config
-from deebot930_bridge.models import DeviceId
-from deebot930_bridge.mqtt_transport import MqttTransport
-from deebot930_bridge.servers.mqtt import BridgeAuthPlugin, EmbeddedMqttBroker
-from deebot930_bridge.servers.registry import DeviceRegistry
-from deebot930_bridge.serve import Service
+from ecovacs_bridge.config import Config
+from ecovacs_bridge.models import DeviceId
+from ecovacs_bridge.mqtt_transport import MqttTransport
+from ecovacs_bridge.servers.mqtt import BridgeAuthPlugin, EmbeddedMqttBroker
+from ecovacs_bridge.servers.registry import DeviceRegistry
+from ecovacs_bridge.serve import Service
 
 # did eco-ng real: UUID con guiones — el caso que el '+' de hbmqtt rompía
 DID = "b11fceaf-1234-5678-9abc-def012345678"

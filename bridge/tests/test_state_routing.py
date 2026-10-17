@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from deebot930_bridge.models import DeviceId, detect_model_for
-from deebot930_bridge.mqtt_transport import build_envelope, command_topic, route_topic
-from deebot930_bridge.robot import SPEED_JSON_REV, RobotState
+from ecovacs_bridge.models import DeviceId, detect_model_for
+from ecovacs_bridge.mqtt_transport import build_envelope, command_topic, route_topic
+from ecovacs_bridge.robot import SPEED_JSON_REV, RobotState
 
 
 class TestDeviceId:

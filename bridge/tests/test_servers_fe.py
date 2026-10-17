@@ -20,11 +20,11 @@ import aiomqtt
 import pytest
 from cryptography import x509
 
-from deebot930_bridge.config import Config, load_config
-from deebot930_bridge.servers.certs import ensure_certs
-from deebot930_bridge.servers.mqtt import EmbeddedMqttBroker
-from deebot930_bridge.servers.registry import DeviceRegistry
-from deebot930_bridge.serve import Service
+from ecovacs_bridge.config import Config, load_config
+from ecovacs_bridge.servers.certs import ensure_certs
+from ecovacs_bridge.servers.mqtt import EmbeddedMqttBroker
+from ecovacs_bridge.servers.registry import DeviceRegistry
+from ecovacs_bridge.serve import Service
 
 DID = "b11fceaf-1234-5678-9abc-def012345678"
 BOT_KEY = f"{DID}@yna5xh/axm"

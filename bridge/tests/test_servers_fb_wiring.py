@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from deebot930_bridge.config import Config
-from deebot930_bridge.serve import Service
+from ecovacs_bridge.config import Config
+from ecovacs_bridge.serve import Service
 from tests.test_servers_fc import _free_port
 
 
@@ -42,7 +42,7 @@ class TestXmppWiring:
         from pathlib import Path
 
         # generar certs reales para que arranque (usa el generador de FE)
-        from deebot930_bridge.servers.certs import ensure_certs
+        from ecovacs_bridge.servers.certs import ensure_certs
 
         cfg = self._cfg(tmp_path)
         ca = str(tmp_path / "ca-mia.crt")

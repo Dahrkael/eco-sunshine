@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import lzma
 
-from deebot930_bridge.map_pieces import MapAssembler, MapGeometry
+from ecovacs_bridge.map_pieces import MapAssembler, MapGeometry
 
 
 def make_chunked(grid: bytes, chunk_chars: int = 4000):

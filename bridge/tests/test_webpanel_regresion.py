@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import inspect
 
-from deebot930_bridge.config import Config
-from deebot930_bridge.serve import Service
-from deebot930_bridge.webpanel import WebPanel
+from ecovacs_bridge.config import Config
+from ecovacs_bridge.serve import Service
+from ecovacs_bridge.webpanel import WebPanel
 
 
 class FakeCommander:

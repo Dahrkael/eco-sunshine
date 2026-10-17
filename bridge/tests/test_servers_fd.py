@@ -18,12 +18,12 @@ import re
 import pytest
 from aiohttp import ClientSession, TCPConnector
 
-from deebot930_bridge.config import Config
-from deebot930_bridge.serve import Service
-from deebot930_bridge.servers import NOT_YET
-from deebot930_bridge.servers.certs import ensure_certs
-from deebot930_bridge.servers.conf import ConfAuth, ConfServer, login_data
-from deebot930_bridge.servers.registry import DeviceRegistry
+from ecovacs_bridge.config import Config
+from ecovacs_bridge.serve import Service
+from ecovacs_bridge.servers import NOT_YET
+from ecovacs_bridge.servers.certs import ensure_certs
+from ecovacs_bridge.servers.conf import ConfAuth, ConfServer, login_data
+from ecovacs_bridge.servers.registry import DeviceRegistry
 
 # path privado de la app antigua tal como sale en el corpus (apptype i_eco_e)
 APP_LOGIN = ("/v1/private/es/en/5d8a10c413d47b4194c29ef1580cbb04/i_eco_e"
@@ -341,7 +341,7 @@ class TestServeWiringFD:
             conf = svc.embedded["conf"]
             assert conf.port == cfg.servers.conf_port
             # el registry persiste junto al state_file (misma regla que FB)
-            from deebot930_bridge.servers.registry import DeviceRegistry
+            from ecovacs_bridge.servers.registry import DeviceRegistry
 
             assert isinstance(svc.registry, DeviceRegistry)
         finally:
@@ -380,7 +380,7 @@ class TestRegresionesReviewFD:
     """Fijan los bugs del review de FD."""
 
     def test_relogin_revoca_el_authcode_anterior(self):
-        from deebot930_bridge.servers.conf import ConfAuth
+        from ecovacs_bridge.servers.conf import ConfAuth
 
         auth = ConfAuth()
         auth.login("devid-x")
@@ -391,7 +391,7 @@ class TestRegresionesReviewFD:
         assert auth.authcode("devid-x", "es") != ac1
 
     def test_getauthcode_con_use_auth_exige_token_valido(self):
-        from deebot930_bridge.servers.conf import ConfAuth
+        from ecovacs_bridge.servers.conf import ConfAuth
 
         auth = ConfAuth(use_auth=True)
         s = auth.login("devid-x")
@@ -404,9 +404,9 @@ class TestRegresionesReviewFD:
 
     async def test_fallo_broker_mqtt_no_salta_el_conf(self, tmp_path):
         """mqtt con puerto ocupado + conf on → el conf ARRANCA igual."""
-        from deebot930_bridge.config import Config
-        from deebot930_bridge.serve import Service
-        from deebot930_bridge.servers.certs import ensure_certs
+        from ecovacs_bridge.config import Config
+        from ecovacs_bridge.serve import Service
+        from ecovacs_bridge.servers.certs import ensure_certs
         from tests.test_servers_fc import _free_port
 
         cfg = Config()

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from deebot930_bridge.robot import RobotState
+from ecovacs_bridge.robot import RobotState
 
 
 class TestVersion:

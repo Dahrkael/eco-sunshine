@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "bridge"))
 
-from deebot930_bridge.map_pieces import decode_piece  # noqa: E402
+from ecovacs_bridge.map_pieces import decode_piece  # noqa: E402
 
 
 def main() -> int:
@@ -47,7 +47,7 @@ def main() -> int:
     x, y, a = (float(v) for v in args.pos.split(","))
 
     # slug = modelo detectado del JID + 6 últimos del serial (como RobotState)
-    from deebot930_bridge.models import detect_model
+    from ecovacs_bridge.models import detect_model
 
     model = detect_model(args.jid)
     slug = f"{model.slug}-{args.jid.split('@')[0][-6:].lower()}"

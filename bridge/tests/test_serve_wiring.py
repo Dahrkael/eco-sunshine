@@ -14,11 +14,11 @@ import zlib
 
 import pytest
 
-from deebot930_bridge.config import Config
-from deebot930_bridge.map_pieces import MapAssembler  # noqa: F401 (referencia)
-from deebot930_bridge.models import DeviceId
-from deebot930_bridge.robot import RobotState
-from deebot930_bridge.serve import Service
+from ecovacs_bridge.config import Config
+from ecovacs_bridge.map_pieces import MapAssembler  # noqa: F401 (referencia)
+from ecovacs_bridge.models import DeviceId
+from ecovacs_bridge.robot import RobotState
+from ecovacs_bridge.serve import Service
 
 
 def make_piece_b64(fill: int, size: int = 10000) -> str:
@@ -46,7 +46,7 @@ def make_service() -> tuple[Service, FakeTransport]:
     r = RobotState.from_device_id(did)
     key = did.key
     svc.robots[key] = r
-    from deebot930_bridge.mqtt_commander import MqttCommander
+    from ecovacs_bridge.mqtt_commander import MqttCommander
 
     svc.commanders[key] = MqttCommander(t, r)
     return svc, t
@@ -97,7 +97,7 @@ class TestMinorWalkWiring:
         did2 = DeviceId.from_key("otro-robot@vsc5ia/axm")
         r2 = RobotState.from_device_id(did2)
         svc.robots[did2.key] = r2
-        from deebot930_bridge.mqtt_commander import MqttCommander
+        from ecovacs_bridge.mqtt_commander import MqttCommander
 
         t2 = FakeTransport()
         svc.commanders[did2.key] = MqttCommander(t2, r2)

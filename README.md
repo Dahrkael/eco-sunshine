@@ -1,4 +1,4 @@
-# deebot930 — reemplazo 100% LAN de la nube Ecovacs + mapa en vivo en HA
+# ecovacs — reemplazo 100% LAN de la nube Ecovacs + mapa en vivo en HA
 
 Proyecto: eliminar la dependencia del backend de Ecovacs para robots
 Deebot — el OZMO 930 (XMPP, 2018) y los eco-ng T8+ (MQTT) — con un solo
@@ -48,10 +48,10 @@ maneja ambos protocolos simultáneamente: mismo panel, mismas entidades HA.
 ```bash
 cd bridge
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/python -m deebot930_bridge serve -c ../configs/bridge-dev.toml --mqtt
+.venv/bin/python -m ecovacs_bridge serve -c ../configs/bridge-dev.toml --mqtt
 # panel: http://localhost:8282 | HA: discovery en mosquitto :1883
 
-.venv/bin/python -m deebot930_bridge probe-mqtt --ca-file ../data/certs/ca.crt   # diagnóstico eco-ng
+.venv/bin/python -m ecovacs_bridge probe-mqtt --ca-file ../data/certs/ca.crt   # diagnóstico eco-ng
 python tools/mock_mqtt_robot.py    # robot T9 AIVI sintético (eco-ng/MQTT) sin hardware
 python tools/extract_930_corpus.py && python tools/mock_930_robot.py  # clon XMPP del 930 REAL
 .venv/bin/python -m pytest         # suite (decoders, assembler, estado, routing)
@@ -110,7 +110,7 @@ y mosquitto.
 ```bash
 cd /mnt/t/ecovacs
 docker compose up -d --build          # bridge + mosquitto
-docker logs -f deebot930-bridge       # servidores embebidos + robots
+docker logs -f ecovacs-bridge       # servidores embebidos + robots
 ```
 
 Puertos publicados en el host Windows (**192.0.2.10**): 5223 (XMPP),
@@ -194,7 +194,7 @@ con HMAC (`X-ECO-SIGN`) y no se implementa.
 4. [ ] Robot en modo emparejamiento (botón WiFi hasta voz/parpadeo).
 5. [ ] App antigua "Ecovacs" → añadir dispositivo → red del robot →
        credenciales Wi-Fi de casa.
-6. [ ] Verificar en `docker logs deebot930-bridge`: login del bot XMPP
+6. [ ] Verificar en `docker logs ecovacs-bridge`: login del bot XMPP
        (~30 s tras reiniciar el robot).
 7. [ ] Probar comando de limpieza desde la app (todo local).
 

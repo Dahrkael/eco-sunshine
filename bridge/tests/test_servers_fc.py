@@ -366,16 +366,23 @@ class TestServeWiringFC:
         finally:
             await svc.embedded["mqtt"].stop()
 
-    async def test_certs_ausentes_no_tumban_el_serve(self, tmp_path):
-        """Sin certs (o puerto ocupado) el broker no arranca, pero serve
-        sigue vivo — mismo criterio que el XMPP embebido (FA/FB)."""
+    async def test_certs_irrecuperables_no_tumban_el_serve(self, tmp_path):
+        """Certs irrecuperables (destino inservible) → sin broker embebido,
+        pero serve sigue vivo — mismo criterio que el XMPP embebido (FA/FB).
+
+        (FE cambió la premisa original "certs ausentes": si simplemente
+        FALTAN ya se auto-generan — ese caso lo cubre test_servers_fe.py.
+        Aquí el directorio del cert está bloqueado por un fichero normal.)
+        """
+        bloqueo = tmp_path / "bloqueo"
+        bloqueo.write_text("no soy un directorio")
         cfg = Config()
         cfg.servers.listen = "127.0.0.1"
         cfg.servers.mqtt = True
-        # determinista: certs inexistentes en tmp y puerto libre (no 8883,
+        # determinista: destino imposible en tmp y puerto libre (no 8883,
         # que puede estar tomado por el bumper docker del entorno)
-        cfg.servers.server_cert = str(tmp_path / "no.crt")
-        cfg.servers.server_key = str(tmp_path / "no.key")
+        cfg.servers.server_cert = str(bloqueo / "no.crt")
+        cfg.servers.server_key = str(bloqueo / "no.key")
         cfg.servers.mqtt_port = _free_port()
         svc = Service(cfg, None)
         await svc._start_embedded_servers()
@@ -385,8 +392,8 @@ class TestServeWiringFC:
         cfg2 = Config()
         cfg2.servers.listen = "127.0.0.1"
         cfg2.servers.mqtt = True
-        cfg2.servers.server_cert = str(tmp_path / "no.crt")
-        cfg2.servers.server_key = str(tmp_path / "no.key")
+        cfg2.servers.server_cert = str(bloqueo / "no2.crt")
+        cfg2.servers.server_key = str(bloqueo / "no2.key")
         cfg2.servers.mqtt_port = _free_port()
         cfg2.bumper_mqtt.enabled = True
         cfg2.bumper_mqtt.host = "bumper-externo"

@@ -10,14 +10,15 @@ dependencies = [
     "zstandard>=0.22",
     # broker MQTT embebido (FC): fork mantenido de hbmqtt, py3.12+
     "amqtt>=0.12",
+    # auto-generación de certs de los servidores embebidos (FE) — también
+    # la usan los tests TLS del broker
+    "cryptography>=42",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
-    # genera certs autofirmados para los tests TLS del broker (FC)
-    "cryptography>=42",
 ]
 
 [project.scripts]

@@ -525,6 +525,19 @@ class Service:
                 log.warning("servidor embebido '%s' llega en la fase %s — ignorado",
                             name, phase)
 
+        # material TLS de los servidores embebidos (FE): en una instalación
+        # limpia se genera CA+cert al primer arranque; los existentes JAMÁS
+        # se tocan (los robots ya confían en la CA de producción)
+        if srv.xmpp or srv.mqtt:
+            from .servers.certs import ensure_certs
+
+            if not ensure_certs(srv.ca_file, srv.server_cert, srv.server_key,
+                                cn=srv.announce_ip or "bumper"):
+                log.error("sin certs TLS utilizables — servidores embebidos "
+                          "XMPP/MQTT desactivados en este arranque (los "
+                          "clientes siguen con su config externa)")
+                srv.xmpp = srv.mqtt = False
+
         # registro unificado de bots/clients: lo comparten el XMPP (FB) y el
         # broker MQTT (FC) — persistente junto al state_file (si hay)
         if srv.xmpp or srv.mqtt:

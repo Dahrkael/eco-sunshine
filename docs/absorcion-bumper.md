@@ -1,106 +1,115 @@
-# Absorción de Bumper en el bridge — mapa de fusión
+# Bumper absorption into the bridge — merge map
 
-> Estado: **FA–FD implementadas** (rama `feat/absorcion-bumper`). FD (el
-> confserver `:443`, API de la app) es **opcional y off por defecto**. Este
-> documento empezó como plan y ahora registra lo realmente hecho — ver el
-> checklist final.
+> Status: **FA–FD implemented** (branch `feat/absorcion-bumper`). FD (the
+> `:443` confserver, the app API) is **optional and off by default**. This
+> document started as a plan and now records what was actually done — see
+> the final checklist.
 
-## Principio
+## Principle
 
-El bridge ya habla con "Bumper" solo por interfaces estables:
+The bridge already talks to "Bumper" only through stable interfaces:
 
-| Costura | Hoy | Tras la fusión |
+| Seam | Today | After the merge |
 |---|---|---|
-| `MqttTransport` | cliente TLS a `bumper_mqtt.host:8883` | apunta a `127.0.0.1` del broker hbmqtt embebido (o adaptador in-process) — cero cambios en serve/commanders |
-| `BumperXMPPClient` | cliente TLS a `bumper.host:5223` | apunta a `127.0.0.1` del xmppserver embebido — cero cambios |
-| `DeviceId` + `robots` dict | registro propio del bridge | se convierte en EL registro de dispositivos (sustituye `bumper.bot_add()`/SQLite) |
+| `MqttTransport` | TLS client to `bumper_mqtt.host:8883` | points at `127.0.0.1` of the embedded hbmqtt broker (or an in-process adapter) — zero changes in serve/commanders |
+| `BumperXMPPClient` | TLS client to `bumper.host:5223` | points at `127.0.0.1` of the embedded xmppserver — zero changes |
+| `DeviceId` + `robots` dict | the bridge's own registry | becomes THE device registry (replaces `bumper.bot_add()`/SQLite) |
 
-**La regla de oro: embeber primero, refactorizar después.** Los servidores de
-Bumper ya son librerías asyncio dentro de su proceso (`xmppserver.py`,
-`mqttserver.py`); la fusión es moverlos al entrypoint del bridge, no reescribirlos.
+**The golden rule: embed first, refactor later.** Bumper's servers are
+already asyncio libraries inside its process (`xmppserver.py`,
+`mqttserver.py`); the merge is about moving them to the bridge's
+entrypoint, not rewriting them.
 
-## Qué se mueve
+## What moves
 
-| Módulo Bumper | Destino | Notas |
+| Bumper module | Destination | Notes |
 |---|---|---|
-| `mqttserver.py` (MQTTServer + plugin auth) | `ecovacs_bridge/servers/mqtt.py` | **hecho (FC)**: broker `amqtt` embebido; el helperbot se ELIMINÓ (MqttTransport lo sustituye) |
-| `xmppserver.py` | `ecovacs_bridge/servers/xmpp.py` | **hecho (FB)**: vendorizado casi literal, registro inyectado |
-| `confserver.py` (:443/:8007) | `servers/lookup.py` (:8007) + `servers/conf.py` (:443) | lookup **hecho (FA)**; conf **hecho (FD)**: login/getAuthCode/user.do de la app antigua contra el DeviceRegistry — detalle abajo |
-| `db.py` (bots/tokens/users) | `ecovacs_bridge/servers/registry.py` | **hecho (FB)**: DeviceRegistry JSON junto al state_file (bumper.db muere) |
-| `create_certs` + data/certs | `ecovacs_bridge/servers/certs.py` | **hecho (FE)**: CA+cert auto-generados al primer arranque si faltan; los existentes jamás se tocan |
+| `mqttserver.py` (MQTTServer + auth plugin) | `ecovacs_bridge/servers/mqtt.py` | **done (FC)**: embedded `amqtt` broker; the helperbot was REMOVED (MqttTransport replaces it) |
+| `xmppserver.py` | `ecovacs_bridge/servers/xmpp.py` | **done (FB)**: vendored almost verbatim, registry injected |
+| `confserver.py` (:443/:8007) | `servers/lookup.py` (:8007) + `servers/conf.py` (:443) | lookup **done (FA)**; conf **done (FD)**: the legacy app's login/getAuthCode/user.do against the DeviceRegistry — detail below |
+| `db.py` (bots/tokens/users) | `ecovacs_bridge/servers/registry.py` | **done (FB)**: JSON DeviceRegistry next to the state_file (bumper.db dies) |
+| `create_certs` + data/certs | `ecovacs_bridge/servers/certs.py` | **done (FE)**: CA+cert auto-generated on first boot if missing; existing ones are never touched |
 
-## Qué se elimina
+## What gets removed
 
-- `MQTTHelperBot` — el bridge ya publica comandos p2p directamente.
-- Doble definición de "robot conocido" (DB de bumper vs config del bridge).
-- Contenedor bumper del docker-compose (uno menos).
+- `MQTTHelperBot` — the bridge already publishes p2p commands directly.
+- The double definition of "known robot" (bumper's DB vs the bridge's
+  config).
+- The bumper container from docker-compose (one container less).
 
-## Trabajo real que supondrá (por orden de dolor)
+## The real work it would take (in order of pain)
 
-> Nota: sección del plan original — así salió en la práctica: (1) amqtt
-> sin fricción, (2) los clientes TLS ya lo sorteaban y FE genera CAs con
-> AKI/SKI, (3) resuelto en FA (solo lo activo) con shutdown graceful en FC,
-> (4) `[servers]` en FA + `DEEBOT_ANNOUNCE_IP` en FE (el toml no lee env).
+> Note: section from the original plan — how it actually went: (1) amqtt
+> without friction, (2) the TLS clients already worked around it and FE
+> generates CAs with AKI/SKI, (3) solved in FA (only what is active) with
+> graceful shutdown in FC, (4) `[servers]` in FA + `DEEBOT_ANNOUNCE_IP`
+> in FE (the toml doesn't read env).
 
-1. **Dependencias py3.7 → 3.12+**: `hbmqtt` está archivado → fork `amqtt`;
-   `pkg_resources` (eliminado en 3.12) → `importlib`; `passlib` → opcional.
-2. **Certificados**: el generador de Bumper produce CAs sin AKI que el modo
-   estricto de py≥3.12 rechaza (ya lo sorteamos en ambos clientes TLS;
-   el broker embebido hereda el problema → mejorar create_certs).
-3. **Ciclo de vida**: un solo `asyncio.run()` con graceful shutdown de
+1. **Dependencies py3.7 → 3.12+**: `hbmqtt` is archived → the `amqtt`
+   fork; `pkg_resources` (removed in 3.12) → `importlib`; `passlib` →
+   optional.
+2. **Certificates**: Bumper's generator produces CAs without AKI that
+   py≥3.12's strict mode rejects (both TLS clients already work around
+   it; the embedded broker inherits the problem → improve create_certs).
+3. **Lifecycle**: a single `asyncio.run()` with graceful shutdown of
    xmpp + mqtt-broker + conf + transports + panel.
-4. **Config unificada**: `[bumper]` (cliente) se fusiona con los flags de
-   servidor (`listen`, `announce_ip`…).
+4. **Unified config**: `[bumper]` (client) merges with the server flags
+   (`listen`, `announce_ip`…).
 
-## Checklist de la fusión
+## Merge checklist
 
-Estado por fases (una saga de commits cada una, `git log --oneline`):
+Status by phase (one saga of commits each, `git log --oneline`):
 
-- [x] **FA** — config `[servers]` (toggles/puertos/certs por componente),
-  lookup embebido `:8007` (POST /lookup.do, JSON compacto) y ciclo de vida
-  "serve arranca SOLO lo activo"
-- [x] **FB** — `DeviceRegistry` (persistencia JSON junto al state_file,
-  sustituye a bumper.db) + servidor XMPP embebido `:5223` vendorizado; el
-  cliente XMPP del bridge pasa a `127.0.0.1`. E2E: mock 930 autentica
-  contra el embebido, corpus aceptado, estado/mapa/base OK
-- [x] **FC** — broker MQTT embebido `:8883` (amqtt; auth estilo Bumper,
-  '+' = un nivel exacto con guiones, TLS explícito sin downgrade); el
-  cliente eco-ng pasa a `127.0.0.1`. E2E: roundtrip p2p y TLS
-- [x] **FE** — certs auto-generados al primer arranque (`servers/certs.py`:
-  CA con AKI/SKI — el ssl estricto de py≥3.13 rechazaba las CAs del
-  create_certs de Bumper — y los existentes JAMÁS se tocan), fallback
-  `DEEBOT_ANNOUNCE_IP` para `servers.announce_ip`, y despliegue de un solo
-  contenedor: bridge sin profile (5223/8007/8883/8181, sin 443), Bumper al
-  profile `legacy`, certs `./data/certs` montados RW
-- [x] **FD** — confserver `:443` (`servers/conf.py`), **off por defecto**
-  (`servers.conf`). El mínimo que la **app antigua "Ecovacs"** (XMPP,
-  apptype `i_eco_e`) necesita, verificado contra el corpus
-  (`pairing-session.log`): `user/login` (use_auth=False, token fresco),
-  `user/getAuthCode` (authCode `{country}_{uuid}` — el que el SASL del
-  XMPP presenta), `user.do loginByItToken` (canjea ese authCode) y
-  `user.do GetDeviceList` (los bots del DeviceRegistry en la shape
-  `VacBotDevice` de Bumper) + `SetDeviceNick`/`DeleteOneDevice` y los
-  estáticos que la app sondea (`checkAgreement`, `checkVersion`,
-  `homePageAlert`). `lookup.do`/`newauth.do` también en el :443 (como el
-  confserver de Bumper). La **app moderna (Ecovacs Home)** queda fuera:
-  su flujo firma requests con HMAC (`X-ECO-SIGN`) — solo su login con
-  apptype `global_` responde la shape `EcoVacsHome_Login`. Descartados por
-  no aparecer en el flujo de la app antigua (Bumper les daba 404 y la app
-  seguía): catálogo pim, `devmanager.do`, OTA `latest.json`,
-  `notify_engine.do`, `getPurchaseUrl`. E2E con curl en el informe de la
-  fase; para usarla: activa `conf`, publica el 443 (comentado en el
-  compose) y el DNS del Pi-hole ya redirige `*.ecovacs.com`/`*.ecouser.net`
+- [x] **FA** — `[servers]` config (toggles/ports/certs per component),
+  embedded lookup `:8007` (POST /lookup.do, compact JSON) and a
+  "serve starts ONLY what is active" lifecycle
+- [x] **FB** — `DeviceRegistry` (JSON persistence next to the
+  state_file, replaces bumper.db) + embedded, vendored XMPP server
+  `:5223`; the bridge's XMPP client moves to `127.0.0.1`. E2E: the 930
+  mock authenticates against the embedded one, corpus accepted,
+  state/map/dock OK
+- [x] **FC** — embedded MQTT broker `:8883` (amqtt; Bumper-style auth,
+  '+' = one exact level, hyphens included, explicit TLS without
+  downgrade); the eco-ng client moves to `127.0.0.1`. E2E: p2p roundtrip
+  and TLS
+- [x] **FE** — certs auto-generated on first boot (`servers/certs.py`:
+  CA with AKI/SKI — py≥3.13's strict ssl rejected the CAs from Bumper's
+  create_certs — and existing ones are NEVER touched), the
+  `DEEBOT_ANNOUNCE_IP` fallback for `servers.announce_ip`, and
+  single-container deployment: bridge without a profile
+  (5223/8007/8883/8181, no 443), Bumper moved to the `legacy` profile,
+  `./data/certs` certs mounted RW
+- [x] **FD** — `:443` confserver (`servers/conf.py`), **off by default**
+  (`servers.conf`). The minimum the **legacy "Ecovacs" app** (XMPP,
+  apptype `i_eco_e`) needs, verified against the corpus
+  (`pairing-session.log`): `user/login` (use_auth=False, fresh token),
+  `user/getAuthCode` (authCode `{country}_{uuid}` — the one the XMPP
+  SASL presents), `user.do loginByItToken` (redeems that authCode) and
+  `user.do GetDeviceList` (the DeviceRegistry's bots in Bumper's
+  `VacBotDevice` shape) + `SetDeviceNick`/`DeleteOneDevice` and the
+  statics the app polls (`checkAgreement`, `checkVersion`,
+  `homePageAlert`). `lookup.do`/`newauth.do` also on :443 (like Bumper's
+  confserver). The **modern app (Ecovacs Home)** is out: its flow signs
+  requests with HMAC (`X-ECO-SIGN`) — only its `global_`-apptype login
+  answers the `EcoVacsHome_Login` shape. Dropped because they never
+  appear in the legacy app's flow (Bumper returned 404 for them and the
+  app moved on): the pim catalog, `devmanager.do`, OTA `latest.json`,
+  `notify_engine.do`, `getPurchaseUrl`. E2E with curl in the phase
+  report; to use it: enable `conf`, publish 443 (commented out in the
+  compose) and the Pi-hole DNS already redirects
+  `*.ecovacs.com`/`*.ecouser.net`
 
-Compatibilidad: con `[servers]` todo off el bridge sigue siendo cliente
-puro contra un Bumper externo (la suite de antes de cada fase sigue
-pasando; FD añade 19 tests sin tocar los existentes).
+Compatibility: with everything in `[servers]` off, the bridge remains a
+pure client against an external Bumper (the pre-existing suite keeps
+passing before each phase; FD adds 19 tests without touching the
+existing ones).
 
-Pendiente tras el merge: ~~regresión en producción con el 930 real~~ **HECHA
-(2026-10-17)**: el 930 real conecta al monolito, negocia lookup→XMPP→TLS,
-reporta fw 1.9.9 / batería 100 / consumibles / posición, y el mapa fluye
-(requirió el fix de la dialecta eco: el robot responde por ctl-id sin
-td/pid — `fix(xmpp): correlación por ctl-id`). El eco-ng real queda
-pendiente de hardware T8+. La app antigua contra el conf (FD) queda
-pendiente de probar con un móvil.
+Pending after the merge: ~~production regression with the real 930~~
+**DONE (2026-10-17)**: the real 930 connects to the monolith, negotiates
+lookup→XMPP→TLS, reports fw 1.9.9 / battery 100 / consumables / position,
+and the map flows (it required the eco dialect fix: the robot replies by
+ctl-id without td/pid — `fix(xmpp): correlación por ctl-id`). The real
+eco-ng is pending T8+ hardware. The legacy app against the conf (FD) is
+pending a test with a phone.
 
-Rollback si hiciera falta: `backup/pre-absorcion` + `--profile legacy`.
+Rollback if ever needed: `backup/pre-absorcion` + `--profile legacy`.

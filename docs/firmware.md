@@ -1,174 +1,176 @@
-# Firmware Ecovacs — investigación completa (OZMO 930 y familia)
+# Ecovacs firmware — complete research (OZMO 930 and family)
 
-> **Alcance de ESTE repo**: sustituir la nube oficial de Ecovacs (lookup,
-> XMPP/MQTT, API de la app) — ya conseguido con el monolito. La línea
-> futura de **custom firmware** (dump/UART/parcheo/flasheo) se investiga
-> en un proyecto aparte; este documento deja recogido todo lo aprendido
-> para reutilizarlo allí (§3-§5).
+> **Scope of THIS repo**: replacing Ecovacs' official cloud (lookup,
+> XMPP/MQTT, app API) — already achieved with the monolith. The future
+> **custom firmware** line (dump/UART/patching/flashing) is being
+> investigated in a separate project; this document records everything
+> learned so it can be reused there (§3-§5).
 >
-> Worktree `research/firmware` (2026-10-17, mergeado). Fuentes: corpus
-> propio (log Bumper 681 MB + pcaps), decompile de ambas apps (Ecovacs
-> 1.4.9 y Home 3.16.1), fuente de `ecovacs-firmware-tools` (denysvitali,
-> 2025), charlas DEF CON 32 / HITCON CMT 2024 (Giese & Luedtke), probes
-> en vivo contra la API OTA oficial.
+> Worktree `research/firmware` (2026-10-17, merged). Sources: own corpus
+> (681 MB Bumper log + pcaps), decompiles of both apps (Ecovacs 1.4.9 and
+> Home 3.16.1), `ecovacs-firmware-tools` source (denysvitali, 2025), the
+> DEF CON 32 / HITCON CMT 2024 talks (Giese & Luedtke), live probes
+> against the official OTA API.
 
-## 1. Qué firmware lleva nuestro robot
+## 1. What firmware our robot runs
 
-**OZMO 930 (class `115`): firmware `1.9.9`** (módulo `fw0`), leído del
+**OZMO 930 (class `115`): firmware `1.9.9`** (module `fw0`), read from the
 corpus (2026-10-13):
 
 ```xml
 <!-- app → robot (XMPP) -->
 <ctl id="34196105" name="FW" td="GetVersion"/>
-<!-- robot → app (¡multi-línea en el wire!) -->
+<!-- robot → app (multi-line on the wire!) -->
 <ctl id="34196105" ret="ok">
   <ver name="FW">1.9.9</ver>
 </ctl>
 ```
 
-- La versión viaja en un **elemento hijo** `<ver name="FW">TEXTO</ver>`,
-  no en un atributo (nuestro parser estaba equivocado → `fw: None`; fix
-  en este branch con tests).
-- El módulo `FW` es el principal (`fw0` en la API OTA). La app antigua
-  también pedía versiones de otros módulos cambiando `name=`.
-- `DeviceInfo` (push al conectar) NO lleva versión: solo MID/class/chn/wd.
+- The version travels in a **child element** `<ver name="FW">TEXT</ver>`,
+  not in an attribute (our parser was wrong → `fw: None`; fixed on this
+  branch with tests).
+- The `FW` module is the main one (`fw0` in the OTA API). The legacy app
+  also asked for other modules' versions by changing `name=`.
+- `DeviceInfo` (pushed on connect) does NOT carry a version: only
+  MID/class/chn/wd.
 
-## 2. Cómo flashea la app antigua (era XMPP) — verificado en decompile
+## 2. How the legacy app flashes (XMPP era) — verified in the decompile
 
-Flujo completo de `FirmwareVersionActivity` + `DR930.java` +
-`EcoRobotProtocol.java` (app Ecovacs 1.4.9):
+Full flow from `FirmwareVersionActivity` + `DR930.java` +
+`EcoRobotProtocol.java` (Ecovacs app 1.4.9):
 
-1. **Versión actual**: `GetVersion name=FW` por XMPP (arriba).
-2. **Comprobar novedades** (HTTP, no XMPP):
+1. **Current version**: `GetVersion name=FW` over XMPP (above).
+2. **Check for updates** (HTTP, not XMPP):
    ```
    GET https://{portal}/api/ota/products/wukong/class/{cls}/firmware/latest.json
-       ?did={did}&sn={sn}&ver={actual}&module=fw0&ts={ms}&lang={lang}
+       ?did={did}&sn={sn}&ver={current}&module=fw0&ts={ms}&lang={lang}
    → {"version":"x.y.z","fw0":{"changeLog":"<b64>","url":"...","size":N,
        "checkSum":"<md5|sha256>"},"force":false}
    ```
    - `{portal}` = `portal-ww.ecouser.net` (WW) / `portal.ecouser.net` (CN)
-     — resuelto vía `DataParseUtil.getDlUrl()` del país de la cuenta.
-3. **Requisitos** (la app los exige antes de mandar nada): batería ≥ 40%
-   Y cargando en base.
-4. **Disparar la actualización** (XMPP):
+     — resolved via `DataParseUtil.getDlUrl()` from the account's country.
+3. **Requirements** (the app enforces them before sending anything):
+   battery ≥ 40% AND charging on the dock.
+4. **Trigger the update** (XMPP):
    ```xml
    <ctl id="..." td="fw" act="QuickUpgrade"/>
    ```
-   **EL ROBOT SE DESCARGA EL FIRMWARE ÉL SOLO.** La app no le pasa ni URL
-   ni binario: el robot pide el servidor OTA al arranque con
-   `lookup.do {"todo":"FindBest","service":"EcoUpdate"}` y descarga de ahí.
-5. **Progreso**:
-   - Push del robot: frames `td="fw"` con attrs `status`/`upgrade_stattus`
+   **THE ROBOT DOWNLOADS THE FIRMWARE BY ITSELF.** The app passes neither
+   URL nor binary: the robot asks for the OTA server at boot with
+   `lookup.do {"todo":"FindBest","service":"EcoUpdate"}` and downloads
+   from there.
+5. **Progress**:
+   - Robot push: `td="fw"` frames with attrs `status`/`upgrade_stattus`
      (sic) / `progress`.
-   - Sondeo: `<ctl td="fw" act="GetStatus"/>`; y `GetProgress` con
-     `act={download|upgrade}` para los pases de voz.
-6. UA HTTP de la app: `Dalvik/2.1.0 (Linux; U; Android 5.1.1; …)`.
+   - Polling: `<ctl td="fw" act="GetStatus"/>`; and `GetProgress` with
+     `act={download|upgrade}` for the voice packs.
+6. App HTTP UA: `Dalvik/2.1.0 (Linux; U; Android 5.1.1; …)`.
 
-### Estado HOY de la infra OTA oficial (medido 2026-10-17)
+### State TODAY of the official OTA infrastructure (measured 2026-10-17)
 
-| Endpoint | Estado |
+| Endpoint | Status |
 |---|---|
-| `portal-ww.ecouser.net` / `portal-eu.ecouser.net` (`slb-oldweb-iot-*`) | DNS vivo (CNAME → 8.211.16.120) pero `/api/ota/...` → **"Not Found"** para todos los class probados (115, 659yh8/T9AIVI, yna5xh, vsc5ia) |
-| `EcoUpdate` `47.88.66.164:8005` (a donde apunta el lookup.do) | **timeout** — muerto |
+| `portal-ww.ecouser.net` / `portal-eu.ecouser.net` (`slb-oldweb-iot-*`) | DNS alive (CNAME → 8.211.16.120) but `/api/ota/...` → **"Not Found"** for every class tested (115, 659yh8/T9AIVI, yna5xh, vsc5ia) |
+| `EcoUpdate` `47.88.66.164:8005` (where lookup.do points) | **timeout** — dead |
 
-Conclusión: **la OTA oficial de la era XMPP está retirada**. Un robot en
-firmware antiguo ya no puede actualizarse solo por la nube de Ecovacs.
-(`ecovacs-firmware-tools` documentaba descargas funcionando en 2025 —
-lo han apagado entre medias; quedan firmwares modernos en la API nueva
-que usa la app Home, fuera de alcance de los XMPP.)
+Conclusion: **the official XMPP-era OTA is retired**. A robot on old
+firmware can no longer update itself through the Ecovacs cloud.
+(`ecovacs-firmware-tools` documented working downloads in 2025 —
+they switched it off in the meantime; some modern firmwares remain in
+the new API used by the Home app, out of reach for XMPP robots.)
 
-⚠️ Ojo: nuestro **Pi-hole wildcard** redirige `*.ecouser.net` al bridge —
-para probar endpoints reales hay que resolver con `8.8.8.8` y usar
+⚠️ Careful: our **Pi-hole wildcard** redirects `*.ecouser.net` to the
+bridge — to test real endpoints you must resolve with `8.8.8.8` and use
 `curl --resolve`.
 
-## 3. Formato del firmware (era T9+, `ecovacs-firmware-tools`)
+## 3. Firmware format (T9+ era, `ecovacs-firmware-tools`)
 
-Contenedor de secciones cifradas (firmware `fw0` de T9AF_px30 v1.4.9 como
-ejemplo del tool):
+Container of encrypted sections (the `fw0` firmware of T9AF_px30 v1.4.9
+as the tool's example):
 
 ```
-[8 B cabecera de sección][datos AES-128-CBC][64 B checksum sha256hex ASCII]
- cabecera: u8 unkn1(=1), u8 type(=1), u16 unkn2 (type real = unkn2>>12),
-           u32 size (LE)
- secciones: manifest (JSON), pre_upgrade_script (sh), normal_boot (kernel),
-            normal_fs (SquashFS), mcu, post_upgrade_script (sh)
+[8 B section header][AES-128-CBC data][64 B ASCII sha256hex checksum]
+ header: u8 unkn1(=1), u8 type(=1), u16 unkn2 (real type = unkn2>>12),
+         u32 size (LE)
+ sections: manifest (JSON), pre_upgrade_script (sh), normal_boot (kernel),
+           normal_fs (SquashFS), mcu, post_upgrade_script (sh)
  manifest: {"fw_ver","hw_ver","product","release_date",
             "sections":[{name,type,size,skip,flash_cmd}]}
 ```
 
-**Cifrado por sección** (AES-128-CBC, derivación determinista — sin secretos
-por dispositivo, todo está en el formato):
+**Per-section encryption** (AES-128-CBC, deterministic derivation — no
+per-device secrets, everything is in the format):
 
 ```go
 snprintf("ZWNvX2Z3X3RhcmdldCAECO-PT1jdSAtpx30byBtYW4%dy5iaW4%s825xxjeff-hk@126.com",
          typeDigit, sizeHex)
-b64 := base64(...)          // estándar
-seed := b64[4:][:len(snprintf_result)]   // trunca al largo original
+b64 := base64(...)          // standard
+seed := b64[4:][:len(snprintf_result)]   // truncates to the original length
 h := sha256hex(seed)
 iv  := h[0:16]  (ASCII)     key := h[35:51] (ASCII, 16 bytes)
 ```
 
-- El checksum es SHA256 hex de `cabecera+datos` (64 chars ASCII).
-- Padding PKCS7 al desencriptar.
+- The checksum is SHA256 hex of `header+data` (64 ASCII chars).
+- PKCS7 padding when decrypting.
 
-**AVISO**: esto es el formato de la era T9+/N8 (2020+). El 930 (2018,
-plataforma anterior) puede usar otro contenedor — se sabrá cuando haya un
-dump del 930 en la mano. La derivación de clave (con el email
-`jeff-hk@126.com` del desarrollador dentro) probablemente se mantiene de
-la era antigua; verificar contra un dump real.
+**WARNING**: this is the T9+/N8-era format (2020+). The 930 (2018,
+earlier platform) may use a different container — we'll know once a 930
+dump is in hand. The key derivation (with the developer's
+`jeff-hk@126.com` email inside) probably carries over from the old era;
+verify against a real dump.
 
-## 4. Vías de root conocidas (público, DEF CON 32 / HITCON 2024)
+## 4. Known root avenues (public, DEF CON 32 / HITCON 2024)
 
-Giese & Luedtke (dontvacuum.me), sobre robots Ecovacs en general:
+Giese & Luedtke (dontvacuum.me), about Ecovacs robots in general:
 
-- **UART**: shell de login accesible por el puerto serie (lo han rooteado
-  así en T9/X1 con firmware actual; en los rootfs modernos hay dropbear
-  parcheable). Para el 930: abrir el robot, localizar el UART del SoC
-  principal (típico 115200 8N1), ver si hay getty/login.
-- **Interfaz multicast local sin auth**: comandos tipo `FPsetNetPin…`
-  (el payload de ejemplo de HITCON empieza `0x60 'F' 'P' setNetPin\0…`).
-  Es el protocolo de provisioning/enlace local — varios RCEs reportados.
-- **Protocolo de provisioning HTTP** en el AP del robot:
-  `POST http://192.168.0.1:8888/rcp.do` (documentado en protocol.md desde
-  ecovacs-privacy-control: `SetApConfig` para el WiFi sin app). El catálogo
-  completo de `rcp.do` está sin mapear — candidato a exploración.
-- Broken crypto / TLS sin verificación / ACL por honor — el contexto de
-  por qué todo esto funciona.
+- **UART**: a login shell accessible over the serial port (they have
+  rooted T9/X1 this way on current firmware; modern rootfs images ship a
+  patchable dropbear). For the 930: open the robot, locate the main SoC's
+  UART (typically 115200 8N1), see whether there's a getty/login.
+- **Unauthenticated local multicast interface**: commands like
+  `FPsetNetPin…` (HITCON's example payload starts
+  `0x60 'F' 'P' setNetPin\0…`). It's the local provisioning/linking
+  protocol — several RCEs reported.
+- **HTTP provisioning protocol** on the robot's AP:
+  `POST http://192.168.0.1:8888/rcp.do` (documented in protocol.md, from
+  ecovacs-privacy-control: `SetApConfig` for app-less WiFi). The full
+  `rcp.do` catalog is unmapped — a candidate for exploration.
+- Broken crypto / TLS without verification / honor-system ACLs — the
+  context for why all of this works.
 
-Para el 930 en concreto no hay writeup público de root que encontremos:
-seríamos primeros — y con ventaja: ya controlamos el servidor XMPP del
-robot (QuickUpgrade cuando queramos) y tenemos corpus completo de su
-dialecta.
+For the 930 specifically we find no public root write-up: we'd be first —
+and with an edge: we already control the robot's XMPP server (QuickUpgrade
+whenever we want) and hold a complete corpus of its dialect.
 
-## 5. Plan de dissección (cuando haya imagen) — PROYECTO APARTE
+## 5. Dissection plan (once we have an image) — SEPARATE PROJECT
 
-> El dump/parcheo/flasheo de firmware se investigará en un proyecto
-> dedicado; esto queda como mapa de partida.
+> Firmware dump/patching/flashing will be investigated in a dedicated
+> project; this stays as the starting map.
 
-1. **Conseguir una imagen del 930**:
-   a. Comunidad: buscar dumps (GitHub issues de sucks/bumper, foros HA,
-      archive.org del portal OTA si alguien archivó latest.json/bin).
-   b. **Extraerla de nuestro robot** (la más fiable): vía UART → shell →
-      `dd` de las particiones MTD (`/proc/mtd`, `/dev/mtd*`) → montar el
-      SquashFS offline.
-   c. La ruta QuickUpgrade-sobre-nuestro-XMPP requeriría un servidor
-      EcoUpdate propio + imagen válida para SU plataforma: brickeable,
-      solo si a+b fallan y con dumps de respaldo.
-2. **Análisis**: `binwalk -e` sobre cada sección; el rootfs SquashFS
-   (`unsquashfs`) dará el sistema completo: busybox, el binario del robot
-   (el que habla nuestro XMPP), configs, claves.
-3. **Parcheo** (una vez entendido el contenedor del 930): modificar el
-   rootfs (p.ej. añadir dropbear + clave), re-empaquetar con el mismo
-   formato/cifrado, servirlo como EcoUpdate propio, y `QuickUpgrade`.
-4. **Riesgos**: brick irreversible si el bootloader no recupera; hacer
-   dump completo ANTES de cualquier flasheo experimental; idealmente
-   practicar con un 930 de segunda mano barato.
+1. **Get a 930 image**:
+   a. Community: look for dumps (sucks/bumper GitHub issues, HA forums,
+      archive.org of the OTA portal if anyone archived latest.json/bin).
+   b. **Extract it from our robot** (the most reliable): via UART →
+      shell → `dd` of the MTD partitions (`/proc/mtd`, `/dev/mtd*`) →
+      mount the SquashFS offline.
+   c. The QuickUpgrade-over-our-XMPP route would need our own EcoUpdate
+      server + a valid image for ITS platform: brickable, only if a+b
+      fail and with backup dumps.
+2. **Analysis**: `binwalk -e` on each section; the SquashFS rootfs
+   (`unsquashfs`) will yield the whole system: busybox, the robot binary
+   (the one that speaks our XMPP), configs, keys.
+3. **Patching** (once the 930 container is understood): modify the rootfs
+   (e.g. add dropbear + a key), repack with the same format/encryption,
+   serve it as our own EcoUpdate, and `QuickUpgrade`.
+4. **Risks**: irreversible brick if the bootloader can't recover; take a
+   full dump BEFORE any experimental flash; ideally practice on a cheap
+   second-hand 930.
 
-## 6. Qué hay ya en este repo para todo esto
+## 6. What this repo already has for all of this
 
-- El monolito controla el canal de comandos del robot (`td="fw"
-  act="QuickUpgrade"` es un comando más del commander) y el lookup.do
-  (a dónde apunta EcoUpdate — configurable ya en `lookup.py`).
-- `docs/protocol.md`: provisioning `rcp.do` (192.168.0.1:8888).
-- Corpus 100% de la dialecta del 930 (bonus: con el fix de `<ver>`, el
-  bridge ahora reporta el firmware 1.9.9 en panel/HA).
+- The monolith controls the robot's command channel (`td="fw"
+  act="QuickUpgrade"` is just another commander command) and lookup.do
+  (where EcoUpdate points — already configurable in `lookup.py`).
+- `docs/protocol.md`: `rcp.do` provisioning (192.168.0.1:8888).
+- 100% corpus of the 930's dialect (bonus: with the `<ver>` fix, the
+  bridge now reports firmware 1.9.9 on the panel/HA).

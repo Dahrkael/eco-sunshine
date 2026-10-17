@@ -1,29 +1,29 @@
-# Pi-hole — Local DNS Records (sin wildcard)
+# Pi-hole — Local DNS Records (no wildcard)
 
-Alternativa a `99-deebot-bumper.conf` (dnsmasq) para quien prefiera el GUI:
-Local DNS → DNS Records → añadir cada dominio apuntando a **192.0.2.10**
-(en producción: IP del minipc).
+Alternative to `99-deebot-bumper.conf` (dnsmasq) for those who prefer the
+GUI: Local DNS → DNS Records → add each domain pointing to
+**192.0.2.10** (in production: the minipc's IP).
 
-Instanciado para España: `{countrycode}` = es, `{region}` = eu, más ww.
+Instantiated for Spain: `{countrycode}` = es, `{region}` = eu, plus ww.
 
-## CRÍTICOS (robot 930 XMPP + app antigua "Ecovacs")
+## CRITICAL (930 XMPP robot + legacy "Ecovacs" app)
 
-| Dominio | Para qué |
+| Domain | Purpose |
 |---|---|
-| `lbo.ecovacs.net` | **Lookup de arranque del robot** (HTTP :8007 → le dice dónde está el XMPP) |
-| `msg-es.ecouser.net` | Servidor XMPP (robot 930) |
-| `msg-eu.ecouser.net` | Ídem, variante región |
-| `msg-ww.ecouser.net` | Ídem, worldwide |
-| `portal.ecouser.net` | Login + API REST |
-| `portal-es.ecouser.net` | Ídem |
-| `portal-eu.ecouser.net` | Ídem |
-| `portal-ww.ecouser.net` | Ídem |
-| `eco-es-api.ecovacs.com` | Login app antigua |
-| `eco-eu-api.ecovacs.com` | Ídem |
+| `lbo.ecovacs.net` | **Robot boot lookup** (HTTP :8007 → tells it where the XMPP server is) |
+| `msg-es.ecouser.net` | XMPP server (930 robot) |
+| `msg-eu.ecouser.net` | Ditto, region variant |
+| `msg-ww.ecouser.net` | Ditto, worldwide |
+| `portal.ecouser.net` | Login + REST API |
+| `portal-es.ecouser.net` | Ditto |
+| `portal-eu.ecouser.net` | Ditto |
+| `portal-ww.ecouser.net` | Ditto |
+| `eco-es-api.ecovacs.com` | Legacy app login |
+| `eco-eu-api.ecovacs.com` | Ditto |
 
 ## Load balancers
 
-| Dominio |
+| Domain |
 |---|
 | `lb-es.ecovacs.net` |
 | `lb-eu.ecovacs.net` |
@@ -36,18 +36,18 @@ Instanciado para España: `{countrycode}` = es, `{region}` = eu, más ww.
 | `lbeu.ecouser.net` |
 | `lbww.ecouser.net` |
 
-## App "Ecovacs Home" (contingencia)
+## "Ecovacs Home" app (contingency)
 
-| Dominio |
+| Domain |
 |---|
 | `gl-es-api.ecovacs.com` |
 | `gl-eu-api.ecovacs.com` |
 | `gl-es-openapi.ecovacs.com` |
 | `gl-eu-openapi.ecovacs.com` |
 
-## MQTT (contingencia si el firmware hablase MQTT)
+## MQTT (contingency if the firmware spoke MQTT)
 
-| Dominio |
+| Domain |
 |---|
 | `mq-es.ecouser.net` |
 | `mq-eu.ecouser.net` |
@@ -55,17 +55,17 @@ Instanciado para España: `{countrycode}` = es, `{region}` = eu, más ww.
 | `mq-es.ecovacs.com` |
 | `mq-eu.ecovacs.com` |
 
-## Telemetría (que ni intente salir)
+## Telemetry (so it doesn't even try to get out)
 
-| Dominio |
+| Domain |
 |---|
 | `bigdata-europe.ecovacs.com` |
 | `bigdata-international.ecovacs.com` |
 | `recommender.ecovacs.com` |
 
-## App v2+ (poco probable con la app antigua; baratos de añadir)
+## v2+ app (unlikely with the legacy app; cheap to add)
 
-| Dominio |
+| Domain |
 |---|
 | `api-app.ww.ecouser.net` |
 | `api-app.dc-eu.ww.ecouser.net` |
@@ -74,24 +74,24 @@ Instanciado para España: `{countrycode}` = es, `{region}` = eu, más ww.
 | `api-rop.dc-eu.ww.ecouser.net` |
 | `jmq-ngiot-eu.area.ww.ecouser.net` |
 
-## Red de seguridad anti-fuga (recomendado)
+## Anti-leak safety net (recommended)
 
-Los Local DNS Records son exactos: cualquier subdominio NO listado
-resolvería a la nube real. Para tapar eso, añadir en
-Local DNS → DNS Records NO; en **Group Management → Domains / Blocklist**
-(domains: add regex):
+Local DNS Records are exact: any subdomain NOT listed would resolve to
+the real cloud. To close that gap, add — not under
+Local DNS → DNS Records, but under **Group Management → Domains /
+Blocklist** (domains: add regex):
 
 ```
 (^|\.)ecovacs\.(com|net)$
 (^|\.)ecouser\.net$
 ```
 
-Los Local DNS Records (dnsmasq hosts) tienen prioridad sobre las
-blocklists, así que los dominios sobreescritos siguen funcionando; el
-resto del ecosistema Ecovacs queda bloqueado en vez de escapar.
+Local DNS Records (dnsmasq hosts) take priority over blocklists, so the
+overridden domains keep working; the rest of the Ecovacs ecosystem gets
+blocked instead of leaking out.
 
-## Detección de fugas durante el emparejamiento
+## Leak detection during pairing
 
-Query Log de Pi-hole filtrando `ecovacs|ecouser`: si aparece algún
-dominio del ecosistema **con IP pública** (o bloqueado por la regex que
-no esté ya en Local DNS), añadirlo a la lista y reintentar.
+Pi-hole's Query Log filtered by `ecovacs|ecouser`: if any domain of the
+ecosystem shows up **with a public IP** (or is blocked by the regex while
+not already being in Local DNS), add it to the list and retry.

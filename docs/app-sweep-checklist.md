@@ -1,67 +1,67 @@
-# Barrido de features de la app (sesion 3)
+# App feature sweep (session 3)
 
-Objetivo: capturar el trafico XMPP de CADA opcion de la app para completar
-el vocabulario de comandos del bridge.
+Goal: capture the XMPP traffic of EVERY app option to complete the
+bridge's command vocabulary.
 
-## Protocolo
+## Procedure
 
-- ~30 segundos entre accion y accion, en el orden de esta lista.
-- Deja cada ajuste como estaba (toggle doble) cuando aplique.
-- Anota la hora de inicio (o nada: el orden + espaciado basta para segmentar).
-- Abre la app con el robot visible ANTES de empezar.
+- ~30 seconds between actions, in the order of this list.
+- Leave every setting as it was (double toggle) where applicable.
+- Note the start time (or don't: order + spacing is enough to segment).
+- Open the app with the robot visible BEFORE starting.
 
-## Lista (en orden)
+## List (in order)
 
-### 1. Control basico
-1a. Iniciar limpieza auto
-1b. Pausar
-1c. Reanudar
-1d. Detener / mandar a base
+### 1. Basic control
+1a. Start auto cleaning
+1b. Pause
+1c. Resume
+1d. Stop / send to dock
 
-### 2. Modos y potencia
-2a. Cambiar potencia aspiracion por CADA opcion (eco/standard/max...)
-2b. Limpieza de zona/area (dibujar y lanzar, luego parar)
-2c. Spot/borde si existe
+### 2. Modes and power
+2a. Cycle the suction power through EVERY option (eco/standard/max...)
+2b. Zone/area cleaning (draw and launch, then stop)
+2c. Spot/edge if it exists
 
-### 3. Fregado
-3a. Ajustar caudal de agua por cada nivel
-3b. Modo solo-aspirar / solo-fregar / ambos
+### 3. Mopping
+3a. Adjust the water flow through each level
+3b. Vacuum-only / mop-only / both modes
 
-### 4. Voz
-4a. Volumen de voz: subir y bajar
-4b. **Idioma del robot**: cambiar y volver
-4c. Localizar robot (boton buscar/playSound)
+### 4. Voice
+4a. Voice volume: up and down
+4b. **Robot language**: change and revert
+4c. Locate the robot (find button/playSound)
 
-### 5. No molestar (DND)
-5a. Activar
-5b. Editar horario
-5c. Desactivar
+### 5. Do not disturb (DND)
+5a. Enable
+5b. Edit the schedule
+5c. Disable
 
-### 6. Muros y zonas
-6a. Crear muro virtual
-6b. Eliminarlo
-6c. Crear zona prohibida o zona de limpieza
-6d. Eliminarla
+### 6. Walls and zones
+6a. Create a virtual wall
+6b. Delete it
+6c. Create a no-go zone or a cleaning zone
+6d. Delete it
 
-### 7. Programacion
-7a. Crear schedule
-7b. Desactivarlo
-7c. Borrarlo
+### 7. Schedules
+7a. Create a schedule
+7b. Disable it
+7c. Delete it
 
-### 8. Consumibles
-8a. Abrir pantalla de consumibles
-8b. Resetear el contador del cepillo principal
+### 8. Consumables
+8a. Open the consumables screen
+8b. Reset the main brush counter
 
-### 9. Ajustes varios
-9a. Renombrar el robot
-9b. Ajuste de reposo/ahorro (sleep) si existe
-9c. Beeps/LED/avisos (on/off de cada uno)
-9d. Hora del robot / sincronizar
+### 9. Misc settings
+9a. Rename the robot
+9b. Sleep/eco setting if it exists
+9c. Beeps/LED/alerts (each one on/off)
+9d. Robot clock / sync
 
-### 10. Mapa
-10a. Renombrar habitacion/etiqueta
-10b. Gestiones de mapa (guardar/restaurar) si existen
+### 10. Map
+10a. Rename room/label
+10b. Map management (save/restore) if it exists
 
 ### 11. Extra
-11a. Historial de limpiezas si existe
-11b. Reiniciar robot desde app (si existe)
+11a. Cleaning history if it exists
+11b. Restart the robot from the app (if it exists)

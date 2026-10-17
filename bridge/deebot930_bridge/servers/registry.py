@@ -5,9 +5,9 @@ La superficie replica la que xmppserver.py de Bumper consumía
 nuestro: cada bot es un DeviceId con presencia XMPP. Persistencia JSON
 opcional junto al state_file — sin DB externa.
 
-Cuando llegue FC, el plugin del broker MQTT también registrará aquí los
-bots eco-ng: un único registro para ambos protocolos (la costura DeviceId
-preparada en la fase de MQTT).
+El plugin del broker MQTT embebido (FC) también registra aquí los bots
+eco-ng que conectan: un único registro para ambos protocolos (la costura
+DeviceId preparada en la fase de MQTT).
 """
 
 from __future__ import annotations

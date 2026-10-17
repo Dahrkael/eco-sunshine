@@ -524,6 +524,20 @@ class Service:
             if getattr(srv, name):
                 log.warning("servidor embebido '%s' llega en la fase %s — ignorado",
                             name, phase)
+
+        # registro unificado de bots/clients: lo comparten el XMPP (FB) y el
+        # broker MQTT (FC) — persistente junto al state_file (si hay)
+        if srv.xmpp or srv.mqtt:
+            from .servers.registry import DeviceRegistry
+
+            reg_path = None
+            if self.cfg.state_file:
+                from pathlib import Path as _P
+
+                reg_path = str(_P(self.cfg.state_file).parent / "registry.json")
+            self.registry = DeviceRegistry(persist_path=reg_path)
+            self.registry.load()
+
         if srv.lookup:
             from .servers.lookup import LookupServer
 
@@ -534,19 +548,9 @@ class Service:
             self.embedded["lookup"] = lookup
 
         if srv.xmpp:
-            from .servers.registry import DeviceRegistry
             from .servers.xmpp import XMPPServer
 
-            # registro persistente junto al state_file (si hay)
-            reg_path = None
-            if self.cfg.state_file:
-                from pathlib import Path as _P
-
-                reg_path = str(_P(self.cfg.state_file).parent / "registry.json")
-            registry = DeviceRegistry(persist_path=reg_path)
-            registry.load()
-            self.registry = registry
-            xmpp = XMPPServer((srv.listen, srv.xmpp_port), registry,
+            xmpp = XMPPServer((srv.listen, srv.xmpp_port), self.registry,
                               server_cert=srv.server_cert, server_key=srv.server_key,
                               ca_cert=srv.ca_file)
             await xmpp.start_async_server()
@@ -557,6 +561,32 @@ class Service:
                 log.info("xmpp embebido activo: cliente XMPP → 127.0.0.1:%d "
                          "(config [bumper] host=%s ignorado)", srv.xmpp_port, b.host)
             b.host, b.port = "127.0.0.1", srv.xmpp_port
+
+        if srv.mqtt:
+            from .servers.mqtt import EmbeddedMqttBroker
+
+            try:
+                broker = EmbeddedMqttBroker(
+                    (srv.listen, srv.mqtt_port), self.registry,
+                    server_cert=srv.server_cert, server_key=srv.server_key)
+                await broker.start()
+            except Exception:  # noqa: BLE001  (certs ausentes, puerto ocupado…)
+                log.exception("broker MQTT embebido no pudo arrancar")
+                return
+            self.embedded["mqtt"] = broker
+            # el cliente eco-ng del bridge habla con NUESTRO broker (loopback)
+            bm = self.cfg.bumper_mqtt
+            if bm.enabled:
+                if (bm.host, bm.port) != ("127.0.0.1", srv.mqtt_port):
+                    log.info("mqtt eco-ng embebido activo: cliente [bumper_mqtt] → "
+                             "127.0.0.1:%d (config %s:%d ignorada)",
+                             srv.mqtt_port, bm.host, bm.port)
+                bm.host, bm.port = "127.0.0.1", srv.mqtt_port
+                # el cert que presenta el broker es el nuestro (ServersConfig)
+                bm.ca_file = srv.ca_file
+            else:
+                log.warning("broker eco-ng en :%d pero [bumper_mqtt] enabled=false "
+                            "— sin cliente T8+", srv.mqtt_port)
 
     # ---------- bucle principal ----------
 

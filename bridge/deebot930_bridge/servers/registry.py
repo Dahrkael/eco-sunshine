@@ -7,7 +7,9 @@ opcional junto al state_file — sin DB externa.
 
 El plugin del broker MQTT embebido (FC) también registra aquí los bots
 eco-ng que conectan: un único registro para ambos protocolos (la costura
-DeviceId preparada en la fase de MQTT).
+DeviceId preparada en la fase de MQTT). El conf embebido (FD) lista estos
+mismos bots a la app (user.do GetDeviceList) y aplica sus renombrados
+(SetDeviceNick/DeleteOneDevice).
 """
 
 from __future__ import annotations
@@ -27,7 +29,11 @@ class RegBot:
     device_class: str
     resource: str
     company: str
+    # nick lo fija la app (user.do SetDeviceNick); vacío = sin renombrar
+    nick: str = ""
+    # presencia por protocolo (no persiste: se recupera al reconectar)
     xmpp: bool = False
+    mqtt: bool = False
 
 
 @dataclass
@@ -74,6 +80,25 @@ class DeviceRegistry:
         bot = self.bots.get(did)
         if bot:
             bot.xmpp = on
+            self._save()
+
+    def bot_set_mqtt(self, did: str, on: bool) -> None:
+        bot = self.bots.get(did)
+        if bot:
+            bot.mqtt = on
+            self._save()
+
+    def bot_set_nick(self, did: str, nick: str) -> None:
+        """Renombra un bot (la app lo pide por user.do SetDeviceNick)."""
+        bot = self.bots.get(did)
+        if bot:
+            bot.nick = nick
+            self._save()
+
+    def bot_remove(self, did: str) -> None:
+        """Olvida un bot (user.do DeleteOneDevice): reaparece si reconecta."""
+        if self.bots.pop(did, None) is not None:
+            log.info("bot eliminado del registro: %s", did)
             self._save()
 
     # ---------- clients ----------
@@ -125,6 +150,7 @@ class DeviceRegistry:
             doc = json.loads(Path(self.persist_path).read_text())
             for d, b in (doc.get("bots") or {}).items():
                 b.pop("xmpp", None)  # presencia no persiste
+                b.pop("mqtt", None)
                 self.bots[d] = RegBot(**b)
             for r, c in (doc.get("clients") or {}).items():
                 c.pop("xmpp", None)

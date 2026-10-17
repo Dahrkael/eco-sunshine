@@ -1,6 +1,21 @@
 # Config del bridge para docker-compose (montada en /config/bridge.toml)
 panel_port = 8181
 state_file = "/data/state.json"   # piezas+posiciones persistentes (volumen ./data/bridge)
+
+# ── Servidores embebidos (absorción de Bumper, docs/absorcion-bumper.md) ──
+# Cada componente se enciende por separado; con todos off el bridge es
+# cliente puro contra un Bumper externo.
+[servers]
+lookup = false             # :8007  bootstrap del robot (lookup.do) — FA
+xmpp = false               # :5223  servidor XMPP era 930 — llega en FB
+mqtt = false               # :8883  broker eco-ng — llega en FC
+conf = false               # :443   API app Ecovacs — llega en FD
+panel = true               # panel web del bridge
+announce_ip = ""           # IP que se anuncia a robots (obligatoria si lookup=on)
+# lookup_port = 8007
+# xmpp_port = 5223
+# mqtt_port = 8883
+# conf_port = 443
 [bumper]
 host = "bumper"          # nombre del servicio en la red de compose
 port = 5223

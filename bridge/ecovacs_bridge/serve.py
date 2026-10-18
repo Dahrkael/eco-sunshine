@@ -75,6 +75,8 @@ class Service:
         self._last_publish: dict[str, float] = {}
         self._last_status: dict[str, str] = {}
         self._last_trace_fetch: dict[str, float] = {}
+        # signature of the last published room-button set (per robot)
+        self._room_sigs: dict[str, tuple] = {}
         self._last_poll: dict[str, float] = {}  # (C3) kept separate from the state throttle
         self._walking = False
         self._pending_walks: set[str] = set()
@@ -120,7 +122,10 @@ class Service:
 
     async def _adopt_and_discover(self, key: str, mqtt: bool) -> None:
         r = self._adopt_mqtt(key) if mqtt else (self._adopt_xmpp(key) or self.robots[key])
-        await self.pub.publish_discovery(r.slug, r.model.display, r.model.ha_model)
+        await self.pub.publish_discovery(
+            r.slug, r.model.display, r.model.ha_model,
+            fan_speeds=r.model.fan_speeds or None,
+            has_water=r.model.has_water_level or mqtt)
         if mqtt:
             c = self.commanders[key]
             # initial sync (the rest arrives via reports)
@@ -311,6 +316,8 @@ class Service:
         await self.pub.publish_battery(r.slug, r.battery)
         await self.pub.publish_fan_speed(r.slug, doc["fan_speed"])
         await self.pub.publish_error(r.slug, r.error)
+        await self.pub.publish_fw(r.slug, r.version)
+        await self.pub.publish_stats(r.slug, r.stats)
         for key2, comp in {"brush": "Brush", "sidebrush": "SideBrush",
                            "dustcase": "DustCaseHeap", "airfilter": "AirFilter"}.items():
             life = r.lifespans.get(comp)
@@ -318,6 +325,16 @@ class Service:
                 await self.pub.publish_consumable(r.slug, key2, round(life["left"] / life["total"] * 100))
         await self.pub.publish_attributes(r.slug, doc)
         await self.panel.broadcast(doc, slug=r.slug)
+
+        # room buttons: (re)publish when the mapped-room set changes
+        rooms = [e for e in (r.map_sets.get("ar").entries
+                             if r.map_sets.get("ar") else []) if isinstance(e, dict) or 1]
+        rooms_doc = [room if isinstance(room, dict) else
+                     {"mssid": room.mssid, "name": room.name} for room in rooms]
+        sig = tuple(sorted(str(x.get("mssid")) for x in rooms_doc))
+        if sig != self._room_sigs.get(key):
+            self._room_sigs[key] = sig
+            await self.pub.publish_room_buttons(r.slug, r.model.display, rooms_doc)
 
     # ---------- MQTT commands (HA/panel) ----------
 
@@ -344,6 +361,10 @@ class Service:
                 self.fan_speeds[slug] = val
                 c.set_clean_speed(val)
                 await self.pub.publish_fan_speed(slug, val)
+            elif action == "set_water_level":
+                # HA select: low/medium/high → 1/2/3 on both protocols
+                level = {"low": 1, "medium": 2, "high": 3}.get(str(val).lower(), 2)
+                c.set_water_permeability(level)
             elif action == "clean_room":
                 # val = "mssid" or "mssid1,mssid2" (eco-ng) / "idx,idx" (930)
                 rooms = str(val or "").strip()

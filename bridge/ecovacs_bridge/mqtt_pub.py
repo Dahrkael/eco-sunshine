@@ -1,20 +1,27 @@
 """MQTT publisher with native Home Assistant discovery (mqtt core integration).
 
 Each robot = ONE HA device with all its entities grouped:
-  vacuum.<slug>          (state, commands, battery, fan_speed)
-  camera.<slug>_map      (map PNG)
-  sensor.<slug>_*        (4 consumables, error, firmware, cleaning time)
-  button.<slug>_reset_*  (consumable resets)
-  switch.<slug>_dnd      (do not disturb, optimistic)
-  switch.<slug>_silent   (silent mode, optimistic)
+  vacuum.<slug>            (state, commands, battery, fan_speed)
+  camera.<slug>_map        (map PNG)
+  sensor.<slug>_*          (4 consumables, error, firmware, stats x3)
+  button.<slug>_reset_*    (consumable resets)
+  button.<slug>_room_*     (clean a single room — published when rooms are
+                            learned, see publish_room_buttons)
+  switch.<slug>_dnd        (do not disturb, optimistic)
+  switch.<slug>_silent     (silent mode, optimistic)
+  select.<slug>_water      (water flow level, optimistic)
 
 Topics:
   <base>/<slug>/state            consolidated JSON (retained)
   <base>/<slug>/battery          int % (retained)
   <base>/<slug>/fan_speed        current speed (retained)
   <base>/<slug>/consumable/<k>   remaining % per consumable (retained)
-  <base>/<slug>/command          vacuum commands (start/pause/stop/dock/locate)
+  <base>/<slug>/stats/<k>        total_time/total_area/total_count (retained)
+  <base>/<slug>/fw               firmware version (retained)
+  <base>/<slug>/command          vacuum commands (start/pause/stop/dock/locate/spot)
+  <base>/<slug>/room             payload = room mssid(s) "id1,id2"
   <base>/<slug>/fan_speed/set    set fan speed
+  <base>/<slug>/water/set        water level (low/medium/high)
   <base>/<slug>/reset_life_span  payload = component (Brush/SideBrush/...)
   <base>/<slug>/dnd/set          ON/OFF
   <base>/<slug>/silent/set       ON/OFF
@@ -62,6 +69,8 @@ class MqttPublisher:
         # (O4) a single call with all subscriptions
         subs = [(f"{self.base}/+/command", 0),
                 (f"{self.base}/+/fan_speed/set", 0),
+                (f"{self.base}/+/water/set", 0),
+                (f"{self.base}/+/room", 0),
                 (f"{self.base}/+/reset_life_span", 0),
                 (f"{self.base}/+/dnd/set", 0),
                 (f"{self.base}/+/silent/set", 0)]
@@ -76,7 +85,10 @@ class MqttPublisher:
 
     # ---------- discovery ----------
 
-    async def publish_discovery(self, slug: str, name: str = "Deebot", model_name: str = "Deebot") -> None:
+    async def publish_discovery(self, slug: str, name: str = "Deebot",
+                                model_name: str = "Deebot",
+                                fan_speeds: list[str] | None = None,
+                                has_water: bool = False) -> None:
         if not self.client:
             return
         dev = self._device(slug, name, model_name)
@@ -94,7 +106,7 @@ class MqttPublisher:
             "battery_level_template": "{{ value | int }}",
             "fan_speed_topic": f"{b}/fan_speed",
             "fan_speed_command_topic": f"{b}/fan_speed/set",
-            "fan_speed_list": ["silent", "standard", "strong"],
+            "fan_speed_list": fan_speeds or ["silent", "standard", "strong"],
             "json_attributes_topic": f"{b}/attributes",
             "payload_turn_on": "start",
             "payload_turn_off": "pause",
@@ -173,7 +185,57 @@ class MqttPublisher:
             }
             await self._pub(f"homeassistant/switch/{slug}_{key}/config", json.dumps(sw))
 
-        log.info("discovery published for %s (vacuum+camera+5 sensors+4 buttons+2 switches)", slug)
+        # firmware sensor
+        fw = {
+            "name": f"{name} firmware",
+            "unique_id": f"{slug}_fw",
+            "device": dev,
+            "state_topic": f"{b}/fw",
+            "icon": "mdi:chip",
+            "entity_category": "diagnostic",
+        }
+        await self._pub(f"homeassistant/sensor/{slug}_fw/config", json.dumps(fw))
+
+        # stats sensors (totals)
+        stats = [
+            ("total_time", "cleaning time", "h", "mdi:timer-outline",
+             "{{ (value | float / 3600) | round(1) }}"),
+            ("total_area", "cleaned area", "m\u00b2", "mdi:texture-box",
+             "{{ (value | float / 1000000) | round(0) }}"),
+            ("total_count", "clean count", None, "mdi:counter",
+             "{{ value | int }}"),
+        ]
+        for key, label, unit, icon, tpl in stats:
+            st = {
+                "name": f"{name} {label}",
+                "unique_id": f"{slug}_{key}",
+                "device": dev,
+                "state_topic": f"{b}/stats/{key}",
+                "value_template": tpl,
+                "icon": icon,
+                "entity_category": "diagnostic",
+            }
+            if unit:
+                st["unit_of_measurement"] = unit
+            await self._pub(f"homeassistant/sensor/{slug}_{key}/config", json.dumps(st))
+
+        # water flow select (optimistic — mopping robots)
+        if has_water:
+            sel = {
+                "name": f"{name} water flow",
+                "unique_id": f"{slug}_water",
+                "device": dev,
+                "command_topic": f"{b}/water/set",
+                "options": ["low", "medium", "high"],
+                "optimistic": True,
+                "icon": "mdi:water",
+                "entity_category": "config",
+            }
+            await self._pub(f"homeassistant/select/{slug}_water/config",
+                            json.dumps(sel))
+
+        log.info("discovery published for %s (vacuum+camera+8 sensors+4 buttons"
+                 "+2 switches%s)", slug, "+water select" if has_water else "")
 
     # ---------- state ----------
 
@@ -196,6 +258,46 @@ class MqttPublisher:
 
     async def publish_error(self, slug: str, error: str | None) -> None:
         await self._pub(f"{self.base}/{slug}/error", error or "none")
+
+    async def publish_fw(self, slug: str, fw: str | None) -> None:
+        if fw:
+            await self._pub(f"{self.base}/{slug}/fw", fw)
+
+    async def publish_stats(self, slug: str, stats: dict) -> None:
+        """Totals (raw seconds / mm² / count; templates convert for HA)."""
+        for key in ("total_time", "total_area", "total_count"):
+            v = stats.get(key)
+            if v is not None:
+                await self._pub(f"{self.base}/{slug}/stats/{key}", v)
+
+    async def publish_room_buttons(self, slug: str, name: str,
+                                   rooms: list[dict]) -> None:
+        """One clean button per mapped room (re)published when rooms change.
+
+        Discovery messages are idempotent — HA re-reads them fine on every
+        publish; rooms that disappear just leave a stale button until the
+        next restart (acceptable for a rarely-changing set).
+        """
+        if not self.client or not rooms:
+            return
+        dev = self._device(slug, name)
+        b = f"{self.base}/{slug}"
+        for room in rooms:
+            mssid = str(room.get("mssid", ""))
+            label = str(room.get("name") or mssid)
+            if not mssid:
+                continue
+            btn = {
+                "name": f"{name} room {label}",
+                "unique_id": f"{slug}_room_{mssid}",
+                "device": dev,
+                "command_topic": f"{b}/room",
+                "payload_press": mssid,
+                "icon": "mdi:door",
+            }
+            await self._pub(
+                f"homeassistant/button/{slug}_room_{mssid}/config", json.dumps(btn))
+        log.info("room buttons published for %s (%d)", slug, len(rooms))
 
     async def publish_switch_state(self, slug: str, key: str, on: bool) -> None:
         await self._pub(f"{self.base}/{slug}/{key}/state", "ON" if on else "OFF")
@@ -253,6 +355,10 @@ class MqttPublisher:
             await self.on_command(slug, payload, None)
         elif last == "set" and parts[-2] == "fan_speed":
             await self.on_command(slug, "fan_speed", payload)
+        elif last == "set" and parts[-2] == "water":
+            await self.on_command(slug, "set_water_level", payload)
+        elif last == "room":
+            await self.on_command(slug, "clean_room", payload)
         elif last == "reset_life_span":
             await self.on_command(slug, "reset_life_span", payload)
         elif last == "set" and parts[-2] == "dnd":

@@ -13,11 +13,6 @@ import sys
 from . import __version__
 
 
-def cmd_tail(args: argparse.Namespace) -> int:
-    print("Not implemented — replay/serve cover this workflow today.")
-    return 0
-
-
 def cmd_probe(args: argparse.Namespace) -> int:
     """Live probe: log in to Bumper and poll the robot read-only."""
     import asyncio
@@ -90,11 +85,6 @@ def cmd_probe(args: argparse.Namespace) -> int:
     asyncio.run(run())
     for r in robots.values():
         print(f"\n=== {r.slug}: status={r.status} battery={r.battery} pos={r.position} ===")
-    return 0
-
-
-def cmd_decode(args: argparse.Namespace) -> int:
-    print(f"Not implemented — use tools/decode_map.py / decode_trace.py instead ({args.trace}).")
     return 0
 
 
@@ -181,7 +171,7 @@ def cmd_probe_mqtt(args: argparse.Namespace) -> int:
 
     from .config import load_config
     from .models import DeviceId
-    from .mqtt_transport import MqttTransport, route_topic
+    from .mqtt_transport import MqttTransport
 
     cfg = load_config(args.config)
     bm = cfg.bumper_mqtt
@@ -258,21 +248,15 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(prog="deebot930-bridge")
+    parser = argparse.ArgumentParser(prog="ecovacs-bridge")
     parser.add_argument("--version", action="version", version=__version__)
     sub = parser.add_subparsers(dest="cmd", required=True)
-
-    sub.add_parser("tail").set_defaults(fn=cmd_tail)
 
     p_probe = sub.add_parser("probe", help="login en Bumper + sondeo read-only del robot")
     p_probe.add_argument("--config", "-c", default=None)
     p_probe.add_argument("--seconds", type=int, default=30)
     p_probe.add_argument("--jid", default=None, help="JID del robot (por defecto: conocido)")
     p_probe.set_defaults(fn=cmd_probe)
-
-    p_decode = sub.add_parser("decode")
-    p_decode.add_argument("trace", help="fichero de traza XMPP capturada")
-    p_decode.set_defaults(fn=cmd_decode)
 
     p_replay = sub.add_parser("replay", help="corpus → pipeline → MQTT sin robot")
     p_replay.add_argument("--config", "-c", default=None)

@@ -6,7 +6,7 @@ host = "localhost"
 port = 5223
 uid = "fuid_tmpuser"
 resource = "bridge"
-ca_file = "/mnt/t/ecovacs/data/certs/ca.crt"
+ca_file = "data/certs/ca.crt"
 
 [mqtt]
 host = "localhost"
@@ -16,6 +16,6 @@ base_topic = "deebot"
 [bumper_mqtt]
 host = "localhost"
 port = 8883
-ca_file = "/mnt/t/ecovacs/data/certs/ca.crt"
+ca_file = "data/certs/ca.crt"
 enabled = true
 

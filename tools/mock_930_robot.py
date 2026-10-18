@@ -156,10 +156,10 @@ class Mock930:
         await asyncio.sleep(0.1)
 
     def _ca_file(self) -> str:
-        for cand in ("/mnt/t/ecovacs/data/certs/ca.crt", "data/certs/ca.crt"):
+        for cand in ("data/certs/ca.crt", "data/certs/ca.crt"):
             if Path(cand).exists():
                 return cand
-        return "/mnt/t/ecovacs/data/certs/ca.crt"
+        return "data/certs/ca.crt"
 
     # ---------- frames (exact corpus formats) ----------
 
@@ -414,7 +414,7 @@ def main() -> int:
                         format="%(levelname)s %(name)s: %(message)s")
     corpus_path = Path(args.corpus)
     if not corpus_path.exists():
-        alt = Path("/mnt/t/ecovacs") / args.corpus
+        alt = Path(__file__).parent.parent / args.corpus
         if alt.exists():
             corpus_path = alt
     corpus = json.loads(corpus_path.read_text())

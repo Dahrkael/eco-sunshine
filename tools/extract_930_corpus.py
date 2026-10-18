@@ -31,7 +31,7 @@ def parse_ctl(inner: str) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("log", nargs="?", default="/mnt/t/ecovacs/data/captures/pairing-session.log")
+    ap.add_argument("log", nargs="?", default="data/captures/pairing-session.log")
     ap.add_argument("-o", "--out", default="data/mock930-corpus.json")
     args = ap.parse_args()
 

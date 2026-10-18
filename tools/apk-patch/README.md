@@ -8,7 +8,7 @@ Parche: network security config que anade anclas de usuario:
   2. manifest: <application ... android:networkSecurityConfig="@xml/nsc_bumper">
   3. nuevo res/xml/nsc_bumper.xml (ver fichero adjunto)
   4. apktool b decoded-full -o patched-unsigned.apk
-     (compilar en fs NATIVO del contenedor: en /mnt/t drvums tarda >10min)
+     (compile in the container’s native fs: cross-filesystem builds take >10 min)
   5. firma: uber-apk-signer --allowResign --skipZipAlign
      (el zipalign bundled es glibc y muere en alpine/musl)
 

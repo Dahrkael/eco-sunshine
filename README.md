@@ -112,7 +112,7 @@ containers**: the bridge (everything embedded: lookup+XMPP+MQTT
 broker+panel) and mosquitto.
 
 ```bash
-cd /mnt/t/ecovacs
+cd ecovacs-bridge
 docker compose up -d --build          # bridge + mosquitto
 docker logs -f ecovacs-bridge       # embedded servers + robots
 ```

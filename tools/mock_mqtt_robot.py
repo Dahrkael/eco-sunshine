@@ -437,7 +437,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--host", default="localhost")
     ap.add_argument("--port", type=int, default=8883)
-    ap.add_argument("--ca-file", default="/mnt/t/ecovacs/data/certs/ca.crt")
+    ap.add_argument("--ca-file", default="data/certs/ca.crt")
     ap.add_argument("--did", default="mock-t9-0001")
     ap.add_argument("--cls", default="yna5xh")
     ap.add_argument("--res", default="axm")

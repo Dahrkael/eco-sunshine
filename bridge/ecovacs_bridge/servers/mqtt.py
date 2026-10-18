@@ -117,8 +117,8 @@ class EmbeddedMqttBroker(Broker):  # type: ignore[misc]
         # half-configured certs = error, NOT a silent downgrade to plain
         if bool(server_cert) != bool(server_key):
             raise ValueError(
-                f"certs MQTT incompletos: server_cert={server_cert!r} "
-                f"server_key={server_key!r} — se necesitan ambos o ninguno")
+                f"incomplete MQTT certs: server_cert={server_cert!r} "
+                f"server_key={server_key!r} — both or neither are required")
         listener: dict[str, Any] = {
             "type": "tcp",
             "bind": f"{address[0]}:{address[1]}",

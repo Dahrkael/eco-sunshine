@@ -343,7 +343,7 @@ class RobotCommander:
 
     def clean_room(self, rooms: str | list, mid: str = "0",
                    speed: str = "standard") -> str:
-        """Limpieza por habitaciones: SpotArea con p="idx,idx" (driver DR930)."""
+        """Per-room cleaning: SpotArea with p="idx,idx" (DR930 driver)."""
         if isinstance(rooms, (list, tuple)):
             rooms = ",".join(str(r) for r in rooms)
         return self._cmd(

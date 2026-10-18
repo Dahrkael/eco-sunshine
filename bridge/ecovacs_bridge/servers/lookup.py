@@ -67,7 +67,7 @@ class LookupServer:
     def __init__(self, announce_ip: str, xmpp_port: int = 5223,
                  listen: str = "0.0.0.0", port: int = 8007):
         if not announce_ip:
-            raise ValueError("servers.announce_ip es obligatorio para el lookup embebido")
+            raise ValueError("servers.announce_ip is required for the embedded lookup")
         self.announce_ip = announce_ip
         self.xmpp_port = xmpp_port
         self.listen = listen

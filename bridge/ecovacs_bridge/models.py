@@ -96,7 +96,7 @@ def _m(jid: str, slug: str, display: str, driver: str = "",
 MODELS: dict[str, ModelInfo] = dict([
     # ═══ DR930 (Protocol v1, LDS, mopping with water level) ═══
     _m("115", "ozmo930", "Deebot OZMO 930", "DR930", mop=True, water=True,
-       notes="LDS, fregado mecánico con nivel de agua, SpotArea"),
+       notes="LDS, mechanical mopping with water level, SpotArea"),
     _m("139", "ozmo930cn", "Deebot OZMO 930 (CN)", "DR930", mop=True, water=True),
     _m("lbw54s", "de5g", "Deebot DE5G", "DE5G"),
 

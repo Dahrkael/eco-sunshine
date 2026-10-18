@@ -37,7 +37,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
             r = RobotState.from_jid(jid)
             robots[jid] = r
             commanders[jid] = RobotCommander(client, r)
-            print(f"🤖 robot descubierto: {jid} (slug {r.slug})")
+            print(f"🤖 robot discovered: {jid} (slug {r.slug})")
             c = commanders[jid]
             c.get_pos(); c.get_clean_state(); c.get_charge_state()
             c.get_lifespan("Brush"); c.get_version()
@@ -74,7 +74,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
             c = commanders[jid_hint]
             c.get_pos(); c.get_clean_state(); c.get_charge_state()
             c.get_lifespan("Brush"); c.get_version()
-            print(f"🤖 sondeando {jid_hint}")
+            print(f"🤖 probing {jid_hint}")
         asyncio.create_task(timer())
         listen_task = asyncio.create_task(client.listen())
         try:
@@ -135,26 +135,26 @@ def cmd_replay(args: argparse.Namespace) -> int:
         await pub.publish_discovery(robot.slug, "Deebot (replay)")
         await pub.publish_state(robot.slug, robot.status)
         await pub.publish_attributes(robot.slug, {
-            "posiciones": len(pos_events),
-            "consumibles": robot.lifespans,
-            "mapa_ids": list(asm.maps),
+            "positions": len(pos_events),
+            "consumables": robot.lifespans,
+            "map_ids": list(asm.maps),
         })
 
         if asm.maps:
             last_map = max(asm.maps, key=lambda m: asm.piece_count(m))
             png = render_png(asm.assemble(last_map))
             await pub.publish_map(robot.slug, png)
-            print(f"mapa {last_map}: {asm.piece_count(last_map)} piezas, {len(pos_events)} pos")
+            print(f"map {last_map}: {asm.piece_count(last_map)} pieces, {len(pos_events)} positions")
 
         async def on_cmd(slug: str, action: str, val) -> None:
-            print(f"comando MQTT recibido: {slug} {action}")
+            print(f"MQTT command received: {slug} {action}")
 
         pub.on_command = on_cmd
         try:
             await asyncio.wait_for(pub.listen_commands(), timeout=args.listen)
         except asyncio.TimeoutError:
             pass
-        print("replay completo")
+        print("replay complete")
 
     asyncio.run(run())
     return 0
@@ -186,17 +186,17 @@ def cmd_probe_mqtt(args: argparse.Namespace) -> int:
     async def on_data(key: str, name: str, data: dict) -> None:
         if key not in seen:
             seen[key] = name
-            print(f"🤖 robot eco-ng detectado: {key} (vía {name})")
+            print(f"🤖 eco-ng robot detected: {key} (via {name})")
         print(f"  [{name:>16s}] {data}")
 
     async def run() -> None:
         nonlocal t
         t = MqttTransport(host, port, ca_file=ca, on_data=on_data)
         await t.connect()
-        print(f"conectado al broker {host}:{port} — escuchando {args.seconds}s")
+        print(f"connected to broker {host}:{port} — listening for {args.seconds}s")
         if args.did:
             did = DeviceId.from_key(args.did)
-            print(f"sondeando {did.key}…")
+            print(f"probing {did.key}…")
             resp = await t.send_command(did, "getBattery", {})
             print(f"getBattery → {resp}")
             resp = await t.send_command(did, "getPos_V2", ["chargePos", "deebotPos"])
@@ -214,9 +214,9 @@ def cmd_probe_mqtt(args: argparse.Namespace) -> int:
             listen.cancel()
 
     asyncio.run(run())
-    print(f"\nrobots vistos: {len(seen)}")
+    print(f"\nrobots seen: {len(seen)}")
     for key, via in seen.items():
-        print(f"  {key} (primer frame: {via})")
+        print(f"  {key} (first frame: {via})")
     return 0
 
 
@@ -243,7 +243,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
         asyncio.run(Service(cfg, jid).run())
     except KeyboardInterrupt:
-        print("adiós")
+        print("bye")
     return 0
 
 
@@ -252,32 +252,32 @@ def main() -> int:
     parser.add_argument("--version", action="version", version=__version__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p_probe = sub.add_parser("probe", help="login en Bumper + sondeo read-only del robot")
+    p_probe = sub.add_parser("probe", help="log in to Bumper + read-only probe of the robot")
     p_probe.add_argument("--config", "-c", default=None)
     p_probe.add_argument("--seconds", type=int, default=30)
-    p_probe.add_argument("--jid", default=None, help="JID del robot (por defecto: conocido)")
+    p_probe.add_argument("--jid", default=None, help="robot JID (default: the known one)")
     p_probe.set_defaults(fn=cmd_probe)
 
-    p_replay = sub.add_parser("replay", help="corpus → pipeline → MQTT sin robot")
+    p_replay = sub.add_parser("replay", help="corpus → pipeline → MQTT without a robot")
     p_replay.add_argument("--config", "-c", default=None)
-    p_replay.add_argument("log", help="log de Bumper")
-    p_replay.add_argument("extracted", help="dir extracted/ del corpus")
-    p_replay.add_argument("--listen", type=int, default=10, help="segundos escuchando comandos")
+    p_replay.add_argument("log", help="Bumper log")
+    p_replay.add_argument("extracted", help="corpus extracted/ dir")
+    p_replay.add_argument("--listen", type=int, default=10, help="seconds listening for commands")
     p_replay.set_defaults(fn=cmd_replay)
 
-    p_serve = sub.add_parser("serve", help="servicio vivo XMPP → MQTT")
+    p_serve = sub.add_parser("serve", help="live service XMPP → MQTT")
     p_serve.add_argument("--config", "-c", default=None)
     p_serve.add_argument("--jid", default=None)
     p_serve.add_argument("--mqtt", action="store_true",
-                         help="activar transporte MQTT de Bumper (robots T8+)")
+                         help="enable Bumper's MQTT transport (T8+ robots)")
     p_serve.set_defaults(fn=cmd_serve)
 
-    p_pmqtt = sub.add_parser("probe-mqtt", help="probar transporte MQTT del broker Bumper")
+    p_pmqtt = sub.add_parser("probe-mqtt", help="test the Bumper broker's MQTT transport")
     p_pmqtt.add_argument("--config", "-c", default=None)
-    p_pmqtt.add_argument("--host", default=None, help="host del broker (def: config)")
-    p_pmqtt.add_argument("--port", type=int, default=None, help="puerto (def: 8883)")
-    p_pmqtt.add_argument("--ca-file", default=None, help="CA del broker (def: config)")
-    p_pmqtt.add_argument("--did", default=None, help="did@class/res a sondear con getBattery")
+    p_pmqtt.add_argument("--host", default=None, help="broker host (default: config)")
+    p_pmqtt.add_argument("--port", type=int, default=None, help="port (default: 8883)")
+    p_pmqtt.add_argument("--ca-file", default=None, help="broker CA (default: config)")
+    p_pmqtt.add_argument("--did", default=None, help="did@class/res to probe with getBattery")
     p_pmqtt.add_argument("--seconds", type=int, default=10)
     p_pmqtt.add_argument("-v", "--verbose", action="store_true")
     p_pmqtt.set_defaults(fn=cmd_probe_mqtt)

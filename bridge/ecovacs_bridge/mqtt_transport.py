@@ -229,7 +229,7 @@ class MqttTransport:
             return await asyncio.wait_for(fut, timeout)
         except asyncio.TimeoutError:
             log.debug("timeout waiting for response from %s (%s)", command, did.key)
-            return {"ret": "fail", "errno": 500, "debug": "timeout respuesta p2p"}
+            return {"ret": "fail", "errno": 500, "debug": "p2p response timeout"}
         finally:
             self._pending.pop(request_id, None)
 

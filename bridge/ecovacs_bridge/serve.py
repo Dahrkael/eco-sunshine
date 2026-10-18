@@ -716,7 +716,7 @@ class Service:
                 # static known robots (asleep ones emit no reports)
                 for key in bm.robots:
                     if "ecorobot.net" in key or "/" not in key.split("@")[-1]:
-                        log.error("bumper_mqtt.robots espera did@class/res, no JIDs: %r", key)
+                        log.error("bumper_mqtt.robots expects did@class/res, not JIDs: %r", key)
                         continue
                     if key not in self.robots:
                         try:

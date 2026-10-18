@@ -149,7 +149,7 @@ class BumperXMPPClient:
         while needle not in buf:
             data = await asyncio.wait_for(self.reader.read(65536), timeout)
             if not data:
-                raise ConnectionError("conexión cerrada esperando " + needle)
+                raise ConnectionError("connection closed while waiting for " + needle)
             text = data.decode(errors="replace")
             log.debug("<< %s", text[:160])
             buf += text
@@ -162,7 +162,7 @@ class BumperXMPPClient:
         while True:
             data = await self.reader.read(65536)
             if not data:
-                raise ConnectionError("conexión cerrada por Bumper")
+                raise ConnectionError("connection closed by Bumper")
             self._buf += data.decode(errors="replace")
             stanzas, self._buf = extract_stanzas(self._buf)
             if stanzas:

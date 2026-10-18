@@ -409,7 +409,7 @@ def render_png(
     rows = [r for r in range(size_r) if any(grid[r])]
     cols = [c for c in range(size_c) if any(grid[rr][c] for rr in range(size_r))]
     if not rows:
-        raise ValueError("grid vacío")
+        raise ValueError("empty grid")
     w = max(cols) - min(cols) + 1
     h = max(rows) - min(rows) + 1
     rmin, cmin = min(rows), min(cols)

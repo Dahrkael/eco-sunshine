@@ -47,7 +47,7 @@ ROBOT_COLOR = (76, 175, 80)
 DOCK_COLOR = (255, 152, 0)
 
 # Grid origin relative to the robot's mm frame (930; found by exhaustive
-# search: 86.8% trace-over-floor — tools/buscar_transformacion.py).
+# search: 86.8% trace-over-floor — tools/find_transform.py).
 # Natural mapping: row = y_mm/50, col = x_mm/50 (x→columns, y→rows).
 ORIGIN_ROW = 401
 ORIGIN_COL = 401
@@ -361,7 +361,7 @@ class MapAssembler:
 
     def assemble(self, map_id: str) -> list[list[int]] | None:
         """Row-major placement (privacy-control): r0=pid//8, c0=pid%8.
-        Validated by trace/floor correlation 86.8% (tools/buscar_transformacion.py).
+        Validated by trace/floor correlation 86.8% (tools/find_transform.py).
         With per-map geometry (MQTT): piece N at row=N//pieceW, col=N%pieceW.
         """
         pieces = self.maps.get(map_id)

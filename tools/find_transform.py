@@ -18,7 +18,7 @@ for line in open(LOG, errors='replace'):
         spec = [int(x) for x in m.group(4).split(',')]
 if not spec:
     print("no spec")
-    sys.exit(1)
+    raise SystemExit(1)
 print(f"spec: {len(spec)} crcs")
 
 # pass 2: CRC-valid pieces

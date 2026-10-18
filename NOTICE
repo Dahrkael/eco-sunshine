@@ -1,0 +1,24 @@
+ecovacs-bridge
+Copyright (C) 2026
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation, either version 3 of the License, or (at your
+option) any later version. See LICENSE for details.
+
+This project includes and derives from:
+
+- bumper — https://github.com/bmartin5692/bumper (GPL-3.0)
+  Vendored under bumper/, and the embedded servers derive from it:
+  servers/xmpp.py (from bumper/xmppserver.py), servers/conf.py (response
+  shapes from bumper's confserver plugins), the MQTT auth plugin in
+  servers/mqtt.py (from BumperMQTTServer_Plugin).
+
+Dependencies (not vendored):
+- amqtt (Apache-2.0), aiomqtt + paho-mqtt (BSD-3), aiohttp (BSD-3),
+  zstandard (BSD-3), cryptography (Apache-2.0 / BSD-3 dual)
+
+The Ecovacs mobile applications analyzed during this research are
+proprietary software by Ecovacs; they are NOT distributed here. Analysis
+artifacts live outside the repository (see docs/ for the protocol
+knowledge they yielded).

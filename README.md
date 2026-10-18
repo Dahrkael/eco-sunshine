@@ -224,3 +224,13 @@ embedded servers present).
 - ecovacs-deebot.js (mrbungle64) — issue #10: live map, unsolved
 - DEF CON 32: "Reverse engineering and hacking Ecovacs robots" (Giese/Luedtke)
 - valetudo-map-card (the bridge's target MQTT format)
+
+## License
+
+**GPL-3.0** — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+This project vendors [bumper](https://github.com/bmartin5692/bumper)
+(GPL-3.0) and its embedded XMPP server, legacy-app API and MQTT auth
+derive from it, so the copyleft applies to the whole distribution.
+The Ecovacs mobile apps analyzed along the way are proprietary and are
+**not** distributed with this repository.

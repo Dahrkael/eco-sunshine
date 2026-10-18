@@ -27,8 +27,8 @@ def make_panel() -> WebPanel:
     return WebPanel(Service(Config(), None), port=0)
 
 
-class TestRutasPanel:
-    def test_handlers_son_metodos_de_instancia(self):
+class TestPanelRoutes:
+    def test_handlers_are_instance_methods(self):
         """Every registered handler must be a bound method with (self, request).
 
         An accidental @staticmethod passes registration but loses the
@@ -38,20 +38,20 @@ class TestRutasPanel:
         for route in panel.app.router.routes():
             handler = route.handler
             assert not inspect.isfunction(handler) or handler.__self__ is not None, \
-                f"handler {handler} sin binding"
+                f"handler {handler} without binding"
             sig = inspect.signature(handler)
             params = list(sig.parameters)
             assert params[:1] != ["request"] or len(params) == 1, \
-                f"handler {handler} con firma sospechosa {params}"
+                f"handler {handler} with suspicious signature {params}"
 
-    def test_api_ws_recibe_request(self):
+    def test_api_ws_receives_request(self):
         panel = make_panel()
         sig = inspect.signature(panel.api_ws)
         assert "request" in sig.parameters  # bound: self implicit
 
-    def test_call_existe_y_es_tolerante(self):
+    def test_call_exists_and_is_tolerant(self):
         panel = make_panel()
         c = FakeCommander()
         panel._call(c, "set_clean_speed", "strong")
         assert c.calls == [("set_clean_speed", "strong")]
-        panel._call(c, "metodo_inexistente")  # does not raise, only logs
+        panel._call(c, "nonexistent_method")  # does not raise, only logs

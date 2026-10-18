@@ -60,7 +60,7 @@ class TestPieceAuto:
         raw = make_piece_bytes(6400, fill=0)
         assert decompress_auto(raw, size_hint=6400) == bytes(6400)
 
-    def test_lzma_corrupto_raises(self):
+    def test_corrupt_lzma_raises(self):
         with pytest.raises(lzma.LZMAError):
             decompress_auto(b"\x5d\x00\x00\x04\x00" + b"\x00" * 8 + b"garbage!")
 
@@ -87,7 +87,7 @@ class TestTraceMqtt:
 
 
 class TestEnvelope:
-    def test_envelope_campos(self):
+    def test_envelope_fields(self):
         env = build_envelope({"act": "go"})
         h = env["header"]
         assert h["pri"] == 2

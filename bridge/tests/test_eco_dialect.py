@@ -41,9 +41,9 @@ def make_client() -> tuple[FakeClient, str]:
     return c, iq_id
 
 
-class TestDialectaEco:
-    def test_eco_con_ctl_id_recibe_td_y_pid(self):
-        """El eco repite el CTL id con un iq id propio — debe procesarse."""
+class TestEcoDialect:
+    def test_echo_with_ctl_id_gets_td_and_pid(self):
+        """The echo repeats the CTL id with its own iq id — it must be processed."""
         c, iq_id = make_client()
         eco = ('<iq to="u@ecouser.net/r" type="set" id="021C6E5B2D10" '
                'from="bot@115.ecorobot.net/atom">'
@@ -55,7 +55,7 @@ class TestDialectaEco:
         ctl_id = ctl_key[2:]
         asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
             self._feed(c, eco.replace("PLACEHOLDER", ctl_id)))
-        assert c.events, "el eco no generó evento"
+        assert c.events, "the echo did not generate an event"
         attrs = c.events[-1]
         assert attrs["td"] == "PullMP"      # injected
         assert attrs["pid"] == "20"          # re-injected from the request
@@ -66,7 +66,7 @@ class TestDialectaEco:
         c.feed(stanza)
         await asyncio.sleep(0.05)  # let the emit's create_task run
 
-    def test_respuesta_con_td_no_se_toca(self):
+    def test_response_with_own_td_untouched(self):
         """Frames with their own td (robot and mock MapP/Pos pushes) untouched."""
         c = FakeClient()
         c.send_command("b@115.ecorobot.net/atom", '<ctl id="{ctl_id}" td="GetPos" />',
@@ -78,11 +78,11 @@ class TestDialectaEco:
                        "</query></iq>"))
         assert c.events[-1]["td"] == "Pos"
 
-    def test_sin_correlacion_pasa_limpio(self):
+    def test_unknown_correlation_passes_clean(self):
         """An echo whose ctl-id we do not know neither blows up nor injects anything."""
         c = FakeClient()
         asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
             self._feed(c,
                        '<iq to="u@ecouser.net/r" type="set" id="X" from="b@115.ecorobot.net/atom">'
-                       '<query xmlns="com:ctl"><ctl id="desconocido" ret="ok" /></query></iq>'))
+                       '<query xmlns="com:ctl"><ctl id="unknown" ret="ok" /></query></iq>'))
         assert c.events[-1].get("td") is None

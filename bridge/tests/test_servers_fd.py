@@ -41,7 +41,7 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
-def _registry_con_bot() -> DeviceRegistry:
+def _registry_with_bot() -> DeviceRegistry:
     reg = DeviceRegistry()
     reg.bot_add("E00010571234567890ab", DID, "yna5xh", "axm", "eco-legacy")
     reg.bot_set_xmpp(DID, True)
@@ -52,13 +52,13 @@ def _registry_con_bot() -> DeviceRegistry:
 
 
 class TestConfAuth:
-    def test_login_minta_token_hex32_y_rota(self):
+    def test_login_mints_hex32_token_and_rotates(self):
         auth = ConfAuth()
         s1 = auth.login("dev1")
         assert re.fullmatch(r"[0-9a-f]{32}", s1.token)
         assert auth.login("dev1").token != s1.token  # re-login = new token
 
-    def test_authcode_estable_por_sesion(self):
+    def test_authcode_stable_per_session(self):
         auth = ConfAuth()
         auth.login("dev1")
         ac1 = auth.authcode("dev1", "es")
@@ -67,7 +67,7 @@ class TestConfAuth:
         auth.login("dev1")  # re-login → new authcode
         assert auth.authcode("dev1", "es") != ac1
 
-    def test_authcode_sin_login_previo_crea_sesion(self):
+    def test_authcode_without_previous_login_creates_session(self):
         """Bridge restart mid-session: the app just redoes the flow."""
         auth = ConfAuth()
         assert re.fullmatch(r"us_[0-9a-f]{32}", auth.authcode("dev9", "us"))
@@ -78,10 +78,10 @@ class TestConfAuth:
         ac = auth.authcode("dev1", "es")
         assert auth.check_authcode("fuid_tmpuser", ac)
         assert auth.check_authcode("tmpuser", ac)  # with/without fuid_ (like Bumper)
-        assert not auth.check_authcode("fuid_otro", ac)
-        assert not auth.check_authcode("fuid_tmpuser", "es_nunca_emitido")
+        assert not auth.check_authcode("fuid_other", ac)
+        assert not auth.check_authcode("fuid_tmpuser", "es_never_issued")
 
-    def test_logout_invalida_el_authcode(self):
+    def test_logout_invalidates_the_authcode(self):
         auth = ConfAuth()
         auth.login("dev1")
         ac = auth.authcode("dev1", "es")
@@ -93,14 +93,14 @@ class TestConfAuth:
 
 
 class TestLoginData:
-    def test_app_antigua(self):
+    def test_legacy_app(self):
         d = login_data("i_eco_e", "es", "tok123")
         assert list(d) == ["accessToken", "uid", "username", "country", "email"]
         assert d == {"accessToken": "tok123", "uid": "fuid_tmpuser",
                      "username": "fusername_tmpuser", "country": "es",
                      "email": "null@null.com"}
 
-    def test_ecovacs_home_los_extras_primero(self):
+    def test_ecovacs_home_extras_first(self):
         d = login_data("global_a", "de", "tok123")
         assert list(d)[:3] == ["ucUid", "loginName", "mobile"]
         assert d["mobile"] is None and d["uid"] == "fuid_tmpuser"
@@ -110,9 +110,9 @@ class TestLoginData:
 
 
 class TestConfServer:
-    async def test_flujo_completo_de_la_app(self):
+    async def test_full_app_flow(self):
         """login → getAuthCode → loginByItToken → GetDeviceList (corpus)."""
-        srv = ConfServer(_registry_con_bot(), announce_ip="192.168.1.50",
+        srv = ConfServer(_registry_with_bot(), announce_ip="192.168.1.50",
                          xmpp_port=5223, listen="127.0.0.1", port=free_port())
         await srv.start()
         try:
@@ -167,7 +167,7 @@ class TestConfServer:
         finally:
             await srv.stop()
 
-    async def test_login_by_it_token_rechazado_con_use_auth(self):
+    async def test_login_by_it_token_rejected_with_use_auth(self):
         """use_auth=True: unknown authcode → empty body (like Bumper)."""
         reg = DeviceRegistry(use_auth=True)
         srv = ConfServer(reg, listen="127.0.0.1", port=free_port())
@@ -178,13 +178,13 @@ class TestConfServer:
                         f"http://127.0.0.1:{srv.port}/api/users/user.do",
                         data={"todo": "loginByItToken",
                               "userId": "fuid_tmpuser",
-                              "token": "es_inventado"}) as r:
+                              "token": "es_made_up"}) as r:
                     assert await r.json() == {}
         finally:
             await srv.stop()
 
-    async def test_gestion_de_bots_por_la_app(self):
-        reg = _registry_con_bot()
+    async def test_bot_management_by_the_app(self):
+        reg = _registry_with_bot()
         srv = ConfServer(reg, listen="127.0.0.1", port=free_port())
         await srv.start()
         try:
@@ -192,9 +192,9 @@ class TestConfServer:
                 base = f"http://127.0.0.1:{srv.port}"
                 async with s.post(f"{base}/api/users/user.do",
                                   json={"todo": "SetDeviceNick", "did": DID,
-                                        "nick": "Salo"}) as r:
+                                        "nick": "Lounge"}) as r:
                     assert (await r.json())["result"] == "ok"
-                assert reg.bot_get(DID)["nick"] == "Salo"
+                assert reg.bot_get(DID)["nick"] == "Lounge"
                 async with s.post(f"{base}/api/users/user.do",
                                   json={"todo": "DeleteOneDevice",
                                         "did": DID}) as r:
@@ -203,9 +203,9 @@ class TestConfServer:
         finally:
             await srv.stop()
 
-    async def test_estaticos_de_cortesia(self):
+    async def test_courtesy_statics(self):
         """Endpoints the app probes and Bumper answered with statics."""
-        srv = ConfServer(_registry_con_bot(), listen="127.0.0.1",
+        srv = ConfServer(_registry_with_bot(), listen="127.0.0.1",
                          port=free_port())
         await srv.start()
         try:
@@ -225,7 +225,7 @@ class TestConfServer:
         finally:
             await srv.stop()
 
-    async def test_base_del_confserver(self):
+    async def test_confserver_base(self):
         """lookup.do/newauth.do also live on :443 (like Bumper)."""
         srv = ConfServer(DeviceRegistry(), announce_ip="10.1.2.3",
                          xmpp_port=5223, listen="127.0.0.1", port=free_port())
@@ -269,7 +269,7 @@ class TestConfServer:
         finally:
             await srv.stop()
 
-    async def test_post_en_login_tambien_valida(self):
+    async def test_post_on_login_also_validates(self):
         """web.route('*') on v1: the app sometimes uses POST."""
         srv = ConfServer(DeviceRegistry(), listen="127.0.0.1", port=free_port())
         await srv.start()
@@ -286,7 +286,7 @@ class TestConfServer:
 
 
 class TestConfServerTLS:
-    async def test_login_por_tls_con_ca_de_ensure_certs(self, tmp_path):
+    async def test_login_over_tls_with_ensure_certs_ca(self, tmp_path):
         ensure_certs(str(tmp_path / "ca.crt"), str(tmp_path / "srv.crt"),
                      str(tmp_path / "srv.key"), cn="127.0.0.1")
         srv = ConfServer(DeviceRegistry(), listen="127.0.0.1", port=free_port(),
@@ -321,13 +321,13 @@ class TestServeWiringFD:
             cfg.servers.server_cert = str(tmp_path / "srv.crt")
             cfg.servers.server_key = str(tmp_path / "srv.key")
         else:
-            blocker = tmp_path / "bloqueo"
-            blocker.write_text("no soy un directorio")
+            blocker = tmp_path / "blocker"
+            blocker.write_text("not a directory")
             cfg.servers.server_cert = str(blocker / "srv.crt")
             cfg.servers.server_key = str(blocker / "srv.key")
         return cfg
 
-    async def test_conf_solo_arranca_y_crea_el_registry(self, tmp_path):
+    async def test_conf_only_starts_and_creates_the_registry(self, tmp_path):
         """conf=true (no xmpp/mqtt): :443 comes up and the registry exists
         (GetDeviceList needs it even without other servers)."""
         cfg = self._cfg(tmp_path)
@@ -347,39 +347,39 @@ class TestServeWiringFD:
         finally:
             await svc._stop_embedded_servers()
 
-    async def test_certs_irrecuperables_desactivan_conf_sin_tirar_serve(self, tmp_path):
+    async def test_unrecoverable_certs_disable_conf_without_killing_serve(self, tmp_path):
         cfg = self._cfg(tmp_path, certs=False)
         svc = Service(cfg, None)
         await svc._start_embedded_servers()  # does not raise
         assert "conf" not in svc.embedded
         assert cfg.servers.conf is False
 
-    async def test_puerto_ocupado_no_tumba_serve(self, tmp_path):
+    async def test_busy_port_does_not_kill_serve(self, tmp_path):
         cfg = self._cfg(tmp_path)
         assert ensure_certs(cfg.servers.ca_file, cfg.servers.server_cert,
                             cfg.servers.server_key)
-        ocupante = ConfServer(DeviceRegistry(), listen="127.0.0.1",
+        squatter = ConfServer(DeviceRegistry(), listen="127.0.0.1",
                               port=cfg.servers.conf_port,
                               server_cert=cfg.servers.server_cert,
                               server_key=cfg.servers.server_key)
-        await ocupante.start()
+        await squatter.start()
         try:
             svc = Service(cfg, None)
             await svc._start_embedded_servers()  # OSError caught
             assert "conf" not in svc.embedded
         finally:
-            await ocupante.stop()
+            await squatter.stop()
             await svc._stop_embedded_servers()
 
-    def test_not_yet_vacio(self):
+    def test_not_yet_empty(self):
         """FA–FD complete: no flag warns 'arrives in phase X'."""
         assert NOT_YET == {}
 
 
-class TestRegresionesReviewFD:
+class TestReviewRegressionsFD:
     """Pin bugs found while reviewing FD."""
 
-    def test_relogin_revoca_el_authcode_anterior(self):
+    def test_relogin_revokes_the_previous_authcode(self):
         from ecovacs_bridge.servers.conf import ConfAuth
 
         auth = ConfAuth()
@@ -390,19 +390,19 @@ class TestRegresionesReviewFD:
         assert auth.check_authcode("fuid_tmpuser", ac1) is False  # zombie revoked
         assert auth.authcode("devid-x", "es") != ac1
 
-    def test_getauthcode_con_use_auth_exige_token_valido(self):
+    def test_getauthcode_with_use_auth_requires_valid_token(self):
         from ecovacs_bridge.servers.conf import ConfAuth
 
         auth = ConfAuth(use_auth=True)
         s = auth.login("devid-x")
         # wrong accessToken → no authcode (fail like Bumper)
-        assert auth.authcode("devid-x", "es", access_token="inventado",
+        assert auth.authcode("devid-x", "es", access_token="made_up",
                              require_token=True) is None
         # the session's token does
         assert auth.authcode("devid-x", "es", access_token=s.token,
                              require_token=True) is not None
 
-    async def test_fallo_broker_mqtt_no_salta_el_conf(self, tmp_path):
+    async def test_mqtt_broker_failure_does_not_skip_conf(self, tmp_path):
         """mqtt with a busy port + conf on → conf STILL STARTS."""
         from ecovacs_bridge.config import Config
         from ecovacs_bridge.serve import Service

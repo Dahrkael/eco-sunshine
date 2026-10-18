@@ -24,7 +24,7 @@ class TestDeviceId:
 
     def test_model_detection(self):
         assert detect_model_for(DeviceId.from_key("x@yna5xh/axm")).slug == "t9aivi"
-        assert detect_model_for(DeviceId.from_key("x@desconocido/axm")).protocol == "mqtt"
+        assert detect_model_for(DeviceId.from_key("x@unknown/axm")).protocol == "mqtt"
         assert detect_model_for(
             DeviceId.from_jid("S@115.ecorobot.net/atom")).slug == "ozmo930"
 
@@ -142,14 +142,14 @@ class TestRouteTopic:
         r = route_topic(t)
         assert r == ("request", "abc@yna5xh/axm", "clean_V2", "ff00")
 
-    def test_ignora_otros(self):
+    def test_ignores_others(self):
         assert route_topic("iot/cfg/x/y/z/j") is None
-        assert route_topic("otro/topic") is None
+        assert route_topic("other/topic") is None
         assert route_topic("iot/atr/onPos") is None  # too short
 
 
 class TestCommandTopic:
-    def test_formato(self):
+    def test_format(self):
         did = DeviceId.from_key("abc@yna5xh/axm")
         t = command_topic(did, "getBattery", "req1")
         assert t == "iot/p2p/getBattery/bridge/bumper/bridge/abc/yna5xh/axm/q/req1/j"

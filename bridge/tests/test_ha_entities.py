@@ -28,7 +28,7 @@ def topics(pub: FakeClient) -> dict[str, str]:
 
 
 class TestDiscoveryH1:
-    async def test_stats_y_fw_y_agua(self):
+    async def test_stats_fw_and_water(self):
         pub, fc = make_pub()
         await pub.publish_discovery("bot", "Deebot", "model", has_water=True)
         ts = topics(fc)
@@ -41,18 +41,18 @@ class TestDiscoveryH1:
         assert sel["command_topic"] == "deebot/bot/water/set"
         assert sel["optimistic"] is True
 
-    async def test_sin_agua_si_el_modelo_no_frega(self):
+    async def test_no_water_if_model_does_not_mop(self):
         pub, fc = make_pub()
         await pub.publish_discovery("bot", "Deebot", has_water=False)
         assert all("/select/" not in t for t in topics(fc))
 
-    async def test_fan_speeds_por_modelo(self):
+    async def test_fan_speeds_per_model(self):
         pub, fc = make_pub()
         await pub.publish_discovery("bot", fan_speeds=["silent", "standard"])
         vac = json.loads(topics(fc)["homeassistant/vacuum/bot/config"])
         assert vac["fan_speed_list"] == ["silent", "standard"]
 
-    async def test_room_buttons_idempotentes(self):
+    async def test_room_buttons_idempotent(self):
         pub, fc = make_pub()
         rooms = [{"mssid": "1", "name": "Living"}, {"mssid": "2", "name": "Kitchen"}]
         await pub.publish_room_buttons("bot", "Deebot", "Deebot OZMO 930", rooms)
@@ -68,7 +68,7 @@ class TestDiscoveryH1:
 
 
 class TestPublishersH1:
-    async def test_stats_y_fw_topics(self):
+    async def test_stats_and_fw_topics(self):
         pub, fc = make_pub()
         await pub.publish_fw("bot", "1.9.9")
         await pub.publish_stats("bot", {"total_time": 3600,
@@ -82,7 +82,7 @@ class TestPublishersH1:
 
 
 class TestDispatchH1:
-    async def test_water_y_room_enrutan(self):
+    async def test_water_and_room_route(self):
         pub, _ = make_pub()
         seen = []
 
@@ -106,7 +106,7 @@ class TestDispatchH1:
 
 
 class TestServeWiringH1:
-    async def test_room_buttons_se_publican_al_aprender_habitaciones(self):
+    async def test_room_buttons_published_on_learning_rooms(self):
         from ecovacs_bridge.config import Config
         from ecovacs_bridge.serve import Service
         from tests.test_serve_wiring import FakeTransport
@@ -133,7 +133,7 @@ class TestServeWiringH1:
         assert f"homeassistant/button/{r.slug}_room_1/config" in ts
         # the device keeps the real model (not degraded to "Deebot")
         cfg = json.loads(ts[f"homeassistant/button/{r.slug}_room_1/config"])
-        assert cfg["device"]["model"] == "Deebot OZMO T9 AIVI via deebot-bridge"
+        assert cfg["device"]["model"] == "Deebot OZMO T9 AIVI via ecovacs-bridge"
         n = len(fc.published)
         # same rooms again → no republication (signature unchanged)
         await svc.on_report(key, "getMapSet", {
@@ -160,8 +160,8 @@ class TestMapDataTopic:
         assert len(fc.published) == n
 
 
-class TestRegresionesReview:
-    async def test_set_water_level_mapea_niveles(self):
+class TestReviewRegressions:
+    async def test_set_water_level_maps_levels(self):
         from ecovacs_bridge.config import Config
         from ecovacs_bridge.serve import Service
         from tests.test_serve_wiring import FakeTransport
@@ -175,7 +175,7 @@ class TestRegresionesReview:
         r = RobotState.from_device_id(DeviceId.from_key("x@yna5xh/axm"))
         svc.robots[r.did.key] = r
         svc.commanders[r.did.key] = MqttCommander(t, r)
-        svc.pub = None  # on_command publica: sin cliente no publica
+        svc.pub = None  # on_command publishes: without a client nothing is published
         pub_calls = []
 
         class _NoPub:
@@ -193,7 +193,7 @@ class TestRegresionesReview:
 
         assert NullPanel()._build_map_data("slug", "0", None) is None
 
-    async def test_rename_room_republica_boton(self):
+    async def test_rename_room_republishes_button(self):
         from ecovacs_bridge.config import Config
         from ecovacs_bridge.serve import Service
         from tests.test_ha_entities import make_pub, topics
@@ -225,7 +225,7 @@ class TestRegresionesReview:
         assert n_room_pubs() == 1
         await send("Living")   # same → no republication
         assert n_room_pubs() == 1
-        await send("Salon")    # renamed → republished with new label
+        await send("Hall")     # renamed → republished with new label
         assert n_room_pubs() == 2
         cfg = json.loads(topics(fc)[f"homeassistant/button/{r.slug}_room_1/config"])
-        assert "Salon" in cfg["name"]
+        assert "Hall" in cfg["name"]

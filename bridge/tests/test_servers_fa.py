@@ -13,7 +13,7 @@ from ecovacs_bridge.servers.lookup import LookupServer, lookup_response
 
 
 class TestServersConfig:
-    def test_defaults_todo_off_excepto_panel(self):
+    def test_defaults_all_off_except_panel(self):
         cfg = ServersConfig()
         assert cfg.lookup is False and cfg.xmpp is False
         assert cfg.mqtt is False and cfg.conf is False
@@ -30,7 +30,7 @@ class TestServersConfig:
         assert cfg.servers.lookup_port == 18007
         assert cfg.servers.panel is False
 
-    def test_sin_seccion(self, monkeypatch):
+    def test_no_section(self, monkeypatch):
         # DEEBOT_ANNOUNCE_IP in the environment could fill announce_ip (FE):
         # without it the default config is exactly ServersConfig()
         monkeypatch.delenv("DEEBOT_ANNOUNCE_IP", raising=False)
@@ -38,19 +38,19 @@ class TestServersConfig:
 
 
 class TestLookupResponse:
-    def test_ecomsgnew_sin_espacios(self):
+    def test_ecomsgnew_no_spaces(self):
         """The robot's parser is strict: compact JSON (Bumper's trick)."""
         r = lookup_response("EcoMsgNew", "192.168.1.50", 5223)
         body = r.text
         assert " " not in body
         assert json.loads(body) == {"ip": "192.168.1.50", "port": 5223, "result": "ok"}
 
-    def test_ecoupdate_al_real(self):
+    def test_ecoupdate_to_real(self):
         r = lookup_response("EcoUpdate", "1.2.3.4", 5223)
         d = json.loads(r.text)
         assert d == {"result": "ok", "ip": "47.88.66.164", "port": 8005}
 
-    def test_desconocido_vacio(self):
+    def test_unknown_empty(self):
         assert json.loads(lookup_response("Nope", "1.2.3.4", 5223).text) == {}
 
 
@@ -77,7 +77,7 @@ class TestLookupServer:
         finally:
             await srv.stop()
 
-    def test_announce_ip_obligatorio(self):
+    def test_announce_ip_required(self):
         with pytest.raises(ValueError):
             LookupServer("", 5223)
 

@@ -56,7 +56,7 @@ async def _run(coro):
 
 
 class TestMinorWalkWiring:
-    async def test_major_map_dispara_walk_con_mid_crudo(self):
+    async def test_major_map_triggers_walk_with_raw_mid(self):
         """B2: the walk must request getMinorMap with the RAW mid ("0"),
         not the internal namespace ("sn:0")."""
         svc, t = make_service()
@@ -68,13 +68,13 @@ class TestMinorWalkWiring:
         # the walk is async with sleeps — give it a moment
         await asyncio.sleep(0.05)
         minor = [c for c in t.sent if c[0] == "getMinorMap"]
-        assert minor, "el walk no se lanzó"
+        assert minor, "the walk did not start"
         cmd, _, params = minor[0]
-        assert params["mid"] == "0", f"mid del wire debe ser crudo, no {params['mid']!r}"
+        assert params["mid"] == "0", f"wire mid must be raw, not {params['mid']!r}"
         assert params["type"] == "ol"
         assert params["pieceIndex"] == 0
 
-    async def test_minor_map_responsealimenta_assembler_con_namespace(self):
+    async def test_minor_map_response_feeds_assembler_with_namespace(self):
         svc, t = make_service()
         await svc.on_report("mock-t9-0001@yna5xh/axm", "getMinorMap", {
             "ret": "ok", "mid": "0", "type": "ol", "pieceIndex": 0,
@@ -82,18 +82,18 @@ class TestMinorWalkWiring:
         assert svc.asm.piece_count("mock-t9-0001:0") == 1
         assert svc._map_owner.get("mock-t9-0001:0") == "mock-t9-0001@yna5xh/axm"
 
-    async def test_major_map_fail_dispara_chunked(self):
+    async def test_major_map_fail_triggers_chunked(self):
         """T8/N8: getMajorMap fail → getMapInfo (chunked format)."""
         svc, t = make_service()
         await svc.on_report("mock-t9-0001@yna5xh/axm", "getMajorMap",
                             {"ret": "fail", "errno": 1})
         assert any(c[0] == "getMapInfo" for c in t.sent)
 
-    async def test_map_owner_define_commander_del_walk(self):
+    async def test_map_owner_defines_walks_commander(self):
         """B6: with two eco-ng robots, B's map walk goes out through B."""
         svc, t = make_service()
         # second robot
-        did2 = DeviceId.from_key("otro-robot@vsc5ia/axm")
+        did2 = DeviceId.from_key("other-robot@vsc5ia/axm")
         r2 = RobotState.from_device_id(did2)
         svc.robots[did2.key] = r2
         from ecovacs_bridge.mqtt_commander import MqttCommander
@@ -107,12 +107,12 @@ class TestMinorWalkWiring:
             "pieceHeight": 5, "cellWidth": 100, "cellHeight": 100, "pixel": 50,
             "value": str(piece_crc)})
         await asyncio.sleep(0.05)
-        assert any(c[0] == "getMinorMap" for c in t2.sent), "walk debe salir por el dueño"
+        assert any(c[0] == "getMinorMap" for c in t2.sent), "walk must go out through the owner"
         assert not any(c[0] == "getMinorMap" for c in t.sent)
 
 
 class TestTracePagination:
-    async def test_total_mayor_pide_siguiente_pagina(self):
+    async def test_total_greater_requests_next_page(self):
         """B14: totalCount > page → the bridge requests the next one."""
         svc, t = make_service()
         # 2 5-byte points, totalCount 10 → must request getMapTrace(2, …)
@@ -123,6 +123,6 @@ class TestTracePagination:
             "ret": "ok", "tid": "1", "traceStart": 0, "pointCount": 2,
             "totalCount": 10,
             "traceValue": base64.b64encode(comp).decode()})
-        traza_cmds = [c for c in t.sent if c[0] == "getMapTrace"]
-        assert traza_cmds, "debe pedir la siguiente página"
-        assert traza_cmds[0][2]["traceStart"] == 2
+        trace_cmds = [c for c in t.sent if c[0] == "getMapTrace"]
+        assert trace_cmds, "next page must be requested"
+        assert trace_cmds[0][2]["traceStart"] == 2

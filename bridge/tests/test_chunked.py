@@ -28,7 +28,7 @@ def noisy_grid(n: int, seed: int = 7) -> bytes:
 
 
 class TestChunked:
-    def test_roundtrip_dos_chunks(self):
+    def test_roundtrip_two_chunks(self):
         grid = noisy_grid(400 * 500)
         chunks, meta = make_chunked(grid)
         assert len(chunks) >= 2
@@ -37,12 +37,12 @@ class TestChunked:
             done = asm.add_chunk_json("0", i, ch, len(chunks), meta)
             if i < len(chunks) - 1:
                 assert not done
-        assert done, "el último chunk debe montar el mapa"
+        assert done, "the last chunk must assemble the map"
         g = asm.assemble("0")
         assert g is not None and len(g) == 500 and len(g[0]) == 400
         assert b"".join(bytes(row) for row in g) == grid
 
-    def test_geometria_chunked_no_gigante(self):
+    def test_chunked_geometry_not_giant(self):
         """B9: from_chunked_json uses totalWidth/Height as CELLS, not as
         pieces — width=100 must not build a 100M-cell grid."""
         geo = MapGeometry.from_chunked_json(
@@ -51,7 +51,7 @@ class TestChunked:
         assert geo.total_cols == 100 and geo.total_rows == 100
         assert geo.total_rows * geo.total_cols == 10_000
 
-    def test_geometria_absurda_rechazada(self):
+    def test_absurd_geometry_rejected(self):
         grid = bytes([1]) * 100
         # corrupt metadata: huge totalWidth
         comp = lzma.compress(grid, format=lzma.FORMAT_ALONE,
@@ -63,7 +63,7 @@ class TestChunked:
                                    "pixel": 5, "width": 100, "height": 100})
         assert not done  # 25M cells > 2000x2000 cap → discarded
 
-    def test_chunks_incompletos_no_montan(self):
+    def test_incomplete_chunks_do_not_assemble(self):
         grid = noisy_grid(5000)
         chunks, meta = make_chunked(grid, chunk_chars=64)
         asm = MapAssembler()
@@ -72,7 +72,7 @@ class TestChunked:
         assert not asm.add_chunk_json("0", 2, chunks[2], len(chunks), meta)
         assert asm.piece_count("0") == 0
 
-    def test_chunked_sustituye_piezas_viejas(self):
+    def test_chunked_replaces_old_pieces(self):
         """B15: the same mid migrating from pieces to chunked mixes no formats."""
         grid = noisy_grid(3000)
         chunks, meta = make_chunked(grid, chunk_chars=100)

@@ -27,7 +27,7 @@ def make_panel() -> tuple[WebPanel, Service]:
 
 
 class TestBroadcastRaw:
-    async def test_envia_a_todos_sin_excepciones(self, caplog):
+    async def test_sends_to_all_without_exceptions(self, caplog):
         """B1: asyncio without the import was killing the broadcast and
         KICKING clients out — one map per WS must reach everyone and the
         list must stay intact."""
@@ -39,16 +39,16 @@ class TestBroadcastRaw:
         assert ws1.sent and ws2.sent
         assert len(panel._ws_clients) == 2  # nobody kicked out
 
-    async def test_ws_roto_se_expulsa_limpiamente(self):
+    async def test_broken_ws_evicted_cleanly(self):
         panel, _ = make_panel()
 
-        class Roto(FakeWS):
+        class Broken(FakeWS):
             async def send_str(self, s: str) -> None:
                 raise ConnectionResetError()
 
-        roto, sano = Roto(), FakeWS()
-        panel._ws_clients = [roto, sano]
+        broken, healthy = Broken(), FakeWS()
+        panel._ws_clients = [broken, healthy]
         panel.broadcast_raw(json.dumps({"type": "map"}))
         await asyncio.sleep(0.05)
-        assert sano.sent
-        assert panel._ws_clients == [sano]
+        assert healthy.sent
+        assert panel._ws_clients == [healthy]

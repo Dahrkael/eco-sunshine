@@ -14,11 +14,11 @@ class TestXmppWiring:
         cfg.servers.listen = "127.0.0.1"
         cfg.servers.xmpp_port = _free_port()
         cfg.state_file = str(tmp_path / "state.json")
-        cfg.servers.ca_file = str(tmp_path / "ca-mia.crt")
+        cfg.servers.ca_file = str(tmp_path / "my-ca.crt")
         if unwritable:
             # unusable destination: a regular file where the directory would go
-            blocker = tmp_path / "bloqueo"
-            blocker.write_text("no soy un directorio")
+            blocker = tmp_path / "blocker"
+            blocker.write_text("not a directory")
             cfg.servers.server_cert = str(blocker / "srv.crt")
             cfg.servers.server_key = str(blocker / "srv.key")
         else:
@@ -26,18 +26,18 @@ class TestXmppWiring:
             cfg.servers.server_key = str(tmp_path / "no.key")
         return cfg
 
-    async def test_xmpp_falla_cliente_con_config_externa(self, tmp_path):
+    async def test_xmpp_failure_keeps_external_client_config(self, tmp_path):
         """Unrecoverable certs → the [bumper] client stays INTACT (ca included)."""
         cfg = self._cfg(tmp_path, unwritable=True)
-        cfg.bumper.host = "bumper-externo"
-        cfg.bumper.ca_file = "/otra/ca.crt"
+        cfg.bumper.host = "external-bumper"
+        cfg.bumper.ca_file = "/other/ca.crt"
         svc = Service(cfg, None)
         await svc._start_embedded_servers()
         assert "xmpp" not in svc.embedded  # ensure_certs failed → disabled
-        assert cfg.bumper.host == "bumper-externo"
-        assert cfg.bumper.ca_file == "/otra/ca.crt"
+        assert cfg.bumper.host == "external-bumper"
+        assert cfg.bumper.ca_file == "/other/ca.crt"
 
-    async def test_xmpp_arranca_cliente_a_loopback_con_ca_del_server(self, tmp_path):
+    async def test_xmpp_start_points_client_at_loopback_with_server_ca(self, tmp_path):
         """XMPP up → the client's host/port/ca_file point at the embedded one."""
         from pathlib import Path
 
@@ -45,7 +45,7 @@ class TestXmppWiring:
         from ecovacs_bridge.servers.certs import ensure_certs
 
         cfg = self._cfg(tmp_path)
-        ca = str(tmp_path / "ca-mia.crt")
+        ca = str(tmp_path / "my-ca.crt")
         assert ensure_certs(ca, str(tmp_path / "srv.crt"),
                             str(tmp_path / "srv.key"), cn="127.0.0.1")
         cfg.servers.server_cert = str(tmp_path / "srv.crt")

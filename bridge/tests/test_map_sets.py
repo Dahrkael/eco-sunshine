@@ -17,14 +17,14 @@ from ecovacs_bridge.robot import RobotState
 
 
 class TestParseMapSetXml:
-    def test_set_vacio_del_corpus(self):
+    def test_empty_set_from_corpus(self):
         """The corpus sends empty <m/> when nothing is configured."""
         ms = parse_mapset_xml(
             {"td": "MapSet", "tp": "vw", "msid": "", "ts": "123"},
             '<m mid="" n="" p="" />')
         assert ms is not None and ms.tp == "vw" and ms.entries == []
 
-    def test_muro_con_datos(self):
+    def test_wall_with_data(self):
         ms = parse_mapset_xml(
             {"td": "MapSet", "tp": "vw", "msid": "0"},
             '<m mid="17" n="" p="100,200,800,200" />')
@@ -34,7 +34,7 @@ class TestParseMapSetXml:
         assert (w.x1, w.y1, w.x2, w.y2) == (100.0, 200.0, 800.0, 200.0)
         assert w.mid == "17"
 
-    def test_muro_con_namespace_bumper(self):
+    def test_wall_with_bumper_namespace(self):
         """Bumper re-serializes and children arrive as <ns0:m …/> — the
         parser must be prefix-agnostic."""
         ms = parse_mapset_xml(
@@ -45,33 +45,33 @@ class TestParseMapSetXml:
         assert isinstance(ms.entries[0], VirtualWall)
         assert isinstance(ms.entries[1], Zone) and ms.entries[1].kind == "mw"
 
-    def test_zona_no_fregar_por_tipo(self):
+    def test_no_mop_zone_by_type(self):
         ms = parse_mapset_xml(
             {"td": "MapSet", "tp": "vw", "msid": "0"},
             '<m mid="3" n="" p="0,0,400,400" t="mw" />')
         assert ms is not None
         assert isinstance(ms.entries[0], Zone) and ms.entries[0].kind == "mw"
 
-    def test_habitaciones(self):
+    def test_rooms(self):
         ms = parse_mapset_xml(
             {"td": "MapSet", "tp": "ar", "msid": "1"},
-            '<m mid="0" n="Salón" center="250,300" index="0" />'
-            '<m mid="1" n="Cocina" center="600,150" index="1" />')
+            '<m mid="0" n="Living room" center="250,300" index="0" />'
+            '<m mid="1" n="Kitchen" center="600,150" index="1" />')
         assert ms is not None and len(ms.entries) == 2
         r0 = ms.entries[0]
-        assert isinstance(r0, Room) and r0.name == "Salón" and r0.center == (250.0, 300.0)
+        assert isinstance(r0, Room) and r0.name == "Living room" and r0.center == (250.0, 300.0)
 
-    def test_sin_tp_devuelve_none(self):
+    def test_no_tp_returns_none(self):
         assert parse_mapset_xml({"td": "MapSet"}, "") is None
 
 
 class TestParseStatsXml:
-    def test_attrs_planos(self):
+    def test_flat_attrs(self):
         # CleanSum convention (sucks): a=area t=time c=count
         st = parse_stats_xml({"td": "CleanSum", "a": "1234", "t": "567", "c": "8"}, "")
         assert st == {"total_area": 1234.0, "total_time": 567.0, "total_count": 8}
 
-    def test_hijo_statistics(self):
+    def test_statistics_child(self):
         st = parse_stats_xml(
             {"td": "GetCleanStatistics"},
             '<statistics area="999" time="100" count="3" />')
@@ -79,7 +79,7 @@ class TestParseStatsXml:
         assert st["total_time"] == 100.0
         assert st["total_count"] == 3
 
-    def test_vacio(self):
+    def test_empty(self):
         assert parse_stats_xml({"td": "GetCleanStatistics"}, "") == {}
 
 
@@ -88,22 +88,22 @@ class TestParseJson:
         ms = parse_mapset_json({
             "ret": "ok", "mid": "0", "msid": "0", "type": "ar", "count": 2,
             "subsets": [
-                {"mssid": "1", "name": "Salón", "center": "250,300", "index": 0},
-                {"mssid": "2", "name": "Cocina", "center": "600,150", "index": 1},
+                {"mssid": "1", "name": "Living room", "center": "250,300", "index": 0},
+                {"mssid": "2", "name": "Kitchen", "center": "600,150", "index": 1},
             ]})
         assert ms is not None and ms.tp == "ar" and len(ms.entries) == 2
-        assert ms.entries[0].name == "Salón" and ms.entries[0].center == (250.0, 300.0)
+        assert ms.entries[0].name == "Living room" and ms.entries[0].center == (250.0, 300.0)
 
-    def test_mapset_vw_pendiente_de_contorno(self):
+    def test_mapset_vw_pending_outline(self):
         ms = parse_mapset_json({
             "ret": "ok", "mid": "0", "msid": "0", "type": "vw", "count": 1,
-            "subsets": [{"mssid": "7", "name": "muro pasillo", "index": 0}]})
+            "subsets": [{"mssid": "7", "name": "hallway wall", "index": 0}]})
         assert ms is not None and len(ms.entries) == 1
         assert ms.entries[0]["_pending_outline"] is True
 
-    def test_subset_resuelve_muro(self):
+    def test_subset_resolves_wall(self):
         sets = {"vw": MapSetData(tp="vw", msid="0", entries=[
-            {"mssid": "7", "name": "muro", "_pending_outline": True}])}
+            {"mssid": "7", "name": "wall", "_pending_outline": True}])}
         from ecovacs_bridge.map_sets import parse_subset_json
 
         parse_subset_json({"ret": "ok", "type": "vw", "mssid": "7",
@@ -129,12 +129,12 @@ class TestRobotStateIngest:
                  '<m mid="17" n="" p="1,2,3,4" />')
         assert "vw" in r.map_sets and r.map_sets["vw"].entries[0].mid == "17"
 
-    def test_update_report_mapset_y_stats(self):
+    def test_update_report_mapset_and_stats(self):
         r = self._r()
         r.update_report("getMapSet", {
             "ret": "ok", "type": "ar", "msid": "0",
-            "subsets": [{"mssid": "1", "name": "Salón", "center": "0,0"}]})
-        assert r.map_sets["ar"].entries[0].name == "Salón"
+            "subsets": [{"mssid": "1", "name": "Living room", "center": "0,0"}]})
+        assert r.map_sets["ar"].entries[0].name == "Living room"
         r.update_report("getTotalStats", {"ret": "ok", "time": 100, "area": 50, "count": 2})
         assert r.stats["total_time"] == 100.0
         assert r.clean_seconds == 100

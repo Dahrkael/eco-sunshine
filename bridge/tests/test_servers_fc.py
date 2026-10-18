@@ -62,7 +62,7 @@ def make_plugin(registry: DeviceRegistry) -> BridgeAuthPlugin:
 # ---------- auth (plugin, unit) ----------
 
 class TestAuthPlugin:
-    async def test_bot_eco_ng_se_registra(self):
+    async def test_eco_ng_bot_registers(self):
         reg = DeviceRegistry()
         ok = await make_plugin(reg).authenticate(
             session=sess(BOT_KEY, username=f"SN-{DID}", password="mock"))
@@ -73,12 +73,12 @@ class TestAuthPlugin:
         assert bot["sn"] == f"SN-{DID}"  # the SN travels in the username
         assert bot["device_class"] == CLS and bot["resource"] == RES
 
-    async def test_bot_sin_username_usa_did_como_sn(self):
+    async def test_bot_without_username_uses_did_as_sn(self):
         reg = DeviceRegistry()
         assert await make_plugin(reg).authenticate(session=sess(BOT_KEY)) is True
         assert reg.bot_get(DID)["sn"] == DID
 
-    async def test_client_bumper_aceptado_y_registrado(self):
+    async def test_bumper_client_accepted_and_registered(self):
         """bridge@bumper/bridge — the client-id of the bridge's MqttTransport."""
         reg = DeviceRegistry()
         assert await make_plugin(reg).authenticate(session=sess("bridge@bumper/bridge")) is True
@@ -86,27 +86,27 @@ class TestAuthPlugin:
         assert cl == {"user_id": "bridge", "realm": "bumper",
                       "resource": "bridge", "xmpp": False}
 
-    async def test_client_ecouser_aceptado_sin_cuentas(self):
+    async def test_ecouser_client_accepted_without_accounts(self):
         """use_auth=False (default): passwordless LAN, like Bumper."""
         reg = DeviceRegistry()
         ok = await make_plugin(reg).authenticate(session=sess("fuid_x@ecouser/ios"))
         assert ok is True
         assert reg.client_get("ios")["user_id"] == "fuid_x"
 
-    async def test_client_use_auth_true_sin_authcode_rechaza(self):
+    async def test_client_use_auth_true_without_authcode_rejects(self):
         reg = DeviceRegistry(use_auth=True)
         ok = await make_plugin(reg).authenticate(session=sess("app@bumper/ios"))
         assert ok is False
         assert reg.client_get("ios") is None
 
-    async def test_helperbot_aceptado_sin_registrar(self):
+    async def test_helperbot_accepted_without_registering(self):
         reg = DeviceRegistry()
         ok = await make_plugin(reg).authenticate(session=sess("helperbot@bumper/helperbot"))
         assert ok is True
         assert reg.client_get("helperbot") is None
 
-    @pytest.mark.parametrize("client_id", ["sin-arroba", "a@b", ""])
-    async def test_client_id_malformado_rechazado(self, client_id):
+    @pytest.mark.parametrize("client_id", ["no-at", "a@b", ""])
+    async def test_malformed_client_id_rejected(self, client_id):
         reg = DeviceRegistry()
         assert await make_plugin(reg).authenticate(session=sess(client_id)) is False
         assert not reg.bots and not reg.clients
@@ -115,7 +115,7 @@ class TestAuthPlugin:
 # ---------- live broker (plain TCP) ----------
 
 class TestBrokerRouting:
-    async def test_report_atr_llega_al_bridge_y_bot_registrado(self):
+    async def test_atr_report_reaches_bridge_and_bot_registered(self):
         """The robot publishes iot/atr/…, the MqttTransport (subscribed to
         iot/#) receives it — and the bot's CONNECT lands it in the
         DeviceRegistry."""
@@ -149,7 +149,7 @@ class TestBrokerRouting:
         finally:
             await broker.stop()
 
-    async def test_comando_p2p_llega_al_robot_y_responde(self):
+    async def test_p2p_command_reaches_robot_and_replies(self):
         """Full roundtrip with '+' filters and a dash-carrying did:
 
         send_command publishes iot/p2p/{cmd}/bridge/bumper/bridge/{did}/…/q/…
@@ -192,7 +192,7 @@ class TestBrokerRouting:
         finally:
             await broker.stop()
 
-    async def test_plus_es_un_nivel_exacto(self):
+    async def test_plus_is_exactly_one_level(self):
         """'+' does NOT match several levels (MQTT-4.7.1) — hbmqtt did
         (regex class with '/'), which is why broken filters 'worked'."""
         broker = EmbeddedMqttBroker(("127.0.0.1", free_port()), DeviceRegistry())
@@ -211,7 +211,7 @@ class TestBrokerRouting:
         finally:
             await broker.stop()
 
-    async def test_username_sin_password_conecta(self):
+    async def test_username_without_password_connects(self):
         """hbmqtt rejected username without password at protocol level
         (CONNACK 0x4) — amqtt does not; the bot connects anyway."""
         reg = DeviceRegistry()
@@ -274,7 +274,7 @@ def _generate_certs(tmp_path: Path) -> tuple[Path, Path, Path]:
 
 
 class TestTLSListener:
-    async def test_pubsub_sobre_tls_con_certs(self, tmp_path):
+    async def test_pubsub_over_tls_with_certs(self, tmp_path):
         ca, cert, key = _generate_certs(tmp_path)
         broker = EmbeddedMqttBroker(("127.0.0.1", free_port()), DeviceRegistry(),
                                     server_cert=str(cert), server_key=str(key))
@@ -303,7 +303,7 @@ class TestTLSListener:
 # ---------- serve wiring ----------
 
 class TestServeWiringFC:
-    async def test_servers_mqtt_arranca_broker_y_cliente_a_loopback(self, tmp_path):
+    async def test_servers_mqtt_starts_broker_and_client_to_loopback(self, tmp_path):
         ca, cert, key = _generate_certs(tmp_path)
         cfg = Config()
         cfg.servers.listen = "127.0.0.1"
@@ -313,7 +313,7 @@ class TestServeWiringFC:
         cfg.servers.server_cert = str(cert)
         cfg.servers.server_key = str(key)
         cfg.bumper_mqtt.enabled = True
-        cfg.bumper_mqtt.host = "bumper-externo"
+        cfg.bumper_mqtt.host = "external-bumper"
         cfg.bumper_mqtt.port = 8883
         svc = Service(cfg, None)
         await svc._start_embedded_servers()
@@ -338,7 +338,7 @@ class TestServeWiringFC:
             if "mqtt" in svc.embedded:
                 await svc.embedded["mqtt"].stop()
 
-    async def test_servers_mqtt_off_cliente_intacto(self):
+    async def test_servers_mqtt_off_client_untouched(self):
         """servers.mqtt=false = everything as today: nothing embedded,
         the client keeps pointing at the config's external broker."""
         cfg = Config()
@@ -349,7 +349,7 @@ class TestServeWiringFC:
         assert "mqtt" not in svc.embedded
         assert cfg.bumper_mqtt.host == "10.0.0.9"
 
-    async def test_broker_sin_cliente_por_config_no_rompe(self, tmp_path):
+    async def test_broker_without_client_by_config_does_not_break(self, tmp_path):
         """Embedded broker but [bumper_mqtt] off: it still starts (only
         warns) and does not touch the client config."""
         _ca, cert, key = _generate_certs(tmp_path)
@@ -367,7 +367,7 @@ class TestServeWiringFC:
         finally:
             await svc.embedded["mqtt"].stop()
 
-    async def test_certs_irrecuperables_no_tumban_el_serve(self, tmp_path):
+    async def test_unrecoverable_certs_do_not_kill_serve(self, tmp_path):
         """Unrecoverable certs (unusable destination) → no embedded broker,
         but serve stays alive — same criterion as the embedded XMPP (FA/FB).
 
@@ -376,15 +376,15 @@ class TestServeWiringFC:
         test_servers_fe.py. Here the cert directory is blocked by a
         regular file.)
         """
-        bloqueo = tmp_path / "bloqueo"
-        bloqueo.write_text("no soy un directorio")
+        blocker = tmp_path / "blocker"
+        blocker.write_text("not a directory")
         cfg = Config()
         cfg.servers.listen = "127.0.0.1"
         cfg.servers.mqtt = True
         # deterministic: impossible destination in tmp and a free port
         # (not 8883, which the environment's docker bumper may have taken)
-        cfg.servers.server_cert = str(bloqueo / "no.crt")
-        cfg.servers.server_key = str(bloqueo / "no.key")
+        cfg.servers.server_cert = str(blocker / "no.crt")
+        cfg.servers.server_key = str(blocker / "no.key")
         cfg.servers.mqtt_port = _free_port()
         svc = Service(cfg, None)
         await svc._start_embedded_servers()
@@ -394,16 +394,16 @@ class TestServeWiringFC:
         cfg2 = Config()
         cfg2.servers.listen = "127.0.0.1"
         cfg2.servers.mqtt = True
-        cfg2.servers.server_cert = str(bloqueo / "no2.crt")
-        cfg2.servers.server_key = str(bloqueo / "no2.key")
+        cfg2.servers.server_cert = str(blocker / "no2.crt")
+        cfg2.servers.server_key = str(blocker / "no2.key")
         cfg2.servers.mqtt_port = _free_port()
         cfg2.bumper_mqtt.enabled = True
-        cfg2.bumper_mqtt.host = "bumper-externo"
+        cfg2.bumper_mqtt.host = "external-bumper"
         cfg2.bumper_mqtt.port = 8883
         svc2 = Service(cfg2, None)
         await svc2._start_embedded_servers()
         assert "mqtt" not in svc2.embedded
-        assert cfg2.bumper_mqtt.host == "bumper-externo"  # untouched
+        assert cfg2.bumper_mqtt.host == "external-bumper"  # untouched
         assert cfg2.bumper_mqtt.tls is None  # untouched
 
 
@@ -422,7 +422,7 @@ async def _wait_for(pred, timeout: float) -> None:
     deadline = asyncio.get_running_loop().time() + timeout
     while not pred():
         if asyncio.get_running_loop().time() > deadline:
-            pytest.fail("condición no alcanzada en el timeout")
+            pytest.fail("condition not reached within the timeout")
         await asyncio.sleep(0.02)
 
 
@@ -432,11 +432,11 @@ async def _take(aiter, n: int, timeout: float):
     it = aiter.__aiter__()
     deadline = loop.time() + timeout
     while n > 0:
-        restante = deadline - loop.time()
-        if restante <= 0:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
             return
         try:
-            item = await asyncio.wait_for(it.__anext__(), restante)
+            item = await asyncio.wait_for(it.__anext__(), remaining)
         except (StopAsyncIteration, asyncio.TimeoutError):
             return
         yield item

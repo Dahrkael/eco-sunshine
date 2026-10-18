@@ -49,17 +49,17 @@ def _strict_ctx(ca_file: str) -> ssl.SSLContext:
 # ---------- generation ----------
 
 class TestEnsureCerts:
-    def test_instalacion_limpia_genera_trio_y_clave_de_ca(self, tmp_path):
+    def test_clean_install_generates_trio_and_ca_key(self, tmp_path):
         ca, crt, key = tmp_path / "ca.crt", tmp_path / "srv.crt", tmp_path / "srv.key"
         assert ensure_certs(str(ca), str(crt), str(key), cn="bumper") is True
         for p in (ca, crt, key, tmp_path / "ca.key"):
-            assert p.is_file(), f"falta {p}"
+            assert p.is_file(), f"missing {p}"
         # permission contract: private keys 0600, certs readable
         import stat
 
         for secret in (key, tmp_path / "ca.key"):
             mode = stat.S_IMODE(secret.stat().st_mode)
-            assert mode == 0o600, f"{secret} con permisos {oct(mode)}"
+            assert mode == 0o600, f"{secret} with permissions {oct(mode)}"
         ca_cert = x509.load_pem_x509_certificate(ca.read_bytes())
         srv_cert = x509.load_pem_x509_certificate(crt.read_bytes())
         # chain: the leaf is signed by the generated CA
@@ -72,36 +72,36 @@ class TestEnsureCerts:
         aki = srv_cert.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier)
         assert aki.value.key_identifier is not None
 
-    def test_ca_sin_su_clave_no_firma_nada(self, tmp_path):
+    def test_ca_without_its_key_signs_nothing(self, tmp_path):
         ca, crt, key = tmp_path / "ca.crt", tmp_path / "srv.crt", tmp_path / "srv.key"
-        ca.write_bytes(b"basura-ca")  # CA present, ca.key missing
+        ca.write_bytes(b"garbage-ca")  # CA present, ca.key missing
         assert ensure_certs(str(ca), str(crt), str(key)) is False
         assert not crt.exists() and not key.exists()
 
-    def test_existentes_no_se_tocan(self, tmp_path):
+    def test_existing_untouched(self, tmp_path):
         ca, crt, key = tmp_path / "ca.crt", tmp_path / "srv.crt", tmp_path / "srv.key"
-        for p, payload in ((ca, b"CA-VIEJA"), (crt, b"CRT-VIEJO"),
-                           (key, b"KEY-VIEJA")):
+        for p, payload in ((ca, b"OLD-CA"), (crt, b"OLD-CRT"),
+                           (key, b"OLD-KEY")):
             p.write_bytes(payload)
         assert ensure_certs(str(ca), str(crt), str(key)) is True
-        assert ca.read_bytes() == b"CA-VIEJA"
-        assert crt.read_bytes() == b"CRT-VIEJO"
-        assert key.read_bytes() == b"KEY-VIEJA"
+        assert ca.read_bytes() == b"OLD-CA"
+        assert crt.read_bytes() == b"OLD-CRT"
+        assert key.read_bytes() == b"OLD-KEY"
 
-    def test_par_a_medias_no_genera_nada(self, tmp_path):
+    def test_half_pair_generates_nothing(self, tmp_path):
         ca, crt, key = tmp_path / "ca.crt", tmp_path / "srv.crt", tmp_path / "srv.key"
-        crt.write_bytes(b"huerfano")
+        crt.write_bytes(b"orphan")
         assert ensure_certs(str(ca), str(crt), str(key)) is False
         assert not ca.exists() and not key.exists()
 
-    def test_ca_ausente_con_par_presente_no_genera_ca(self, tmp_path):
+    def test_missing_ca_with_pair_present_generates_no_ca(self, tmp_path):
         """A new CA would not sign the existing cert: just warn."""
         ca, crt, key = tmp_path / "ca.crt", tmp_path / "srv.crt", tmp_path / "srv.key"
         crt.write_bytes(b"crt"), key.write_bytes(b"key")
         assert ensure_certs(str(ca), str(crt), str(key)) is True
         assert not ca.exists()
 
-    def test_ca_existente_firma_el_par_nuevo(self, tmp_path):
+    def test_existing_ca_signs_the_new_pair(self, tmp_path):
         """bumper.crt deleted + intact CA → re-issue signed by THAT CA
         (robots already trusting it notice nothing)."""
         ca, crt, key = tmp_path / "ca.crt", tmp_path / "srv.crt", tmp_path / "srv.key"
@@ -114,7 +114,7 @@ class TestEnsureCerts:
         assert second.issuer == ca_cert.subject
         assert second.serial_number != first.serial_number
 
-    def test_cn_ip_acaba_como_san_de_ip(self, tmp_path):
+    def test_ip_cn_ends_up_as_ip_san(self, tmp_path):
         ca, crt, key = tmp_path / "ca.crt", tmp_path / "srv.crt", tmp_path / "srv.key"
         import ipaddress
 
@@ -124,19 +124,19 @@ class TestEnsureCerts:
         assert ipaddress.ip_address("192.168.1.50") in san.value.get_values_for_type(
             x509.IPAddress)
 
-    def test_destino_inservible_devuelve_false_sin_medidas(self, tmp_path):
-        bloqueo = tmp_path / "bloqueo"
-        bloqueo.write_text("no soy un directorio")
+    def test_unusable_destination_returns_false_without_side_effects(self, tmp_path):
+        blocker = tmp_path / "blocker"
+        blocker.write_text("not a directory")
         ca = tmp_path / "d" / "ca.crt"  # VALID destination: must never get created
-        assert ensure_certs(str(ca), str(bloqueo / "srv.crt"),
-                            str(bloqueo / "srv.key")) is False
+        assert ensure_certs(str(ca), str(blocker / "srv.crt"),
+                            str(blocker / "srv.key")) is False
         assert not ca.exists() and list(tmp_path.glob("**/*.crt")) == []
 
 
 # ---------- the generated certs work for TLS ----------
 
-class TestCertsGeneradosSirvenParaTLS:
-    async def test_pubsub_tls_con_verificacion_estrita(self, tmp_path):
+class TestGeneratedCertsWorkForTLS:
+    async def test_pubsub_tls_with_strict_verification(self, tmp_path):
         ensure_certs(str(tmp_path / "ca.crt"), str(tmp_path / "srv.crt"),
                      str(tmp_path / "srv.key"))
         broker = EmbeddedMqttBroker(("127.0.0.1", free_port()), DeviceRegistry(),
@@ -165,12 +165,12 @@ class TestCertsGeneradosSirvenParaTLS:
 
 # ---------- DEEBOT_ANNOUNCE_IP (environment fallback) ----------
 
-class TestAnnounceIpEntorno:
+class TestAnnounceIpEnvironment:
     """The toml reads no env: the deploy injects announce_ip through a
     variable (compose: DEEBOT_ANNOUNCE_IP ← ${BUMPER_ANNOUNCE_IP} from
     .env)."""
 
-    def test_env_rellena_announce_ip_vacio(self, tmp_path, monkeypatch):
+    def test_env_fills_empty_announce_ip(self, tmp_path, monkeypatch):
         p = tmp_path / "c.toml"
         p.write_text("[servers]\nlookup = true\n")
         monkeypatch.setenv("DEEBOT_ANNOUNCE_IP", "192.0.2.10")
@@ -178,19 +178,19 @@ class TestAnnounceIpEntorno:
         assert cfg.servers.announce_ip == "192.0.2.10"
         assert cfg.servers.lookup is True  # the rest of the toml intact
 
-    def test_toml_explicito_gana_al_entorno(self, tmp_path, monkeypatch):
+    def test_explicit_toml_wins_over_environment(self, tmp_path, monkeypatch):
         p = tmp_path / "c.toml"
         p.write_text('[servers]\nannounce_ip = "10.0.0.7"\n')
         monkeypatch.setenv("DEEBOT_ANNOUNCE_IP", "192.0.2.10")
         assert load_config(str(p)).servers.announce_ip == "10.0.0.7"
 
-    def test_sin_env_queda_vacio(self, tmp_path, monkeypatch):
+    def test_no_env_stays_empty(self, tmp_path, monkeypatch):
         monkeypatch.delenv("DEEBOT_ANNOUNCE_IP", raising=False)
         p = tmp_path / "c.toml"
         p.write_text("[servers]\n")
         assert load_config(str(p)).servers.announce_ip == ""
 
-    def test_env_blanco_ignorado(self, tmp_path, monkeypatch):
+    def test_blank_env_ignored(self, tmp_path, monkeypatch):
         monkeypatch.setenv("DEEBOT_ANNOUNCE_IP", "   ")
         p = tmp_path / "c.toml"
         p.write_text("[servers]\n")
@@ -200,7 +200,7 @@ class TestAnnounceIpEntorno:
 # ---------- serve wiring (FE) ----------
 
 class TestServeWiringFE:
-    async def test_certs_ausentes_se_generan_y_el_broker_arranca(self, tmp_path):
+    async def test_missing_certs_generated_and_broker_starts(self, tmp_path):
         """Clean install: serve generates the certs and starts the embedded
         broker — the [bumper_mqtt] client moves to loopback as in FC."""
         cfg = Config()
@@ -211,7 +211,7 @@ class TestServeWiringFE:
         cfg.servers.server_cert = str(tmp_path / "srv.crt")
         cfg.servers.server_key = str(tmp_path / "srv.key")
         cfg.bumper_mqtt.enabled = True
-        cfg.bumper_mqtt.host = "bumper-externo"
+        cfg.bumper_mqtt.host = "external-bumper"
         svc = Service(cfg, None)
         await svc._start_embedded_servers()
         try:
@@ -226,22 +226,22 @@ class TestServeWiringFE:
             if "mqtt" in svc.embedded:
                 await svc.embedded["mqtt"].stop()
 
-    async def test_certs_irrecuperables_desactivan_los_tls_embebidos(self, tmp_path):
+    async def test_unrecoverable_certs_disable_embedded_tls(self, tmp_path):
         """Unusable destination → no embedded XMPP/MQTT and the client
         untouched (serve does not die, stays compatible with an external
         bumper)."""
-        bloqueo = tmp_path / "bloqueo"
-        bloqueo.write_text("x")
+        blocker = tmp_path / "blocker"
+        blocker.write_text("x")
         cfg = Config()
         cfg.servers.listen = "127.0.0.1"
         cfg.servers.mqtt = True
-        cfg.servers.server_cert = str(bloqueo / "no.crt")
-        cfg.servers.server_key = str(bloqueo / "no.key")
+        cfg.servers.server_cert = str(blocker / "no.crt")
+        cfg.servers.server_key = str(blocker / "no.key")
         cfg.servers.mqtt_port = free_port()
         cfg.bumper_mqtt.enabled = True
-        cfg.bumper_mqtt.host = "bumper-externo"
+        cfg.bumper_mqtt.host = "external-bumper"
         svc = Service(cfg, None)
         await svc._start_embedded_servers()
         assert "mqtt" not in svc.embedded
-        assert cfg.bumper_mqtt.host == "bumper-externo"
+        assert cfg.bumper_mqtt.host == "external-bumper"
         assert cfg.bumper_mqtt.tls is None  # untouched

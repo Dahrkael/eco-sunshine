@@ -26,32 +26,32 @@ def extract_i18n_dicts() -> tuple[set[str], set[str]]:
 
 
 class TestI18n:
-    def test_ambos_idiomas_mismas_claves(self):
+    def test_both_languages_same_keys(self):
         es, en = extract_i18n_dicts()
         assert es, "empty es dictionary"
         assert es == en, f"key mismatch: es-only={es - en} en-only={en - es}"
 
-    def test_toda_referencia_data_i18n_resuelve(self):
+    def test_every_data_i18n_reference_resolves(self):
         es, en = extract_i18n_dicts()
         refs = set(re.findall(r'data-i18n="(\w+)"', INDEX_HTML))
         missing = refs - en
         assert not missing, f"data-i18n keys without translation: {missing}"
 
-    def test_claves_usadas_en_t_resuelven(self):
+    def test_keys_used_in_t_resolve(self):
         es, en = extract_i18n_dicts()
-        # word-boundary lookbehind: getContext('2d') no es un t()
+        # word-boundary lookbehind: getContext('2d') is not a t()
         refs = set(re.findall(r"(?<![A-Za-z])t\('(\w+)'\)", INDEX_HTML))
         missing = refs - en
         assert not missing, f"t() keys without translation: {missing}"
 
-    def test_deteccion_de_idioma_por_navegador(self):
+    def test_browser_language_detection(self):
         """navigator.languages → es if any starts with 'es', else en."""
         assert "navigator.languages" in INDEX_HTML
         assert "startsWith('es')" in INDEX_HTML
         # the default textContent of static nodes is replaced on load
         assert "document.querySelectorAll('[data-i18n]')" in INDEX_HTML
 
-    def test_sin_espanol_hardcodeado_fuera_del_diccionario(self):
+    def test_no_hardcoded_spanish_outside_dictionary(self):
         """No Spanish UI fragments in the HTML body outside the es dict."""
         body = INDEX_HTML
         # strip the es dictionary block before scanning

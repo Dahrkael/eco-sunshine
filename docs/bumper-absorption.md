@@ -108,8 +108,8 @@ Pending after the merge: ~~production regression with the real 930~~
 **DONE (2026-10-17)**: the real 930 connects to the monolith, negotiates
 lookup→XMPP→TLS, reports fw 1.9.9 / battery 100 / consumables / position,
 and the map flows (it required the eco dialect fix: the robot replies by
-ctl-id without td/pid — `fix(xmpp): correlación por ctl-id`). The real
+ctl-id without td/pid — `fix(xmpp): ctl-id correlation`). The real
 eco-ng is pending T8+ hardware. The legacy app against the conf (FD) is
 pending a test with a phone.
 
-Rollback if ever needed: `backup/pre-absorcion` + `--profile legacy`.
+Rollback if ever needed: `--profile legacy` (the vendored Bumper).

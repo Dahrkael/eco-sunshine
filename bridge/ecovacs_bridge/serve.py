@@ -970,6 +970,10 @@ class Service:
                         if grid:
                             await self.pub.publish_map(r.slug,
                                                        self._render_map_png(map_id, r, grid))
+                            # live map data for custom cards (canvas JSON,
+                            # same shape the panel WS sends)
+                            await self.pub.publish_map_data(
+                                r.slug, self.panel._build_map_data(r.slug, map_id, grid))
                     log.debug("maps published (v%d, %d pieces in %d maps)",
                               self.asm.version,
                               sum(self.asm.piece_count(m) for m in self.asm.maps),

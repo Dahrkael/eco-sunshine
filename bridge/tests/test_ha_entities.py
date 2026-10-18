@@ -138,3 +138,21 @@ class TestServeWiringH1:
             "ret": "ok", "type": "ar", "msid": "0",
             "subsets": [{"mssid": "1", "name": "Living", "center": "0,0"}]})
         assert len(fc.published) == n
+
+
+class TestMapDataTopic:
+    async def test_publish_map_data_retained(self):
+        pub, fc = make_pub()
+        payload = {"type": "map", "w": 4, "h": 3, "rows": ["0000", "0110", "0000"],
+                   "cell_mm": 50, "origin_r": 250, "origin_c": 200,
+                   "crop_r": 0, "crop_c": 0, "y_down": False}
+        await pub.publish_map_data("bot", payload)
+        topic, body, retain = fc.published[-1]
+        assert topic == "deebot/bot/map_data"
+        assert retain is True
+        import json as j
+        assert j.loads(body)["w"] == 4
+        # None publishes nothing
+        n = len(fc.published)
+        await pub.publish_map_data("bot", None)
+        assert len(fc.published) == n

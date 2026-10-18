@@ -308,7 +308,17 @@ class MqttPublisher:
     async def publish_map(self, slug: str, png: bytes) -> None:
         # HA's MQTT camera expects the raw image bytes
         if self.client:
-            await self.client.publish(f"{self.base}/{slug}/map", png, retain=True, qos=0)
+            await self.client.publish(f"{self.base}/{slug}/map", png,
+                                      retain=True, qos=0)
+
+    async def publish_map_data(self, slug: str, data: dict | None) -> None:
+        """Live map as JSON for custom cards (canvas-rendered).
+
+        Same shape the web panel sends over WebSocket: rows of cell chars +
+        crop/origin/cell_mm transform. Retained — a card connecting late
+        renders immediately."""
+        if data and self.client:
+            await self._pub(f"{self.base}/{slug}/map_data", json.dumps(data))
 
     # ---------- command loop ----------
 

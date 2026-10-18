@@ -22,8 +22,23 @@ bridge ──► map decoder → PNG renderer → MQTT (HA discovery) ──► 
 
 There is no bumper container any more (kept as `--profile legacy` for
 rollback). TLS certificates are auto-generated on clean installs; existing
-ones are never touched. Full rollback: branch `backup/pre-absorcion` +
-legacy.
+ones are never touched.
+
+## Quickstart (fresh clone)
+
+```bash
+git clone <repo> && cd ecovacs-bridge
+cp .env.example .env          # edit: BUMPER_ANNOUNCE_IP = this host's LAN IP
+docker compose up -d --build  # bridge + mosquitto
+```
+
+The panel is at `http://<host>:8181`. Before a robot can find the bridge
+you also need the **DNS setup** (Pi-hole section below) — robots resolve
+Ecovacs domains and must land on your host. Pairing walkthrough: the
+checklist at the bottom.
+
+Requirements: Docker + docker compose, a DNS you control (Pi-hole
+recommended), Python ≥3.10 only for development/CLI use without Docker.
 
 ## Project status — VALIDATED WITH A REAL ROBOT
 
@@ -31,7 +46,7 @@ legacy.
 |---|---|---|
 | 0-5 | Environment, pairing, corpus, reverse engineering, HA bridge | **✅ done** |
 | 6 | MQTT transport for T8+ robots (eco-ng) | **✅ done** (spec mqtt-json-spec.md §10) |
-| 7 | Bumper absorption into the bridge (monolith) | **✅ done** (FA–FD, `docs/absorcion-bumper.md`) |
+| 7 | Bumper absorption into the bridge (monolith) | **✅ done** (FA–FD, `docs/bumper-absorption.md`) |
 | 8 | Regression with the real 930 in production | **✅ done** — connects, fw 1.9.9, battery, consumables, map |
 | — | Real eco-ng (T8+), legacy app against FD | pending hardware/phone |
 | — | Custom firmware | **separate project** (roadmap in `docs/firmware.md`) |
@@ -66,6 +81,11 @@ trajectory (replayed while cleaning), real lifespans and battery, and
 frame formats verified attribute by attribute. Add its JID to `robots`
 in the config so that `serve` adopts it (when docked it emits nothing,
 like the real one).
+
+> The corpus is **not distributed** with the repository: it embeds the
+> real floor plan of the home the robot mapped (privacy). Regenerate
+> yours with `python tools/extract_930_corpus.py` pointed at a Bumper
+> log of your own robot — the mock then replays YOUR map.
 
 Config: the `[bumper_mqtt]` section of the TOML (host/port/CA of the
 Bumper broker, `enabled`, known robots to adopt without waiting for a
@@ -105,11 +125,13 @@ non-negotiable. Routes evaluated at the time:
   experiment that loses the app as an oracle. It is not "dropping XMPP":
   it would require the robot itself to change channels.
 
-## Operation (DEV, WSL + Docker Desktop)
+## Operation (dev/prod notes)
 
-Since the Bumper absorption (phase 7) the deployment is **two
-containers**: the bridge (everything embedded: lookup+XMPP+MQTT
-broker+panel) and mosquitto.
+Deployment is **two containers**: the bridge (everything embedded:
+lookup+XMPP+MQTT broker+panel) and mosquitto — see Quickstart above for
+the fresh-clone flow. This section keeps the environment-specific notes
+from the reference setup (WSL + Docker Desktop on Windows; a Linux box
+works the same without the Windows quirks).
 
 ```bash
 cd ecovacs-bridge

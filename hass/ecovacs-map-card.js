@@ -10,19 +10,19 @@
  */
 import { subscribeMqtt, tr, css } from './ecovacs-card-common.js';
 
-const COLORS = { 0: '#0d1117', 1: '#30363d', 2: '#8b949e', 3: '#6b5b3e' };
+const COLORS = { 0: '#0d1117', 1: '#30363d', 2: '#8b949e', 3: '#6b5b3e', 4: '#f85149' };
 
 class EcovacsMapCard extends HTMLElement {
   static getStubConfig() { return { type: 'custom:ecovacs-map-card', entity: '' }; }
 
   setConfig(config) {
     if (!config.entity) throw new Error('entity is required');
+    if (this._unsubMap) { this._unsubMap(); this._unsubMap = null; } // re-config: drop old subscription
     this._config = config;
     this._map = null;       // last map_data payload
     this._robot = null;     // {r,c} animated
     this._anim = null;
-    this._unsubMap = null;
-    this._unsubState = null;
+    this._drawFp = null;    // last drawn fingerprint (skip redundant redraws)
     this._render();
   }
 
@@ -31,13 +31,16 @@ class EcovacsMapCard extends HTMLElement {
     const st = hass.states[this._config.entity];
     if (!st) return;
     this._state = st.attributes || {};
-    const topic = this._config.map_topic ||
-      `deebot/${this._config.entity.split('.')[1]}/map_data`;
-    if (!this._unsubMap) this._unsubMap = subscribeMqtt(hass, topic, (m) => {
-      try { this._map = JSON.parse(m); } catch (e) { return; }
+    // slug + base come from the state doc the bridge publishes — no
+    // entity-id arithmetic (HA derives entity ids from the NAME)
+    const slug = this._state.slug || (this._config.entity.split('.')[1] || '');
+    const base = this._config.base_topic || 'deebot';
+    const topic = this._config.map_topic || `${base}/${slug}/map_data`;
+    if (topic && !this._unsubMap) this._unsubMap = subscribeMqtt(hass, topic, (m) => {
+      try { this._map = JSON.parse(m.payload); } catch (e) { return; }
+      this._drawFp = null;  // new map → force redraw
       this._draw();
     });
-    // position updates arrive with the state doc (attributes)
     const pos = this._state.position;
     if (pos && this._map) {
       const cell = this._mmToCell(pos.x, pos.y);
@@ -53,8 +56,7 @@ class EcovacsMapCard extends HTMLElement {
   getCardSize() { return 5; }
 
   disconnectedCallback() {
-    if (this._unsubMap) this._unsubMap();
-    if (this._unsubState) this._unsubState();
+    if (this._unsubMap) { this._unsubMap(); this._unsubMap = null; }
   }
 
   _mmToCell(x, y) {
@@ -80,6 +82,12 @@ class EcovacsMapCard extends HTMLElement {
   _draw() {
     const ctx = this._ctx, cv = this._canvas, m = this._map;
     const t = tr(this._hass);
+    // skip redundant full redraws (same map + same rounded position)
+    const fp = m ? `${m.map_id}|${this._state.position &&
+      Math.round(this._state.position.x)}|${this._state.position &&
+      Math.round(this._state.position.y)}` : 'none';
+    if (!this._anim && fp === this._drawFp) return;
+    this._drawFp = fp;
     ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, cv.width, cv.height);
     if (!m) {
       ctx.fillStyle = '#666'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center';
@@ -133,7 +141,9 @@ class EcovacsMapCard extends HTMLElement {
     const ch = this._state && this._state.charger;
     if (ch) { const p = mm(ch.x, ch.y);
       if (p) { ctx.fillStyle = '#d29922'; const s = cell * 2;
-        ctx.beginPath(); ctx.roundRect(p[1] - s / 4, p[0] - s / 4, s, s, 3); ctx.fill();
+        if (ctx.roundRect) {
+          ctx.beginPath(); ctx.roundRect(p[1] - s / 4, p[0] - s / 4, s, s, 3); ctx.fill();
+        } else { ctx.fillRect(p[1] - s / 4, p[0] - s / 4, s, s); } // Safari <16.4
         ctx.fillStyle = '#000'; ctx.font = `${cell + 3}px sans-serif`;
         ctx.fillText('⚡', p[1], p[0]); } }
     // animated robot

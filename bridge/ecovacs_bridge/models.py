@@ -178,9 +178,9 @@ MODELS: dict[str, ModelInfo] = dict([
 # Most are assigned dynamically by the server; the robot announces its
 # class in the client-id when connecting to the broker ({did}@{class}/{res}).
 MQTT_MODELS: dict[str, ModelInfo] = dict([
-    _m("yna5xh", "t9aivi", "Deebot OZMO T9 AIVI", "dt9ai_main"),
-    _m("x7p4y4", "t9pro", "Deebot OZMO T9 PRO", "dt9_main"),
-    _m("vsc5ia", "t8n8", "Deebot T8/N8 family", "dt8_main"),
+    _m("yna5xh", "t9aivi", "Deebot OZMO T9 AIVI", "dt9ai_main", mop=True, water=True),
+    _m("x7p4y4", "t9pro", "Deebot OZMO T9 PRO", "dt9_main", mop=True, water=True),
+    _m("vsc5ia", "t8n8", "Deebot T8/N8 family", "dt8_main", mop=True, water=True),
     _m("qqy0di", "aa30", "Deebot AA30 (AIRBOT)", "lib_iot_client"),
     _m("oxandq", "a680", "Deebot A680 (AIRBOT)", ""),
 ])
@@ -199,6 +199,8 @@ DEFAULT_MQTT_MODEL = ModelInfo(
     display="Deebot (eco-ng)",
     jid_class="unknown",
     map_types=["ol"],
+    has_water_level=True,  # unknown eco-ng vacuums mop more often than not
+                           # (AIRBOTs are registered with their own class)
     protocol="mqtt",
 )
 

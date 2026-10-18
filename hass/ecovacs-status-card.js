@@ -55,10 +55,10 @@ class EcovacsStatusCard extends HTMLElement {
           ${a.fw ? `<div class="muted">${t('fw')} ${a.fw}</div>` : ''}
         </div>
       </div>
-      <div class="row" style="margin-top:10px;gap:16px" class="muted">
-        <span class="muted">⏱ ${h}h ${m}m <span style="opacity:.7">${t('total')}</span></span>
-        <span class="muted">📐 ${m2} m² <span style="opacity:.7">${t('cleaned')}</span></span>
-        <span class="muted">🔁 ${stats.total_count ?? '—'} <span style="opacity:.7">${t('cleans')}</span></span>
+      <div class="row muted" style="margin-top:10px;gap:16px">
+        <span>⏱ ${h}h ${m}m <span style="opacity:.7">${t('total')}</span></span>
+        <span>📐 ${m2} m² <span style="opacity:.7">${t('cleaned')}</span></span>
+        <span>🔁 ${stats.total_count ?? '—'} <span style="opacity:.7">${t('cleans')}</span></span>
       </div>
       ${a.error && a.error !== 'none' && a.error !== 'None'
         ? `<div style="margin-top:8px;color:#f85149">⚠ ${a.error}</div>`

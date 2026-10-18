@@ -497,6 +497,9 @@ class NullPanel:
     def build_and_broadcast_map(self, grids=None) -> None:
         pass
 
+    def _build_map_data(self, *args, **kwargs) -> dict | None:
+        return None  # no panel → no map payload (map_data topic stays empty)
+
     def broadcast_raw(self, msg: str) -> None:
         pass
 

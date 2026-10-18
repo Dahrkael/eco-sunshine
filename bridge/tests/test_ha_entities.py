@@ -55,7 +55,7 @@ class TestDiscoveryH1:
     async def test_room_buttons_idempotentes(self):
         pub, fc = make_pub()
         rooms = [{"mssid": "1", "name": "Living"}, {"mssid": "2", "name": "Kitchen"}]
-        await pub.publish_room_buttons("bot", "Deebot", rooms)
+        await pub.publish_room_buttons("bot", "Deebot", "Deebot OZMO 930", rooms)
         ts = topics(fc)
         b1 = json.loads(ts["homeassistant/button/bot_room_1/config"])
         assert b1["payload_press"] == "1"
@@ -63,7 +63,7 @@ class TestDiscoveryH1:
         assert "homeassistant/button/bot_room_2/config" in ts
         # empty list publishes nothing
         n = len(fc.published)
-        await pub.publish_room_buttons("bot", "Deebot", [])
+        await pub.publish_room_buttons("bot", "Deebot", "Deebot OZMO 930", [])
         assert len(fc.published) == n
 
 
@@ -130,8 +130,10 @@ class TestServeWiringH1:
             "ret": "ok", "type": "ar", "msid": "0",
             "subsets": [{"mssid": "1", "name": "Living", "center": "0,0"}]})
         ts = topics(fc)
-        assert "homeassistant/button/t9aivi-_na5xh_room_1/config".replace(
-            "t9aivi-_na5xh", r.slug) in ts or any("_room_1" in t for t in ts)
+        assert f"homeassistant/button/{r.slug}_room_1/config" in ts
+        # the device keeps the real model (not degraded to "Deebot")
+        cfg = json.loads(ts[f"homeassistant/button/{r.slug}_room_1/config"])
+        assert cfg["device"]["model"] == "Deebot OZMO T9 AIVI via deebot-bridge"
         n = len(fc.published)
         # same rooms again → no republication (signature unchanged)
         await svc.on_report(key, "getMapSet", {
@@ -156,3 +158,74 @@ class TestMapDataTopic:
         n = len(fc.published)
         await pub.publish_map_data("bot", None)
         assert len(fc.published) == n
+
+
+class TestRegresionesReview:
+    async def test_set_water_level_mapea_niveles(self):
+        from ecovacs_bridge.config import Config
+        from ecovacs_bridge.serve import Service
+        from tests.test_serve_wiring import FakeTransport
+        from ecovacs_bridge.models import DeviceId
+        from ecovacs_bridge.robot import RobotState
+        from ecovacs_bridge.mqtt_commander import MqttCommander
+
+        svc = Service(Config(), None)
+        t = FakeTransport()
+        svc.mqtt_transport = t
+        r = RobotState.from_device_id(DeviceId.from_key("x@yna5xh/axm"))
+        svc.robots[r.did.key] = r
+        svc.commanders[r.did.key] = MqttCommander(t, r)
+        svc.pub = None  # on_command publica: sin cliente no publica
+        pub_calls = []
+
+        class _NoPub:
+            async def publish_state(self, *a, **k): pass
+        svc.pub = _NoPub()
+        await svc.on_command(r.slug, "set_water_level", "high")
+        cmd = [x for x in t.sent if x[0] == "setWaterInfo"][-1]
+        assert cmd[2]["amount"] == 3
+        await svc.on_command(r.slug, "set_water_level", "low")
+        cmd = [x for x in t.sent if x[0] == "setWaterInfo"][-1]
+        assert cmd[2]["amount"] == 1
+
+    def test_null_panel_build_map_data_noop(self):
+        from ecovacs_bridge.webpanel import NullPanel
+
+        assert NullPanel()._build_map_data("slug", "0", None) is None
+
+    async def test_rename_room_republica_boton(self):
+        from ecovacs_bridge.config import Config
+        from ecovacs_bridge.serve import Service
+        from tests.test_ha_entities import make_pub, topics
+        from tests.test_serve_wiring import FakeTransport
+        from ecovacs_bridge.models import DeviceId
+        from ecovacs_bridge.robot import RobotState
+        from ecovacs_bridge.mqtt_commander import MqttCommander
+
+        svc = Service(Config(), None)
+        pub, fc = make_pub()
+        svc.pub = pub
+        t = FakeTransport()
+        svc.mqtt_transport = t
+        r = RobotState.from_device_id(DeviceId.from_key("x@yna5xh/axm"))
+        key = r.did.key
+        svc.robots[key] = r
+        svc.commanders[key] = MqttCommander(t, r)
+
+        async def send(name):
+            svc._last_publish[key] = 0  # beat the 2s state throttle
+            await svc.on_report(key, "getMapSet", {
+                "ret": "ok", "type": "ar", "msid": "0",
+                "subsets": [{"mssid": "1", "name": name, "center": "0,0"}]})
+
+        def n_room_pubs():
+            return sum(1 for t, _, _ in fc.published if "_room_" in t)
+
+        await send("Living")
+        assert n_room_pubs() == 1
+        await send("Living")   # same → no republication
+        assert n_room_pubs() == 1
+        await send("Salon")    # renamed → republished with new label
+        assert n_room_pubs() == 2
+        cfg = json.loads(topics(fc)[f"homeassistant/button/{r.slug}_room_1/config"])
+        assert "Salon" in cfg["name"]

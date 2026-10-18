@@ -3,28 +3,28 @@
 title: Deebot
 cards:
   - type: custom:ecovacs-status-card
-    entity: vacuum.ozmo930_607ab7
+    entity: vacuum.deebot_ozmo_930
 
   - type: custom:ecovacs-map-card
-    entity: vacuum.ozmo930_607ab7
+    entity: vacuum.deebot_ozmo_930
     height: 420
 
   - type: custom:ecovacs-control-card
-    entity: vacuum.ozmo930_607ab7
+    entity: vacuum.deebot_ozmo_930
 
   # native entities worth keeping on the same view
   - type: horizontal-stack
     cards:
       - type: button
         name: Reset brush
-        entity: button.ozmo930_607ab7_reset_brush
+        entity: button.deebot_ozmo_930_reset_brush
         tap_action:
           action: toggle
       - type: sensor
         name: Brush
-        entity: sensor.ozmo930_607ab7_brush
+        entity: sensor.deebot_ozmo_930_brush
         graph: line
       - type: sensor
         name: Cleaned area
-        entity: sensor.ozmo930_607ab7_total_area
+        entity: sensor.deebot_ozmo_930_cleaned_area
         graph: line

@@ -77,6 +77,8 @@ class Service:
         self._last_trace_fetch: dict[str, float] = {}
         # signature of the last published room-button set (per robot)
         self._room_sigs: dict[str, tuple] = {}
+        # last published fw/stats signatures (retained topics, no churn)
+        self._last_pub_vals: dict[str, object] = {}
         self._last_poll: dict[str, float] = {}  # (C3) kept separate from the state throttle
         self._walking = False
         self._pending_walks: set[str] = set()
@@ -124,8 +126,8 @@ class Service:
         r = self._adopt_mqtt(key) if mqtt else (self._adopt_xmpp(key) or self.robots[key])
         await self.pub.publish_discovery(
             r.slug, r.model.display, r.model.ha_model,
-            fan_speeds=r.model.fan_speeds or None,
-            has_water=r.model.has_water_level or mqtt)
+            fan_speeds=r.model.fan_speeds,
+            has_water=r.model.has_water_level)
         if mqtt:
             c = self.commanders[key]
             # initial sync (the rest arrives via reports)
@@ -304,6 +306,9 @@ class Service:
             "error": r.error,
             "fw": r.version,
             "clean_seconds": r.clean_seconds,
+            # what the custom cards need to derive MQTT topics and gate UI
+            "slug": r.slug,
+            "has_water": r.model.has_water_level,
             "position": {"x": r.position.x, "y": r.position.y, "angle": r.position.angle}
             if r.position else None,
             "charger": {"x": r.charger.x, "y": r.charger.y, "angle": r.charger.angle}
@@ -316,8 +321,16 @@ class Service:
         await self.pub.publish_battery(r.slug, r.battery)
         await self.pub.publish_fan_speed(r.slug, doc["fan_speed"])
         await self.pub.publish_error(r.slug, r.error)
-        await self.pub.publish_fw(r.slug, r.version)
-        await self.pub.publish_stats(r.slug, r.stats)
+        # fw/stats: retained topics — publish only on change (no churn)
+        fp = f"{key}::fw"
+        if r.version != self._last_pub_vals.get(fp):
+            self._last_pub_vals[fp] = r.version
+            await self.pub.publish_fw(r.slug, r.version)
+        sp = f"{key}::stats"
+        stats_sig = tuple(sorted(r.stats.items())) if r.stats else ()
+        if stats_sig != self._last_pub_vals.get(sp):
+            self._last_pub_vals[sp] = stats_sig
+            await self.pub.publish_stats(r.slug, r.stats)
         for key2, comp in {"brush": "Brush", "sidebrush": "SideBrush",
                            "dustcase": "DustCaseHeap", "airfilter": "AirFilter"}.items():
             life = r.lifespans.get(comp)
@@ -327,14 +340,15 @@ class Service:
         await self.panel.broadcast(doc, slug=r.slug)
 
         # room buttons: (re)publish when the mapped-room set changes
-        rooms = [e for e in (r.map_sets.get("ar").entries
-                             if r.map_sets.get("ar") else []) if isinstance(e, dict) or 1]
-        rooms_doc = [room if isinstance(room, dict) else
-                     {"mssid": room.mssid, "name": room.name} for room in rooms]
-        sig = tuple(sorted(str(x.get("mssid")) for x in rooms_doc))
+        # (name included — renaming a room updates its button label)
+        ar = r.map_sets.get("ar")
+        rooms_doc = [{"mssid": room.mssid, "name": room.name}
+                     for room in (ar.entries if ar else []) if room.mssid]
+        sig = tuple(sorted((str(x["mssid"]), str(x["name"])) for x in rooms_doc))
         if sig != self._room_sigs.get(key):
             self._room_sigs[key] = sig
-            await self.pub.publish_room_buttons(r.slug, r.model.display, rooms_doc)
+            await self.pub.publish_room_buttons(r.slug, r.model.display,
+                                                r.model.ha_model, rooms_doc)
 
     # ---------- MQTT commands (HA/panel) ----------
 

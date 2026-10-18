@@ -201,7 +201,7 @@ class MqttPublisher:
             ("total_time", "cleaning time", "h", "mdi:timer-outline",
              "{{ (value | float / 3600) | round(1) }}"),
             ("total_area", "cleaned area", "m\u00b2", "mdi:texture-box",
-             "{{ (value | float / 1000000) | round(0) }}"),
+             "{{ (value | float / 1000000) | int }}"),
             ("total_count", "clean count", None, "mdi:counter",
              "{{ value | int }}"),
         ]
@@ -212,6 +212,7 @@ class MqttPublisher:
                 "device": dev,
                 "state_topic": f"{b}/stats/{key}",
                 "value_template": tpl,
+                "state_class": "total_increasing",
                 "icon": icon,
                 "entity_category": "diagnostic",
             }
@@ -270,7 +271,7 @@ class MqttPublisher:
             if v is not None:
                 await self._pub(f"{self.base}/{slug}/stats/{key}", v)
 
-    async def publish_room_buttons(self, slug: str, name: str,
+    async def publish_room_buttons(self, slug: str, name: str, model_name: str,
                                    rooms: list[dict]) -> None:
         """One clean button per mapped room (re)published when rooms change.
 
@@ -280,7 +281,7 @@ class MqttPublisher:
         """
         if not self.client or not rooms:
             return
-        dev = self._device(slug, name)
+        dev = self._device(slug, name, model_name)
         b = f"{self.base}/{slug}"
         for room in rooms:
             mssid = str(room.get("mssid", ""))

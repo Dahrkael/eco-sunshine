@@ -26,28 +26,31 @@ by the other three).
 
 | Card | Purpose |
 |---|---|
-| `custom:ecovacs-map-card` | Live canvas map: robot (animated), dock, trace overlay via state, rooms labels, virtual walls, no-mop zones. Subscribes to `<base>/<slug>/map_data` over the HA websocket. |
-| `custom:ecovacs-control-card` | Start/pause/dock/locate + suction & water selectors + one button per room + consumable bars. |
+| `custom:ecovacs-map-card` | Live canvas map: robot (animated), dock, room labels, virtual walls, no-mop zones. Subscribes to `<base>/<slug>/map_data` over the HA websocket (**admin user required** — HA gates `mqtt/subscribe`). |
+| `custom:ecovacs-control-card` | Start/pause/dock/locate (native vacuum services) + suction & water selectors + one button per room + consumable bars. |
 | `custom:ecovacs-status-card` | Compact glance: state, battery, totals (time/area/count), firmware, errors. |
 
-All three auto-detect the HA language (Spanish/English).
+All three auto-detect the HA language (Spanish/English). Cards derive the
+MQTT base topic from the `slug`/`has_water` attributes the bridge reports
+in the vacuum state — no entity-id guessing. Override with `base_topic:
+<your-base>` if you changed it in the bridge config.
 
 ## Quick config
 
 ```yaml
 type: custom:ecovacs-map-card
-entity: vacuum.ozmo930_607ab7
+entity: vacuum.deebot_ozmo_930   # YOUR vacuum entity id
 height: 420
 ```
 
 ```yaml
 type: custom:ecovacs-control-card
-entity: vacuum.ozmo930_607ab7
+entity: vacuum.deebot_ozmo_930   # YOUR vacuum entity id
 ```
 
 ```yaml
 type: custom:ecovacs-status-card
-entity: vacuum.ozmo930_607ab7
+entity: vacuum.deebot_ozmo_930   # YOUR vacuum entity id
 ```
 
 See `dashboard-example.yaml` for a full view combining the three.

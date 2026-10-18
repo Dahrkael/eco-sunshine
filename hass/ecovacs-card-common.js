@@ -14,7 +14,7 @@ export const I18N = {
     total: 'total', cleaned: 'limpiado', cleans: 'limpiezas',
     waiting_map: 'Esperando mapa…', no_map: 'Sin mapa (inicia una limpieza)',
     fw: 'Firmware', low: 'Baja', medium: 'Media', high: 'Alta',
-    quiet: 'Silencio', standard: 'Normal', strong: 'Potente',
+    silent: 'Silencio', standard: 'Normal', strong: 'Potente',
   },
   en: {
     start: 'Start', pause: 'Pause', dock: 'Dock', locate: 'Locate',
@@ -24,7 +24,7 @@ export const I18N = {
     total: 'total', cleaned: 'cleaned', cleans: 'cleans',
     waiting_map: 'Waiting for map…', no_map: 'No map yet (start a clean)',
     fw: 'Firmware', low: 'Low', medium: 'Medium', high: 'High',
-    quiet: 'Quiet', standard: 'Standard', strong: 'Max',
+    silent: 'Quiet', standard: 'Standard', strong: 'Max',
   },
 };
 
@@ -38,15 +38,19 @@ export function tr(hass) {
   return (k) => (I18N[l] && I18N[l][k]) || I18N.en[k] || k;
 }
 
-/** Subscribe to an MQTT topic through the HA websocket connection. */
+/** Subscribe to an MQTT topic through the HA websocket connection.
+ * The callback receives the event object {topic, payload, qos, retain}.
+ * Requires an admin user (HA gates mqtt/subscribe). */
 export function subscribeMqtt(hass, topic, cb) {
   if (!hass || !hass.connection) return () => {};
   let unsub = () => {};
+  let closed = false;
   hass.connection.subscribeMessage(
     (msg) => cb(msg),
     { type: 'mqtt/subscribe', topic },
-  ).then((u) => { unsub = u; }).catch((e) => console.error('mqtt subscribe failed', topic, e));
-  return () => unsub();
+  ).then((u) => { if (closed) u(); else unsub = u; })
+    .catch((e) => console.error('mqtt subscribe failed', topic, e));
+  return () => { closed = true; unsub(); };
 }
 
 export const css = `

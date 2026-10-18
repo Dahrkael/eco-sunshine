@@ -78,7 +78,7 @@ def main() -> None:
     ]:
         with open(f"/certs/{name}", "wb") as f:
             f.write(data)
-        print(f"escrito /certs/{name}")
+        print(f"wrote /certs/{name}")
 
     print("SANs:", ", ".join(DOMAINS), "| IPs:", ", ".join(IPS))
 

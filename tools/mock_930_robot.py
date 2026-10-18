@@ -66,7 +66,7 @@ class Mock930:
         self.speed = "standard"
         self.map_id = (corpus.get("spec_mapm") or {}).get("i", "0")
         # real trajectory: cyclic replay while cleaning
-        self.path = corpus.get("trayectoria") or [["0,0", "0"]]
+        self.path = corpus.get("trajectory") or [["0,0", "0"]]
         self.path_i = 0
         self.pos = self.path[0] if self.path else ["0,0", "0"]
         # last client that talked to us → push destination
@@ -100,7 +100,7 @@ class Mock930:
         while needle not in buf:
             data = await asyncio.wait_for(self.reader.read(65536), timeout)
             if not data:
-                raise ConnectionError("conexión cerrada esperando " + needle)
+                raise ConnectionError("connection closed while waiting for " + needle)
             buf += data.decode(errors="replace")
         return buf
 
@@ -189,7 +189,7 @@ class Mock930:
             while True:
                 data = await self.reader.read(65536)
                 if not data:
-                    raise ConnectionError("conexión cerrada por Bumper")
+                    raise ConnectionError("connection closed by Bumper")
                 self._buf += data.decode(errors="replace")
                 stanzas, self._buf = extract_stanzas(self._buf)
                 for st in stanzas:
@@ -276,7 +276,7 @@ class Mock930:
                 f'w="{spec.get("w", 100)}" />')
         elif td == "PullMP":
             pid = a.get("pid", "")
-            piece = (self.corpus.get("piezas") or {}).get(pid)
+            piece = (self.corpus.get("pieces") or {}).get(pid)
             if piece:
                 await self.push_ctl(
                     f'<ctl i="{self.map_id}" p="{piece}" pid="{pid}" td="MapP" />')
@@ -331,7 +331,7 @@ class Mock930:
         elif td == "SetMapAutoReport":
             await self.ack(a.get("id", ctl_id()))
             # the real one re-sends pieces when armed: replay the corpus pieces
-            for pid, piece in (self.corpus.get("piezas") or {}).items():
+            for pid, piece in (self.corpus.get("pieces") or {}).items():
                 await self.push_ctl(
                     f'<ctl i="{self.map_id}" p="{piece}" pid="{pid}" td="MapP" />')
                 await asyncio.sleep(0.15)
@@ -404,7 +404,7 @@ def main() -> int:
     ap.add_argument("--host", default="localhost")
     ap.add_argument("--port", type=int, default=5223)
     ap.add_argument("--sn", default="E00010570MOCK9301",
-                    help="serial del mock (NO el del robot real, para no chocar)")
+                    help="mock serial (NOT the real robot's, to avoid clashes)")
     ap.add_argument("--cls", default="115")
     ap.add_argument("--corpus", default="data/mock930-corpus.json")
     ap.add_argument("-v", "--verbose", action="store_true")
@@ -418,15 +418,15 @@ def main() -> int:
         if alt.exists():
             corpus_path = alt
     corpus = json.loads(corpus_path.read_text())
-    log.info("corpus: %s — %d piezas, %d posiciones, spec %s",
-             corpus_path, len(corpus.get("piezas") or {}),
-             len(corpus.get("trayectoria") or []),
+    log.info("corpus: %s — %d pieces, %d positions, spec %s",
+             corpus_path, len(corpus.get("pieces") or {}),
+             len(corpus.get("trajectory") or []),
              (corpus.get("spec_mapm") or {}).get("i", "?"))
     robot = Mock930(args.host, args.port, args.sn, args.cls, corpus)
     try:
         asyncio.run(robot.run())
     except KeyboardInterrupt:
-        print("mock 930 fuera")
+        print("mock 930 exiting")
     return 0
 
 

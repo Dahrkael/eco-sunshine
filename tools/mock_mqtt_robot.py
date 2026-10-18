@@ -124,13 +124,13 @@ class MockRobot:
         # mapsets: 3 rooms + 1 wall + 1 no-mop zone (spec §4.5)
         self.map_msid = "0"
         self.rooms = [
-            {"mssid": "1", "name": "Salón", "center": "-1500,2000", "index": 0},
-            {"mssid": "2", "name": "Cocina", "center": "2500,1500", "index": 1},
-            {"mssid": "3", "name": "Dormitorio", "center": "500,-3500", "index": 2},
+            {"mssid": "1", "name": "Living room", "center": "-1500,2000", "index": 0},
+            {"mssid": "2", "name": "Kitchen", "center": "2500,1500", "index": 1},
+            {"mssid": "3", "name": "Bedroom", "center": "500,-3500", "index": 2},
         ]
-        self.walls = [{"mssid": "7", "name": "muro pasillo",
+        self.walls = [{"mssid": "7", "name": "hallway wall",
                        "value": "0,-500;0,4500"}]
-        self.zones = [{"mssid": "8", "name": "alfombra", "kind": "mw",
+        self.zones = [{"mssid": "8", "name": "carpet", "kind": "mw",
                        "value": "-2500,1000;-1000,2500"}]
         self.stats = {"time": 3600 * 42, "area": 45_000_000, "count": 17}
         log.info("synthetic map: %d pieces, grid %dx%d", len(self.pieces), TOTAL_COLS, TOTAL_ROWS)
@@ -251,7 +251,7 @@ class MockRobot:
         total_chunks = (len(b64) + chunk_chars - 1) // chunk_chars
         idx = int(data.get("index", 0)) if isinstance(data, dict) else 0
         if idx >= total_chunks:
-            return {"ret": "fail", "errno": 2, "error": "index fuera de rango"}
+            return {"ret": "fail", "errno": 2, "error": "index out of range"}
         return {"ret": "ok", "mid": MAP_ID, "type": mtype, "index": idx,
                 "totalCount": total_chunks,
                 "value": b64[idx * chunk_chars:(idx + 1) * chunk_chars],
@@ -279,14 +279,14 @@ class MockRobot:
             before = len(entries)
             entries[:] = [e for e in entries if e["mssid"] != mssid]
             if len(entries) == before:
-                return {"ret": "fail", "errno": 2, "error": "mssid desconocido"}
+                return {"ret": "fail", "errno": 2, "error": "unknown mssid"}
         elif value:  # create
             new_id = str(int(max((int(e["mssid"]) for e in entries), default=100)) + 1)
             entries.append({"mssid": new_id, "name": str(data.get("name", "")),
                             "kind": tp, "value": value})
             mssid = new_id
         else:
-            return {"ret": "fail", "errno": 3, "error": "value o mssid requerido"}
+            return {"ret": "fail", "errno": 3, "error": "value or mssid required"}
         return {"ret": "ok", "mid": MAP_ID, "msid": self.map_msid,
                 "mssid": mssid, "type": tp}
 
@@ -302,7 +302,7 @@ class MockRobot:
                 if e["mssid"] == mssid:
                     return {"ret": "ok", "mid": MAP_ID, "msid": self.map_msid,
                             "mssid": mssid, "type": tp, "value": e["value"]}
-            return {"ret": "fail", "errno": 2, "error": "mssid desconocido"}
+            return {"ret": "fail", "errno": 2, "error": "unknown mssid"}
         if cmd in ("setMapSubSet",):
             return self._set_map_subset(data if isinstance(data, dict) else {})
         if cmd in ("getTotalStats", "getStats"):
@@ -319,15 +319,15 @@ class MockRobot:
             # hardened: validates type/mid like a real robot would — the
             # bridge must send the RAW mid (no internal namespace)
             if not isinstance(data, dict):
-                return {"ret": "fail", "errno": 3, "error": "payload inválido"}
+                return {"ret": "fail", "errno": 3, "error": "invalid payload"}
             if data.get("type") not in ("ol", "st", "wa"):
-                return {"ret": "fail", "errno": 3, "error": f"type inválido: {data.get('type')}"}
+                return {"ret": "fail", "errno": 3, "error": f"invalid type: {data.get('type')}"}
             if str(data.get("mid", "")) != MAP_ID:
                 return {"ret": "fail", "errno": 3,
-                        "error": f"mid desconocido: {data.get('mid')} (esperado {MAP_ID})"}
+                        "error": f"unknown mid: {data.get('mid')} (expected {MAP_ID})"}
             idx = data.get("pieceIndex", -1)
             if not isinstance(idx, int) or not (0 <= idx < len(self.pieces)):
-                return {"ret": "fail", "errno": 2, "error": f"pieceIndex fuera de rango: {idx}"}
+                return {"ret": "fail", "errno": 2, "error": f"pieceIndex out of range: {idx}"}
             return {"ret": "ok", "mid": MAP_ID, "type": "ol", "pieceIndex": idx,
                     "pieceValue": self.pieces[idx]}
         if cmd in ("getMapInfo",):
@@ -360,7 +360,7 @@ class MockRobot:
             return {"ret": "ok", "error": []}
         if cmd in ("getNetInfo",):
             return {"ret": "ok", "ip": "192.168.1.50", "mac": "AA:BB:CC:DD:EE:FF",
-                    "ssid": "CasaMock", "rssi": -52, "sn": f"SN-{self.did}",
+                    "ssid": "MockHome", "rssi": -52, "sn": f"SN-{self.did}",
                     "wkVer": "0.25.16-mock"}
         if cmd in ("getVolume",):
             return {"ret": "ok", "volume": 5, "total": 10, "type": "system"}
@@ -450,7 +450,7 @@ def main() -> int:
     try:
         asyncio.run(robot.run())
     except KeyboardInterrupt:
-        print("mock robot fuera")
+        print("mock robot exiting")
     return 0
 
 

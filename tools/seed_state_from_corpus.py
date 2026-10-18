@@ -31,19 +31,19 @@ def main() -> int:
     ap.add_argument("--out", default="data/bridge/state.json")
     ap.add_argument("--jid", default="E000105701860607AB7@115.ecorobot.net/atom")
     ap.add_argument("--pos", default="-37,-595,0",
-                    help="última posición/base conocida 'x,y,ángulo'")
+                    help="last known position/dock 'x,y,angle'")
     args = ap.parse_args()
 
     corpus = json.loads(Path(args.corpus).read_text())
     spec = corpus.get("spec_mapm")
-    if not spec or not corpus.get("piezas"):
-        print("corpus sin spec o sin piezas — extrae primero con extract_930_corpus.py",
+    if not spec or not corpus.get("pieces"):
+        print("corpus has no spec or no pieces — extract first with extract_930_corpus.py",
               file=sys.stderr)
         return 1
 
     # the state persists DECODED pieces (the assembler's internal format)
     pieces = {str(pid): base64.b64encode(decode_piece(p)).decode()
-              for pid, p in corpus["piezas"].items()}
+              for pid, p in corpus["pieces"].items()}
     x, y, a = (float(v) for v in args.pos.split(","))
 
     # slug = model detected from the JID + last 6 of the serial (like RobotState)
@@ -69,9 +69,9 @@ def main() -> int:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(state))
-    print(f"estado sembrado: {len(pieces)} piezas decodificadas "
-          f"(mapa {spec['i']}) → {out} ({out.stat().st_size // 1024} KB)")
-    print("reinicia el bridge para restaurar el mapa")
+    print(f"state seeded: {len(pieces)} decoded pieces "
+          f"(map {spec['i']}) → {out} ({out.stat().st_size // 1024} KB)")
+    print("restart the bridge to restore the map")
     return 0
 
 

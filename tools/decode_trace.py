@@ -27,8 +27,8 @@ def main(d: str) -> None:
     traces = sorted(load(d / "traces.jsonl"), key=lambda r: r["ts"])
     poss = sorted(load(d / "positions.jsonl"), key=lambda r: r["ts"])
 
-    print(f"{len(traces)} chunks de trace, {len(poss)} Pos\n")
-    print("chunk | tf/tt | bytes tras header | int16s (LE)        | Pos mas cercana (Δt s)")
+    print(f"{len(traces)} trace chunks, {len(poss)} Pos\n")
+    print("chunk | tf/tt | bytes after header | int16s (LE)        | nearest Pos (Δt s)")
 
     for t in traces:
         raw = bytes.fromhex(t["tr_hex"])

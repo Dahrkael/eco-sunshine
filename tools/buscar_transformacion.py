@@ -17,7 +17,7 @@ for line in open(LOG, errors='replace'):
     if m and m.group(3) == MAP_ID:
         spec = [int(x) for x in m.group(4).split(',')]
 if not spec:
-    print("sin spec")
+    print("no spec")
     sys.exit(1)
 print(f"spec: {len(spec)} crcs")
 
@@ -37,7 +37,7 @@ for line in open(LOG, errors='replace'):
             pieces[pid] = dec
     except Exception:
         pass
-print(f"piezas CRC-validas: {len(pieces)}: {sorted(pieces)}")
+print(f"CRC-valid pieces: {len(pieces)}: {sorted(pieces)}")
 
 # positions
 pos = []
@@ -51,7 +51,7 @@ for line in open(LOG, errors='replace'):
             pos.append(tuple(float(v) for v in at['p'].split(',')))
         except ValueError:
             pass
-print(f"posiciones: {len(pos)}")
+print(f"positions: {len(pos)}")
 
 TABLE = {18: (0, 0), 19: (0, 1), 20: (0, 2), 28: (0, 3),
          26: (1, 0), 27: (1, 2), 36: (1, 3),
@@ -120,4 +120,4 @@ for placement in ('rowmajor', 'user', 'colmajor'):
 results.sort(reverse=True)
 print('\nTOP 8:')
 for r in results[:8]:
-    print(f"  {r[0]*100:5.1f}%  colocacion={r[1]:9s} pieza_transp={r[2]}  ex={r[3]:+d} ey={r[4]:+d} swap={r[5]}  origen=({r[6]},{r[7]})")
+    print(f"  {r[0]*100:5.1f}%  placement={r[1]:9s} piece_transp={r[2]}  ex={r[3]:+d} ey={r[4]:+d} swap={r[5]}  origin=({r[6]},{r[7]})")

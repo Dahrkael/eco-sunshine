@@ -37,7 +37,7 @@ def main() -> int:
 
     log_path = Path(args.log)
     if not log_path.exists():
-        print(f"log no encontrado: {log_path}", file=sys.stderr)
+        print(f"log not found: {log_path}", file=sys.stderr)
         return 1
 
     spec: dict | None = None          # last GetMapM reply (ctl attrs)
@@ -94,8 +94,8 @@ def main() -> int:
         "source": str(log_path),
         "frames_robot": n_frames,
         "spec_mapm": spec,
-        "piezas": pieces,
-        "trayectoria": dedup,
+        "pieces": pieces,
+        "trajectory": dedup,
         "trace_varint": trace,
         "battery": battery,
         "charge_state": charge,
@@ -107,12 +107,12 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(corpus))
     print(f"corpus → {out} ({out.stat().st_size // 1024} KB)")
-    print(f"  frames robot: {n_frames}")
-    print(f"  spec GetMapM: {'sí' if spec else 'NO'} — map_id={spec.get('i') if spec else '-'}"
+    print(f"  robot frames: {n_frames}")
+    print(f"  GetMapM spec: {'yes' if spec else 'NO'} — map_id={spec.get('i') if spec else '-'}"
           f", {len(spec.get('m', '').split(',')) if spec else 0} crcs")
-    print(f"  piezas: {len(pieces)} pids únicos")
-    print(f"  trayectoria: {len(dedup)} posiciones (de {len(positions)})")
-    print(f"  trace varint: {'sí' if trace else 'NO'}")
+    print(f"  pieces: {len(pieces)} unique pids")
+    print(f"  trajectory: {len(dedup)} positions (of {len(positions)})")
+    print(f"  varint trace: {'yes' if trace else 'NO'}")
     print(f"  battery={battery} charge={charge}")
     print(f"  lifespans={lifespan}")
     return 0

@@ -45,7 +45,7 @@ def extract(log_path: str) -> MapAssembler:
 def main() -> None:
     log, prefix = sys.argv[1], sys.argv[2]
     asm = extract(log)
-    print(f"mapas: {list(asm.maps)} piezas: {[asm.piece_count(m) for m in asm.maps]}")
+    print(f"maps: {list(asm.maps)} pieces: {[asm.piece_count(m) for m in asm.maps]}")
     for map_id in asm.maps:
         grid = asm.assemble(map_id)
         if grid is None:
@@ -54,7 +54,7 @@ def main() -> None:
         try:
             Path(out).write_bytes(render_png(grid))
         except ValueError:
-            print(f"{out}: grid vacío, saltado")
+            print(f"{out}: empty grid, skipped")
             continue
         print(f"{out}")
 

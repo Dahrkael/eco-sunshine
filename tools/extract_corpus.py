@@ -2,7 +2,7 @@
 """Extracts the robot's XMPP frames from a Bumper log into structured files.
 
 Usage: python3 tools/extract_corpus.py <log> <outdir>
-Generates: positions.jsonl, traces.jsonl, mapm.jsonl, other.jsonl, resumen.tsv
+Generates: positions.jsonl, traces.jsonl, mapm.jsonl, other.jsonl, summary.tsv
 """
 
 import base64
@@ -71,13 +71,13 @@ def main(log: str, outdir: str) -> None:
     for f in files.values():
         f.close()
 
-    with open(out / "resumen.tsv", "w") as r:
+    with open(out / "summary.tsv", "w") as r:
         for td, n in counts.most_common():
             r.write(f"{td}\t{n}\n")
-    print("Frames por td:")
+    print("Frames per td:")
     for td, n in counts.most_common(12):
         print(f"  {td}: {n}")
-    print(f"\nEscrito en {out}")
+    print(f"\nWritten to {out}")
 
 
 if __name__ == "__main__":

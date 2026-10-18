@@ -37,14 +37,14 @@ class ModelInfo:
 
     @property
     def ha_model(self) -> str:
-        return f"{self.display} via deebot-bridge"
+        return f"{self.display} via ecovacs-bridge"
 
 
 @dataclass(frozen=True)
 class DeviceId:
     """Unified robot identity — the seed of the device registry that will
     replace bumper.bot_add()/SQLite once Bumper is absorbed into the
-    bridge (see docs/absorcion-bumper.md).
+    bridge (see docs/bumper-absorption.md).
 
     XMPP: sn=serial, class from the JID (e.g. "115"), resource="atom"
     MQTT: sn=did (server-assigned UUID), 6-char class (e.g. "yna5xh"), resource="axm"

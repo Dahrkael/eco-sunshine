@@ -25,7 +25,7 @@ courtesy endpoints the app probes and Bumper answered with statics:
 **Modern app (Ecovacs Home)**: login with apptype ``global_`` answers
 the EcoVacsHome_Login shape (comes free), but the rest of its flow signs
 requests with HMAC (``X-ECO-SIGN``) and is not supported — see
-docs/absorcion-bumper.md (FD).
+docs/bumper-absorption.md (FD).
 
 Default port :443 (``servers.conf_port``), TLS with ``ServersConfig``
 certs (``ensure_certs`` from FE). OFF by default: without

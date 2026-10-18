@@ -213,11 +213,11 @@ class MQTTServer:
 
             self.broker = hbmqtt.broker.Broker(config=self.default_config)
 
-            # [PATCH deebot-bridge] hbmqtt compila '+' como la clase
-            # [/\$\s\w\d]+ (sin '-'), así que los dids eco-ng (UUIDs con
-            # guión, p.ej. b11fceaf-1234) nunca matchean filtros con '+' —
-            # ni siquiera el propio helperbot. Matching por niveles según
-            # MQTT-4.7.1 (un '+' = exactamente un nivel).
+            # [PATCH ecovacs-bridge] hbmqtt compiles '+' as the class
+            # [/\$\s\w\d]+ (without '-'), so eco-ng dids (UUIDs with
+            # dashes, e.g. b11fceaf-1234) never match filters with '+' —
+            # not even the helperbot itself. Per-level matching per
+            # MQTT-4.7.1 (one '+' = exactly one level).
             import types
 
             def _matches_spec(broker_self, topic, a_filter):

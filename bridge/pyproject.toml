@@ -1,17 +1,18 @@
 [project]
 name = "ecovacs-bridge"
 version = "0.2.0"
-description = "Bridge XMPP+MQTT -> MQTT para robots Ecovacs: decoder de mapa en vivo + integracion Home Assistant"
+description = "XMPP+MQTT -> MQTT bridge for Ecovacs robots: live map decoder + Home Assistant integration"
 requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
 
 dependencies = [
     "aiomqtt>=2.0",
     "aiohttp>=3.9",
     "zstandard>=0.22",
-    # broker MQTT embebido (FC): fork mantenido de hbmqtt, py3.12+
+    # embedded MQTT broker (FC): maintained fork of hbmqtt, py3.12+
     "amqtt>=0.12",
-    # auto-generación de certs de los servidores embebidos (FE) — también
-    # la usan los tests TLS del broker
+    # auto-generation of the embedded servers' certs (FE) — also used
+    # by the broker's TLS tests
     "cryptography>=42",
 ]
 
@@ -23,6 +24,13 @@ dev = [
 
 [project.scripts]
 ecovacs-bridge = "ecovacs_bridge.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["ecovacs_bridge", "ecovacs_bridge.servers"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

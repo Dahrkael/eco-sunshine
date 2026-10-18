@@ -1,33 +1,34 @@
-# Config del bridge para docker-compose (montada en /config/bridge.toml)
+# Bridge config for docker-compose (mounted at /config/bridge.toml)
 panel_port = 8181
-state_file = "/data/state.json"   # piezas+posiciones persistentes (volumen ./data/bridge)
+state_file = "/data/state.json"   # persistent pieces+positions (volume ./data/bridge)
 
-# ── Servidores embebidos (absorción de Bumper, docs/absorcion-bumper.md) ──
-# Cada componente se enciende por separado; con todos off el bridge es
-# cliente puro contra un Bumper externo. En producción (configs/bridge.toml)
-# van lookup+xmpp+mqtt on: el bridge ES el servidor.
+# ── Embedded servers (Bumper absorption, docs/bumper-absorption.md) ──
+# Each component turns on separately; with all of them off the bridge is
+# a pure client against an external Bumper. In production
+# (configs/bridge.toml) lookup+xmpp+mqtt are on: the bridge IS the server.
 [servers]
-lookup = false             # :8007  bootstrap del robot (lookup.do) — FA
-xmpp = false               # :5223  servidor XMPP era 930 — FB
-mqtt = false               # :8883  broker eco-ng — FC
-conf = false               # :443   API app Ecovacs antigua (FD): login,
-                           #        getAuthCode y lista de bots del registry.
-                           #        Actívala solo si quieres usar la app como
-                           #        cliente/oráculo (la moderna va firmada con
-                           #        HMAC y no está soportada)
-panel = true               # panel web del bridge
-announce_ip = ""           # IP que se anuncia a robots (obligatoria si lookup=on;
-                           # vacía → usa la env DEEBOT_ANNOUNCE_IP del deploy)
+lookup = false             # :8007  robot bootstrap (lookup.do) — FA
+xmpp = false               # :5223  XMPP server, 930-era robots — FB
+mqtt = false               # :8883  eco-ng broker — FC
+conf = false               # :443   legacy Ecovacs app API (FD): login,
+                           #        getAuthCode and bot list from the registry.
+                           #        Enable only to use the app as a
+                           #        client/oracle (the modern one is HMAC-signed
+                           #        and not supported)
+panel = true               # bridge web panel
+announce_ip = ""           # IP announced to robots (required if lookup=on;
+                           # empty → the deploy's DEEBOT_ANNOUNCE_IP env is used)
 # lookup_port = 8007
 # xmpp_port = 5223
 # mqtt_port = 8883
 # conf_port = 443
-# TLS de xmpp/mqtt: si falta el material se auto-genera al primer arranque (FE)
+# TLS for xmpp/mqtt: if the material is missing it is auto-generated on
+# first boot (FE)
 # ca_file = "/certs/ca.crt"
 # server_cert = "/certs/bumper.crt"
 # server_key = "/certs/bumper.key"
 [bumper]
-host = "bumper"          # nombre del servicio en la red de compose
+host = "bumper"          # compose service name
 port = 5223
 uid = "fuid_tmpuser"
 resource = "bridge"
@@ -43,6 +44,6 @@ host = "bumper"
 port = 8883
 ca_file = "/certs/ca.crt"
 enabled = true
-# robots eco-ng conocidos (did@class/res) — se adoptan al arrancar sin
-# esperar su primer report (los robots dormidos no emiten nada)
+# known eco-ng robots (did@class/res) — adopted at startup without
+# waiting for their first report (sleeping robots emit nothing)
 robots = []

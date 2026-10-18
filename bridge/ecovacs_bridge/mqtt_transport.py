@@ -12,7 +12,7 @@ client with "bumper" in the realm — bumper/mqttserver.py:266).
 This module is deliberately independent of serve.py: it is the seam for
 the future absorption of Bumper — today a network client, tomorrow it
 can be swapped for an in-process adapter hooked to the embedded broker
-without touching serve.py or MqttCommander (docs/absorcion-bumper.md).
+without touching serve.py or MqttCommander (docs/bumper-absorption.md).
 """
 
 from __future__ import annotations

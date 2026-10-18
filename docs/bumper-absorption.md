@@ -1,6 +1,6 @@
 # Bumper absorption into the bridge — merge map
 
-> Status: **FA–FD implemented** (branch `feat/absorcion-bumper`). FD (the
+> Status: **FA–FD implemented**. FD (the
 > `:443` confserver, the app API) is **optional and off by default**. This
 > document started as a plan and now records what was actually done — see
 > the final checklist.

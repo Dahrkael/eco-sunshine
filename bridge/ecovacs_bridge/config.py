@@ -34,7 +34,7 @@ class BumperMQTTConfig:
 
     Currently points at the external Bumper container; once Bumper is
     absorbed into the bridge it will point at the embedded broker on
-    127.0.0.1 (docs/absorcion-bumper.md).
+    127.0.0.1 (docs/bumper-absorption.md).
     """
     host: str = "localhost"
     port: int = 8883
@@ -49,7 +49,7 @@ class BumperMQTTConfig:
 
 @dataclass
 class ServersConfig:
-    """Embedded servers (Bumper absorption, docs/absorcion-bumper.md).
+    """Embedded servers (Bumper absorption, docs/bumper-absorption.md).
 
     Each component is enabled separately — the bridge starts ONLY what
     it needs. While a server is off, its bridge client keeps pointing

@@ -1,6 +1,6 @@
 panel_port = 8282
 robots = ["E000105701860607AB7@115.ecorobot.net/atom"]
-# Config de desarrollo (WSL): Bumper y mosquitto en docker del host
+# Development config (WSL): Bumper and mosquitto in the host's docker
 [bumper]
 host = "localhost"
 port = 5223
@@ -18,4 +18,3 @@ host = "localhost"
 port = 8883
 ca_file = "data/certs/ca.crt"
 enabled = true
-

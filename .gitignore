@@ -1,4 +1,4 @@
-# Estado runtime (certs, db, logs) - NO versionar
+# Runtime state (certs, db, logs) - do NOT version
 data/
 
 # Python
@@ -6,8 +6,10 @@ __pycache__/
 *.pyc
 .venv/
 *.egg-info/
+build/
+dist/
 
-# Editors / SO
+# Editors / OS
 .idea/
 .vscode/
 .DS_Store

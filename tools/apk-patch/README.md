@@ -1,16 +1,16 @@
-# Parche APK "Ecovacs" 1.4.9 (com.ecovacs.ecosphere.intl)
+# "Ecovacs" APK patch 1.4.9 (com.ecovacs.ecosphere.intl)
 
-Problema: targetSdk 26 -> la app solo confia en CAs del sistema; el CA de
-Bumper esta en el almacen de usuario -> TLS alert 46 (certificate_unknown).
+Problem: targetSdk 26 -> the app only trusts system CAs; the bridge's CA
+lives in the user store -> TLS alert 46 (certificate_unknown).
 
-Parche: network security config que anade anclas de usuario:
-  1. apktool d -f -o decoded-full <apk-original>
+Patch: a network security config that adds user anchors:
+  1. apktool d -f -o decoded-full <original-apk>
   2. manifest: <application ... android:networkSecurityConfig="@xml/nsc_bumper">
-  3. nuevo res/xml/nsc_bumper.xml (ver fichero adjunto)
+  3. new res/xml/nsc_bumper.xml (see the attached file)
   4. apktool b decoded-full -o patched-unsigned.apk
-     (compile in the container’s native fs: cross-filesystem builds take >10 min)
-  5. firma: uber-apk-signer --allowResign --skipZipAlign
-     (el zipalign bundled es glibc y muere en alpine/musl)
+     (compile in the container's native fs: cross-filesystem builds take >10 min)
+  5. sign: uber-apk-signer --allowResign --skipZipAlign
+     (the bundled zipalign is glibc and dies on alpine/musl)
 
-Resultado: ECOVACS_1.4.9-bumper-patched.apk (firma debug; requiere
-desinstalar la app original antes de instalar esta).
+Result: ECOVACS_1.4.9-bumper-patched.apk (debug signature; requires
+uninstalling the original app before installing this one).

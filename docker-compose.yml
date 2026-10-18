@@ -1,11 +1,11 @@
 name: ecovacs
 
 services:
-  # ── Bridge: TODO el flujo en un solo contenedor (absorción de Bumper, FE) ──
-  # lookup :8007 (bootstrap del robot) + XMPP :5223 (era 930) + broker MQTT
-  # TLS :8883 (eco-ng T8+) embebidos en el proceso, más el panel :8181.
-  # El 443 (conf de la app Ecovacs) está implementado (FD) pero off por
-  # defecto: publica el puerto solo si activas servers.conf (abajo).
+  # ── Bridge: the whole flow in a single container (Bumper absorption, FE) ──
+  # lookup :8007 (robot bootstrap) + XMPP :5223 (930-era robots) + TLS MQTT
+  # broker :8883 (eco-ng T8+) embedded in the process, plus the panel :8181.
+  # Port 443 (Ecovacs app conf API) is implemented (FD) but off by default:
+  # publish the port only if you enable servers.conf (below).
   bridge:
     build: ./bridge
     container_name: ecovacs-bridge
@@ -13,24 +13,25 @@ services:
     depends_on: [mosquitto]
     environment:
       TZ: ${TZ:-Europe/Madrid}
-      # servers.announce_ip del bridge (el toml no lee entorno): misma IP
-      # que antes consumía Bumper — se anuncia a robots/app en lookup.do
+      # bridge's servers.announce_ip (the toml does not read the
+      # environment): same IP Bumper used to consume — announced to
+      # robots/app in lookup.do
       DEEBOT_LOG_LEVEL: ${DEEBOT_LOG_LEVEL:-INFO}
-      DEEBOT_ANNOUNCE_IP: ${BUMPER_ANNOUNCE_IP:?defínelo en .env — es la IP que se anuncia a los robots}
+      DEEBOT_ANNOUNCE_IP: ${BUMPER_ANNOUNCE_IP:?define it in .env — the IP announced to the robots}
     ports:
-      - "5223:5223"     # XMPP embebido   <- OZMO 930
-      - "8007:8007"     # lookup.do (bootstrap del robot)
-      - "8883:8883"     # broker MQTT embebido (eco-ng T8+)
-      - "8181:8181"     # panel web del bridge
-      # API de la app Ecovacs (FD): descomenta SOLO si activas
-      # servers.conf = true en configs/bridge.toml (la app antigua podrá
-      # loguearse/listar/conectar contra el bridge, sin Bumper legacy).
-      # ⚠️ Conflicto con el bumper legacy, que también publica 443.
+      - "5223:5223"     # embedded XMPP   <- OZMO 930
+      - "8007:8007"     # lookup.do (robot bootstrap)
+      - "8883:8883"     # embedded MQTT broker (eco-ng T8+)
+      - "8181:8181"     # bridge web panel
+      # Ecovacs app API (FD): uncomment ONLY if you enable
+      # servers.conf = true in configs/bridge.toml (the legacy app will be
+      # able to log in/list/connect against the bridge, no Bumper legacy).
+      # ⚠️ Conflicts with bumper legacy, which also publishes 443.
       # - "443:443"
     volumes:
-      - ./data/certs:/certs          # RW: se auto-generan al primer arranque si faltan (FE)
+      - ./data/certs:/certs          # RW: auto-generated on first boot if missing (FE)
       - ./configs/bridge.toml:/config/bridge.toml:ro
-      - ./data/bridge:/data          # state_file + registry persistentes
+      - ./data/bridge:/data          # persistent state_file + registry
     command: ["serve", "-c", "/config/bridge.toml", "--mqtt"]
 
   mosquitto:
@@ -42,25 +43,25 @@ services:
     volumes:
       - ./configs/mosquitto:/mosquitto/config:ro
 
-  # ── Bumper LEGACY (transición) ──
-  # Sustituido por los servidores embebidos del bridge (FA-FC, ver
-  # docs/absorcion-bumper.md). Se conserva bajo el profile `legacy` para
-  # rollback o comparación durante la transición:
+  # ── Bumper LEGACY (transition) ──
+  # Replaced by the bridge's embedded servers (FA-FC, see
+  # docs/bumper-absorption.md). Kept under the `legacy` profile for
+  # rollback or comparison during the transition:
   #
   #   docker compose --profile legacy up -d bumper
   #
-  # ⚠️ NO lo actives a la vez que el bridge: publican los mismos puertos
-  # (5223/8883/8007) y se pegarían por el robot. Si lo arrancas, para el
-  # bridge antes (y recuerda: el bridge con [servers] off es cliente puro
-  # de este Bumper, como antes de la fusión).
+  # ⚠️ Do NOT run it alongside the bridge: they publish the same ports
+  # (5223/8883/8007) and would fight over the robot. If you start it, stop
+  # the bridge first (and remember: with [servers] off the bridge is a pure
+  # client of this Bumper, as before the merge).
   bumper:
-    build: ./bumper          # fuente vendorizado (instrumentable en fase 2)
+    build: ./bumper          # vendored source (instrumentable in phase 2)
     container_name: ecovacs-bumper
     restart: unless-stopped
     profiles: ["legacy"]
     environment:
       TZ: ${TZ:-Europe/Madrid}
-      BUMPER_ANNOUNCE_IP: ${BUMPER_ANNOUNCE_IP}   # IP que se anuncia al robot/app (host Windows en dev)
+      BUMPER_ANNOUNCE_IP: ${BUMPER_ANNOUNCE_IP}   # IP announced to robot/app (Windows host in dev)
       BUMPER_LISTEN: 0.0.0.0
       BUMPER_DATA: /bumper/data
       BUMPER_CERTS: /bumper/certs
@@ -69,8 +70,8 @@ services:
     ports:
       - "443:443"     # confserver (auth / API)
       - "5223:5223"   # XMPP  <- OZMO 930
-      - "8007:8007"   # confserver (lbo lookup: robot pide aquí la IP del XMPP)
-      - "8883:8883"   # MQTT  (por si el firmware hablase MQTT)
+      - "8007:8007"   # confserver (lbo lookup: the robot asks here for the XMPP IP)
+      - "8883:8883"   # MQTT  (in case the firmware spoke MQTT)
     volumes:
       - ./data/bumper:/bumper/data
       - ./data/certs:/bumper/certs

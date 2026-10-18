@@ -1,31 +1,32 @@
-# Config de producción del bridge (contenedor docker-compose)
+# Bridge production config (docker-compose container)
 panel_port = 8181
-state_file = "/data/state.json"   # piezas+posiciones persistentes
+state_file = "/data/state.json"   # persistent pieces+positions
 
-# robots conocidos (adopción al arranque + sondeo inicial)
+# known robots (adopted at startup + initial poll)
 robots = ["E000105701860607AB7@115.ecorobot.net/atom"]
 
-# ── Servidores embebidos (absorción de Bumper, docs/absorcion-bumper.md) ──
-# lookup+XMPP+broker MQTT dentro del proceso del bridge: sin Bumper externo.
-# conf (:443, API de la app Ecovacs) está implementado (FD) pero queda OFF:
-# actívalo solo para emparejar con la app antigua o usarla de oráculo
-# (recuerda publicar el 443 en el docker-compose.yml).
+# ── Embedded servers (Bumper absorption, docs/bumper-absorption.md) ──
+# lookup+XMPP+MQTT broker inside the bridge process: no external Bumper.
+# conf (:443, the Ecovacs app API) is implemented (FD) but stays OFF:
+# enable it only to pair with the legacy app or use it as an oracle
+# (remember to publish 443 in docker-compose.yml).
 [servers]
-lookup = true              # :8007  bootstrap del robot (lookup.do)
-xmpp = true                # :5223  servidor XMPP (robots era 930)
-mqtt = true                # :8883  broker MQTT TLS (robots eco-ng T8+)
-# conf = true              # :443   API de la app Ecovacs (FD, off por defecto)
-# announce_ip: la inyecta el compose vía DEEBOT_ANNOUNCE_IP (= BUMPER_ANNOUNCE_IP
-# del .env). Descomenta para fijarla aquí (el toml gana al entorno):
+lookup = true              # :8007  robot bootstrap (lookup.do)
+xmpp = true                # :5223  XMPP server (930-era robots)
+mqtt = true                # :8883  TLS MQTT broker (eco-ng T8+)
+# conf = true              # :443   Ecovacs app API (FD, off by default)
+# announce_ip: injected by compose via DEEBOT_ANNOUNCE_IP (= the .env's
+# BUMPER_ANNOUNCE_IP). Uncomment to pin it here (the toml wins over env):
 # announce_ip = "192.0.2.10"
-# certs: nombres legacy de Bumper — en producción ya existen en ./data/certs
-# y NO se regeneran; si faltasen (instalación limpia) se auto-generan (FE)
+# certs: Bumper's legacy names — in production they already exist in
+# ./data/certs and are NOT regenerated; if missing (clean install) they
+# are auto-generated (FE)
 ca_file = "/certs/ca.crt"
 server_cert = "/certs/bumper.crt"
 server_key = "/certs/bumper.key"
 
-# Cliente XMPP del bridge — con el XMPP embebido activo, serve lo apunta a
-# 127.0.0.1 (reescritura automática); explícito por claridad
+# Bridge's XMPP client — with the embedded XMPP on, serve points it at
+# 127.0.0.1 (automatic rewrite); explicit for clarity
 [bumper]
 host = "127.0.0.1"
 port = 5223
@@ -38,7 +39,7 @@ host = "mosquitto"
 port = 1883
 base_topic = "deebot"
 
-# Cliente eco-ng (T8+) — al broker embebido, igual que el XMPP
+# eco-ng client (T8+) — against the embedded broker, just like XMPP
 [bumper_mqtt]
 host = "127.0.0.1"
 port = 8883

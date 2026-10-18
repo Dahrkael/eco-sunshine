@@ -7,7 +7,7 @@ identify by their client-id ``{did}@{cls}/{res}`` and get registered in
 the DeviceRegistry shared with the embedded XMPP.
 
 Bumper's helperbot is NOT ported: MqttTransport already sends p2p
-commands directly (docs/absorcion-bumper.md).
+commands directly (docs/bumper-absorption.md).
 
 Two hbmqtt bugs disappear for free with amqtt:
 

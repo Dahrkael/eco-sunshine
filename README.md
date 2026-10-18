@@ -167,6 +167,67 @@ Docker Desktop publishes the ports; if the robot/app can't connect, allow
 inbound 5223/tcp, 8007/tcp, 8883/tcp (and 443/tcp if you enable the conf)
 for `com.docker.backend` (Private profile of the Wi-Fi network).
 
+## Home Assistant integration
+
+Pure **MQTT discovery** — no custom component needed. Each robot shows up
+as one device with ~18 entities (vacuum, map camera, consumables, stats,
+firmware, error, per-room clean buttons, water-flow select for mopping
+models, DND/silent switches). Entity ids are derived from the robot's
+**name** (e.g. `vacuum.deebot_ozmo_930`). Full entity table and topic
+contract: `docs/home-assistant.md`.
+
+### Optional Lovelace cards (recommended)
+
+Three custom cards on top of the entities: a **live map** (canvas with
+animated robot, dock, rooms, virtual walls, no-mop zones), a **control
+card** (start/pause/dock/locate + suction/water selectors + room buttons)
+and a **status card** (battery, totals, firmware, errors). Spanish/English
+following the HA language.
+
+Install (manual copy):
+
+1. Copy the four files from `hass/` in this repo to your HA config:
+   ```
+   cp hass/ecovacs-card-common.js  <ha-config>/www/ecovacs/
+   cp hass/ecovacs-map-card.js     <ha-config>/www/ecovacs/
+   cp hass/ecovacs-control-card.js <ha-config>/www/ecovacs/
+   cp hass/ecovacs-status-card.js  <ha-config>/www/ecovacs/
+   ```
+   (`<ha-config>` = the folder containing `configuration.yaml`; create
+   `www/ecovacs/` if it doesn't exist. `ecovacs-card-common.js` MUST be
+   listed first in the resources.)
+
+2. Add the Lovelace resources (**Settings → Dashboards → ⋮ → Resources**,
+   or in YAML mode):
+   ```yaml
+   resources:
+     - url: /local/ecovacs/ecovacs-card-common.js
+       type: module
+     - url: /local/ecovacs/ecovacs-map-card.js
+       type: module
+     - url: /local/ecovacs/ecovacs-control-card.js
+       type: module
+     - url: /local/ecovacs/ecovacs-status-card.js
+       type: module
+   ```
+
+3. Add the cards to a dashboard — the entity is your `vacuum.*`:
+   ```yaml
+   type: custom:ecovacs-map-card
+   entity: vacuum.deebot_ozmo_930
+   height: 420
+   ```
+   A complete ready-to-paste view lives in `hass/dashboard-example.yaml`.
+
+Notes:
+- The map card subscribes to MQTT over the HA websocket — it needs an
+  **admin user** (HA gates `mqtt/subscribe`).
+- Cards derive the MQTT base topic from the `slug` the bridge reports in
+  the vacuum attributes; if you changed `base_topic` in the bridge config,
+  set `base_topic: <yours>` on the card too.
+- The map appears after the first `map_data` publication (retained) —
+  start a clean once if the map is empty.
+
 ## Using the Ecovacs app against the bridge (FD, optional)
 
 The **legacy "Ecovacs" app** (XMPP robots) can log in, list the robots
@@ -223,7 +284,7 @@ embedded servers present).
 - sucks + bmartin5692's fork (the historical XMPP client, basis of ha_ecovacs_bumper)
 - ecovacs-deebot.js (mrbungle64) — issue #10: live map, unsolved
 - DEF CON 32: "Reverse engineering and hacking Ecovacs robots" (Giese/Luedtke)
-- valetudo-map-card (the bridge's target MQTT format)
+- valetudo-map-card (inspiration for the map card approach)
 
 ## License
 

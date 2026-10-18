@@ -14,7 +14,7 @@ from . import __version__
 
 
 def cmd_tail(args: argparse.Namespace) -> int:
-    print("TODO(fase 2): tail del log de Bumper (docker logs deebot930-bumper)")
+    print("Not implemented — replay/serve cover this workflow today.")
     return 0
 
 
@@ -94,7 +94,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
 
 
 def cmd_decode(args: argparse.Namespace) -> int:
-    print(f"TODO(fase 3): decodificar traza {args.trace}")
+    print(f"Not implemented — use tools/decode_map.py / decode_trace.py instead ({args.trace}).")
     return 0
 
 

@@ -1,0 +1,30 @@
+# Example Lovelace view for ecovacs-bridge (title: Deebot)
+# Replace vacuum.ozmo930_607ab7 with your vacuum entity.
+title: Deebot
+cards:
+  - type: custom:ecovacs-status-card
+    entity: vacuum.ozmo930_607ab7
+
+  - type: custom:ecovacs-map-card
+    entity: vacuum.ozmo930_607ab7
+    height: 420
+
+  - type: custom:ecovacs-control-card
+    entity: vacuum.ozmo930_607ab7
+
+  # native entities worth keeping on the same view
+  - type: horizontal-stack
+    cards:
+      - type: button
+        name: Reset brush
+        entity: button.ozmo930_607ab7_reset_brush
+        tap_action:
+          action: toggle
+      - type: sensor
+        name: Brush
+        entity: sensor.ozmo930_607ab7_brush
+        graph: line
+      - type: sensor
+        name: Cleaned area
+        entity: sensor.ozmo930_607ab7_total_area
+        graph: line

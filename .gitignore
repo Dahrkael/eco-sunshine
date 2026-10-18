@@ -13,3 +13,11 @@ __pycache__/
 .DS_Store
 bridge/config.toml
 apk-analysis/
+
+# Ecovacs copyrighted material — analysis only, NEVER publish
+apk-analysis/
+*.apk
+*.xapk
+# private
+.env
+data/

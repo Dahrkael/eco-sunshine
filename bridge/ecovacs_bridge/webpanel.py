@@ -20,11 +20,11 @@ from aiohttp import web, WSMsgType
 log = logging.getLogger(__name__)
 
 INDEX_HTML = r"""<!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Deebot 930 — Control Local</title>
+<title>Deebot — Local Control</title>
 <style>
 :root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#c9d1d9;--ok:#3fb950;--warn:#d29922;--err:#f85149;--accent:#58a6ff}
 *{margin:0;padding:0;box-sizing:border-box}
@@ -70,56 +70,56 @@ select:focus{outline:none;border-color:var(--accent)}
 
 <div id="canvas-wrap">
   <canvas id="map-canvas" width="600" height="450"></canvas>
-  <div id="map-loading">Conectando al robot…</div>
+  <div id="map-loading" data-i18n="connecting">Connecting to robot…</div>
 </div>
 
 <div id="controls">
-  <button class="btn start" onclick="cmd('start')">▶ Iniciar</button>
-  <button class="btn pause" onclick="cmd('pause')">⏸ Pausa</button>
-  <button class="btn dock" onclick="cmd('dock')">🏠 Base</button>
-  <button class="btn locate" onclick="cmd('locate')">🔊 Localizar</button>
+  <button class="btn start" onclick="cmd('start')" data-i18n="start">▶ Start</button>
+  <button class="btn pause" onclick="cmd('pause')" data-i18n="pause">⏸ Pause</button>
+  <button class="btn dock" onclick="cmd('dock')" data-i18n="dock">🏠 Dock</button>
+  <button class="btn locate" onclick="cmd('locate')" data-i18n="locate">🔊 Locate</button>
 </div>
 
 <div class="section">
-  <h3>Configuración</h3>
+  <h3 data-i18n="settings">Settings</h3>
   <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:end">
-    <div><label style="font-size:.8rem;opacity:.7">Potencia</label><br>
+    <div><label style="font-size:.8rem;opacity:.7" data-i18n="power">Suction</label><br>
       <select id="fan-sel" onchange="cmd('fan_speed',this.value)">
-        <option value="silent">Silencioso</option><option value="standard" selected>Normal</option><option value="strong">Potente</option>
+        <option value="silent" data-i18n="fan_silent">Quiet</option><option value="standard" selected data-i18n="fan_standard">Normal</option><option value="strong" data-i18n="fan_strong">Max</option>
       </select></div>
-    <div><label style="font-size:.8rem;opacity:.7">Agua</label><br>
+    <div><label style="font-size:.8rem;opacity:.7" data-i18n="water">Water</label><br>
       <select onchange="cmd('water_level',this.value)">
-        <option value="1">Bajo</option><option value="2" selected>Medio</option><option value="3">Alto</option>
+        <option value="1" data-i18n="water_low">Low</option><option value="2" selected data-i18n="water_med">Medium</option><option value="3" data-i18n="water_high">High</option>
       </select></div>
-    <div><label style="font-size:.8rem;opacity:.7">Continuo</label><br>
+    <div><label style="font-size:.8rem;opacity:.7" data-i18n="continuous">Continuous</label><br>
       <select onchange="cmd('set_on_off',{'t':'g','on':this.value})">
-        <option value="1">Sí</option><option value="0">No</option>
+        <option value="1" data-i18n="yes">Yes</option><option value="0" data-i18n="no">No</option>
       </select></div>
   </div>
 </div>
 
 <div class="section">
-  <h3>Consumibles</h3>
+  <h3 data-i18n="consumables">Consumables</h3>
   <div class="consumables" id="consumables"></div>
 </div>
 
 <div class="section">
-  <h3>Habitaciones</h3>
+  <h3 data-i18n="rooms">Rooms</h3>
   <div id="rooms" style="display:flex;gap:.4rem;flex-wrap:wrap"></div>
 </div>
 
 <div class="section">
-  <h3>Estadísticas</h3>
+  <h3 data-i18n="stats">Statistics</h3>
   <div id="stats" style="display:flex;gap:1.2rem;flex-wrap:wrap;font-size:.9rem"></div>
 </div>
 
 <div class="section">
-  <h3>Mapa</h3>
+  <h3 data-i18n="map">Map</h3>
   <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
-    <button class="btn danger" onclick="if(confirm('¿Borrar mapa?'))cmd('clear_map')">🗑 Borrar</button>
-    <button class="btn" onclick="cmd('recover_map')">♻ Recuperar</button>
-    <button class="btn" id="btn-wall" onclick="startDraw('wall')">🧱 Muro</button>
-    <button class="btn" id="btn-zone" onclick="startDraw('zone')">⬜ Zona</button>
+    <button class="btn danger" onclick="if(confirm(t('confirm_clear')))cmd('clear_map')" data-i18n="delete">🗑 Delete</button>
+    <button class="btn" onclick="cmd('recover_map')" data-i18n="restore">♻ Restore</button>
+    <button class="btn" id="btn-wall" onclick="startDraw('wall')" data-i18n="wall">🧱 Wall</button>
+    <button class="btn" id="btn-zone" onclick="startDraw('zone')" data-i18n="zone">⬜ Zone</button>
     <span id="draw-hint" style="font-size:.75rem;opacity:.7"></span>
   </div>
   <div id="walls" style="margin-top:.5rem;font-size:.8rem"></div>
@@ -130,6 +130,54 @@ select:focus{outline:none;border-color:var(--accent)}
 <script>
 const COLORS = {0:'#0d1117', 1:'#30363d', 2:'#8b949e', 3:'#6b5b3e', 4:'#f85149'};
 let CELL_MM = 50, ORIGIN_R = 401, ORIGIN_C = 401, Y_DOWN = true;
+
+// ---- i18n: browser language decides (Spanish browsers → es, rest → en) ----
+const I18N = {
+  es: {
+    doc_title: 'Deebot — Control local',
+    connecting: 'Conectando al robot…',
+    start: '▶ Iniciar', pause: '⏸ Pausa', dock: '🏠 Base', locate: '🔊 Localizar',
+    settings: 'Configuración', power: 'Potencia', water: 'Agua', continuous: 'Continuo',
+    fan_silent: 'Silencioso', fan_standard: 'Normal', fan_strong: 'Potente',
+    water_low: 'Bajo', water_med: 'Medio', water_high: 'Alto', yes: 'Sí', no: 'No',
+    consumables: 'Consumibles', rooms: 'Habitaciones', stats: 'Estadísticas',
+    no_rooms: 'sin habitaciones mapeadas',
+    stat_total: 'total', stat_cleaned: 'limpiados', stat_cleans: 'limpiezas',
+    map: 'Mapa', confirm_clear: '¿Borrar el mapa?',
+    delete: '🗑 Borrar', restore: '♻ Recuperar', wall: '🧱 Muro', zone: '⬜ Zona',
+    hint_wall: 'clic en 2 puntos para el muro',
+    hint_zone: 'clic en 2 esquinas de la zona',
+    hint_wall2: 'muro: falta el segundo punto',
+    hint_zone2: 'zona: falta la segunda esquina',
+    item_wall: 'muro', item_nomop: 'no-fregar', item_zone: 'zona',
+    no_walls: 'sin muros ni zonas'
+  },
+  en: {
+    doc_title: 'Deebot — Local Control',
+    connecting: 'Connecting to robot…',
+    start: '▶ Start', pause: '⏸ Pause', dock: '🏠 Dock', locate: '🔊 Locate',
+    settings: 'Settings', power: 'Suction', water: 'Water', continuous: 'Continuous',
+    fan_silent: 'Quiet', fan_standard: 'Standard', fan_strong: 'Max',
+    water_low: 'Low', water_med: 'Medium', water_high: 'High', yes: 'Yes', no: 'No',
+    consumables: 'Consumables', rooms: 'Rooms', stats: 'Statistics',
+    no_rooms: 'no mapped rooms yet',
+    stat_total: 'total', stat_cleaned: 'cleaned', stat_cleans: 'cleans',
+    map: 'Map', confirm_clear: 'Delete the map?',
+    delete: '🗑 Delete', restore: '♻ Restore', wall: '🧱 Wall', zone: '⬜ Zone',
+    hint_wall: 'click 2 points to place the wall',
+    hint_zone: 'click 2 corners of the zone',
+    hint_wall2: 'wall: waiting for the second point',
+    hint_zone2: 'zone: waiting for the second corner',
+    item_wall: 'wall', item_nomop: 'no-mop', item_zone: 'zone',
+    no_walls: 'no walls or zones'
+  }
+};
+const LANG = (navigator.languages || [navigator.language || 'en'])
+  .some(l => (l || '').toLowerCase().startsWith('es')) ? 'es' : 'en';
+function t(k) { return I18N[LANG][k] ?? I18N.en[k] ?? k; }
+document.documentElement.lang = LANG;
+document.title = t('doc_title');
+document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
 
 let ws, gridData = null, currentRobot = null, robots = {}, gridW = 0, gridH = 0, cropR = 0, cropC = 0;
 let robot = null, charger = null, trace = [], animRobot = null, lastPos = null;
@@ -153,7 +201,7 @@ function startDraw(mode) {
   document.getElementById('btn-wall').style.outline = drawMode === 'wall' ? '2px solid #f85149' : 'none';
   document.getElementById('btn-zone').style.outline = drawMode === 'zone' ? '2px solid #58a6ff' : 'none';
   document.getElementById('draw-hint').textContent = drawMode
-    ? (drawMode === 'wall' ? 'clic en 2 puntos para el muro' : 'clic en 2 esquinas de la zona') : '';
+    ? (drawMode === 'wall' ? t('hint_wall') : t('hint_zone')) : '';
   draw();
 }
 
@@ -179,7 +227,7 @@ canvas.addEventListener('click', e => {
     document.getElementById('draw-hint').textContent = '';
   } else {
     document.getElementById('draw-hint').textContent =
-      drawMode === 'wall' ? 'muro: falta el segundo punto' : 'zona: falta la segunda esquina';
+      drawMode === 'wall' ? t('hint_wall2') : t('hint_zone2');
     draw();
   }
 });
@@ -383,7 +431,7 @@ function updateStatus(d) {
 function renderRooms(d) {
   const el = document.getElementById('rooms');
   const rooms = d.map_sets?.ar?.entries || [];
-  if (!rooms.length) { el.innerHTML = '<span style="opacity:.5;font-size:.8rem">sin habitaciones mapeadas</span>'; return; }
+  if (!rooms.length) { el.innerHTML = `<span style="opacity:.5;font-size:.8rem">${t('no_rooms')}</span>`; return; }
   el.innerHTML = rooms.map(r =>
     `<button class="btn" style="padding:.4rem .7rem;font-size:.85rem" onclick="cmd('clean_room','${r.mssid}')">🚪 ${r.name || r.mssid}</button>`
   ).join('');
@@ -395,9 +443,9 @@ function renderStats(d) {
   const h = Math.floor((s.total_time || 0) / 3600), m = Math.floor(((s.total_time || 0) % 3600) / 60);
   const m2 = ((s.total_area || 0) / 1e6).toFixed(0);
   el.innerHTML =
-    `<div>⏱ <b>${h}h ${m}m</b> <span style="opacity:.6">total</span></div>` +
-    `<div>📐 <b>${m2} m²</b> <span style="opacity:.6">limpiados</span></div>` +
-    `<div>🔁 <b>${s.total_count ?? '—'}</b> <span style="opacity:.6">limpiezas</span></div>`;
+    `<div>⏱ <b>${h}h ${m}m</b> <span style="opacity:.6">${t('stat_total')}</span></div>` +
+    `<div>📐 <b>${m2} m²</b> <span style="opacity:.6">${t('stat_cleaned')}</span></div>` +
+    `<div>🔁 <b>${s.total_count ?? '—'}</b> <span style="opacity:.6">${t('stat_cleans')}</span></div>`;
 }
 
 function renderWalls(d) {
@@ -407,16 +455,16 @@ function renderWalls(d) {
   for (const w of (sets.vw?.entries || [])) {
     if (w.x1 === undefined) continue;
     items.push(`<span style="display:inline-flex;gap:.3rem;align-items:center;margin:.15rem">
-      <span style="color:#f85149">🧱</span> muro
+      <span style="color:#f85149">🧱</span> ${t('item_wall')}
       <button class="btn" style="padding:.1rem .4rem;font-size:.7rem" onclick="cmd('del_wall','${w.mid}')">✕</button></span>`);
   }
   for (const z of (sets.mw?.entries || []).concat(sets.sa?.entries || [])) {
     if (z.x1 === undefined) continue;
     items.push(`<span style="display:inline-flex;gap:.3rem;align-items:center;margin:.15rem">
-      <span style="color:#58a6ff">⬜</span> ${z.kind === 'mw' ? 'no-fregar' : 'zona'}
+      <span style="color:#58a6ff">⬜</span> ${z.kind === 'mw' ? t('item_nomop') : t('item_zone')}
       <button class="btn" style="padding:.1rem .4rem;font-size:.7rem" onclick="cmd('del_zone','${z.mid}')">✕</button></span>`);
   }
-  el.innerHTML = items.length ? items.join('') : '<span style="opacity:.5">sin muros ni zonas</span>';
+  el.innerHTML = items.length ? items.join('') : `<span style="opacity:.5">${t('no_walls')}</span>`;
 }
 
 async function cmd(action, value) {

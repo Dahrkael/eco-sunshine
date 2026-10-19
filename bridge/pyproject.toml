@@ -9,6 +9,8 @@ dependencies = [
     "aiomqtt>=2.0",
     "aiohttp>=3.9",
     "zstandard>=0.22",
+    # TOML parsing on python <3.11 (tomllib is stdlib since 3.11)
+    "tomli>=2.0; python_version < '3.11'",
     # embedded MQTT broker (FC): maintained fork of hbmqtt, py3.12+
     "amqtt>=0.12",
     # auto-generation of the embedded servers' certs (FE) — also used

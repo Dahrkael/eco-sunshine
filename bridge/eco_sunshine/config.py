@@ -6,8 +6,8 @@ from pathlib import Path
 
 try:
     import tomllib
-except ImportError:  # py<3.11
-    tomllib = None
+except ImportError:  # python<3.11 has no tomllib: tomli ships as a dependency
+    import tomli as tomllib
 
 
 @dataclass

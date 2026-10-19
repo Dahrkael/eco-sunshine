@@ -117,7 +117,11 @@ With the DNS already pointing at the bridge (see above):
 - **New robot**: it needs the legacy "Ecovacs" app ONCE, to receive your
   WiFi credentials — enable the app API as described in the next section,
   put the robot in pairing mode (WiFi button until it blinks/speaks) and
-  add it from the app. The app is not needed after that.
+  add it from the app. The app is not needed after that. There is also an
+  app-less alternative — connect to the robot's own AP and POST the
+  credentials via `rcp.do` (`SetApConfig`) — documented in
+  `docs/protocol.md` but imported from ecovacs-privacy-control and not
+  validated here.
 
 ## Home Assistant integration
 

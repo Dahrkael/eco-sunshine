@@ -120,8 +120,7 @@ With the DNS already pointing at the bridge (see above):
   add it from the app. The app is not needed after that. There is also an
   app-less alternative — connect to the robot's own AP and POST the
   credentials via `rcp.do` (`SetApConfig`) — documented in
-  `docs/protocol.md` but imported from ecovacs-privacy-control and not
-  validated here.
+  `docs/protocol.md`.
 
 ## Home Assistant integration
 

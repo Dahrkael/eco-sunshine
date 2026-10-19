@@ -31,7 +31,7 @@ DOMAINS = [
     "*.area.ww.ecouser.net",
 ]
 
-IPS = ["127.0.0.1", "192.0.2.10"]  # example LAN IP; in production, the minipc's IP
+IPS = ["127.0.0.1", "192.0.2.10"]  # example LAN IP — use your host's
 
 
 def main() -> None:

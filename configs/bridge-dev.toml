@@ -1,6 +1,6 @@
 panel_port = 8282
 robots = ["E000105701860607AB7@115.ecorobot.net/atom"]
-# Development config (WSL): Bumper and mosquitto in the host's docker
+# Development config: Bumper and mosquitto in the host's docker
 [bumper]
 host = "localhost"
 port = 5223

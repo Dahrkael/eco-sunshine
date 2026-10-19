@@ -2,9 +2,10 @@
 
 Alternative to `99-deebot-bumper.conf` (dnsmasq) for those who prefer the
 GUI: Local DNS → DNS Records → add each domain pointing to
-**192.0.2.10** (in production: the minipc's IP).
+**192.0.2.10** (replace with your host's IP).
 
-Instantiated for Spain: `{countrycode}` = es, `{region}` = eu, plus ww.
+The list is instantiated for one country/region (`es`/`eu`, plus the
+worldwide `ww` variants) — keep the rows matching yours.
 
 ## CRITICAL (930 XMPP robot + legacy "Ecovacs" app)
 

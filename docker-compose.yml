@@ -12,7 +12,7 @@ services:
     restart: unless-stopped
     depends_on: [mosquitto]
     environment:
-      TZ: ${TZ:-Europe/Madrid}
+      TZ: ${TZ:-UTC}
       # bridge's servers.announce_ip (the toml does not read the
       # environment): same IP Bumper used to consume — announced to
       # robots/app in lookup.do
@@ -60,8 +60,8 @@ services:
     restart: unless-stopped
     profiles: ["legacy"]
     environment:
-      TZ: ${TZ:-Europe/Madrid}
-      BUMPER_ANNOUNCE_IP: ${BUMPER_ANNOUNCE_IP}   # IP announced to robot/app (Windows host in dev)
+      TZ: ${TZ:-UTC}
+      BUMPER_ANNOUNCE_IP: ${BUMPER_ANNOUNCE_IP}   # IP announced to robot/app (the stack's host)
       BUMPER_LISTEN: 0.0.0.0
       BUMPER_DATA: /bumper/data
       BUMPER_CERTS: /bumper/certs

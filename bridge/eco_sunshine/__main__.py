@@ -248,7 +248,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(prog="ecovacs-bridge")
+    parser = argparse.ArgumentParser(prog="eco-sunshine")
     parser.add_argument("--version", action="version", version=__version__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 

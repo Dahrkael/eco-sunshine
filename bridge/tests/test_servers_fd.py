@@ -18,12 +18,12 @@ import re
 import pytest
 from aiohttp import ClientSession, TCPConnector
 
-from ecovacs_bridge.config import Config
-from ecovacs_bridge.serve import Service
-from ecovacs_bridge.servers import NOT_YET
-from ecovacs_bridge.servers.certs import ensure_certs
-from ecovacs_bridge.servers.conf import ConfAuth, ConfServer, login_data
-from ecovacs_bridge.servers.registry import DeviceRegistry
+from eco_sunshine.config import Config
+from eco_sunshine.serve import Service
+from eco_sunshine.servers import NOT_YET
+from eco_sunshine.servers.certs import ensure_certs
+from eco_sunshine.servers.conf import ConfAuth, ConfServer, login_data
+from eco_sunshine.servers.registry import DeviceRegistry
 
 # old app's private path exactly as it appears in the corpus (apptype i_eco_e)
 APP_LOGIN = ("/v1/private/es/en/5d8a10c413d47b4194c29ef1580cbb04/i_eco_e"
@@ -341,7 +341,7 @@ class TestServeWiringFD:
             conf = svc.embedded["conf"]
             assert conf.port == cfg.servers.conf_port
             # the registry persists next to state_file (same rule as FB)
-            from ecovacs_bridge.servers.registry import DeviceRegistry
+            from eco_sunshine.servers.registry import DeviceRegistry
 
             assert isinstance(svc.registry, DeviceRegistry)
         finally:
@@ -380,7 +380,7 @@ class TestReviewRegressionsFD:
     """Pin bugs found while reviewing FD."""
 
     def test_relogin_revokes_the_previous_authcode(self):
-        from ecovacs_bridge.servers.conf import ConfAuth
+        from eco_sunshine.servers.conf import ConfAuth
 
         auth = ConfAuth()
         auth.login("devid-x")
@@ -391,7 +391,7 @@ class TestReviewRegressionsFD:
         assert auth.authcode("devid-x", "es") != ac1
 
     def test_getauthcode_with_use_auth_requires_valid_token(self):
-        from ecovacs_bridge.servers.conf import ConfAuth
+        from eco_sunshine.servers.conf import ConfAuth
 
         auth = ConfAuth(use_auth=True)
         s = auth.login("devid-x")
@@ -404,9 +404,9 @@ class TestReviewRegressionsFD:
 
     async def test_mqtt_broker_failure_does_not_skip_conf(self, tmp_path):
         """mqtt with a busy port + conf on → conf STILL STARTS."""
-        from ecovacs_bridge.config import Config
-        from ecovacs_bridge.serve import Service
-        from ecovacs_bridge.servers.certs import ensure_certs
+        from eco_sunshine.config import Config
+        from eco_sunshine.serve import Service
+        from eco_sunshine.servers.certs import ensure_certs
         from tests.test_servers_fc import _free_port
 
         cfg = Config()

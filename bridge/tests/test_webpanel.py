@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 
-from ecovacs_bridge.config import Config
-from ecovacs_bridge.serve import Service
-from ecovacs_bridge.webpanel import WebPanel
+from eco_sunshine.config import Config
+from eco_sunshine.serve import Service
+from eco_sunshine.webpanel import WebPanel
 
 
 class FakeWS:

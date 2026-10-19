@@ -1,5 +1,5 @@
 [project]
-name = "ecovacs-bridge"
+name = "eco-sunshine"
 version = "0.2.0"
 description = "XMPP+MQTT -> MQTT bridge for Ecovacs robots: live map decoder + Home Assistant integration"
 requires-python = ">=3.10"
@@ -23,14 +23,14 @@ dev = [
 ]
 
 [project.scripts]
-ecovacs-bridge = "ecovacs_bridge.__main__:main"
+eco-sunshine = "eco_sunshine.__main__:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["ecovacs_bridge", "ecovacs_bridge.servers"]
+packages = ["eco_sunshine", "eco_sunshine.servers"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

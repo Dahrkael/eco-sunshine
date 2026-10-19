@@ -24,11 +24,11 @@ entrypoint, not rewriting them.
 
 | Bumper module | Destination | Notes |
 |---|---|---|
-| `mqttserver.py` (MQTTServer + auth plugin) | `ecovacs_bridge/servers/mqtt.py` | **done (FC)**: embedded `amqtt` broker; the helperbot was REMOVED (MqttTransport replaces it) |
-| `xmppserver.py` | `ecovacs_bridge/servers/xmpp.py` | **done (FB)**: vendored almost verbatim, registry injected |
+| `mqttserver.py` (MQTTServer + auth plugin) | `eco_sunshine/servers/mqtt.py` | **done (FC)**: embedded `amqtt` broker; the helperbot was REMOVED (MqttTransport replaces it) |
+| `xmppserver.py` | `eco_sunshine/servers/xmpp.py` | **done (FB)**: vendored almost verbatim, registry injected |
 | `confserver.py` (:443/:8007) | `servers/lookup.py` (:8007) + `servers/conf.py` (:443) | lookup **done (FA)**; conf **done (FD)**: the legacy app's login/getAuthCode/user.do against the DeviceRegistry — detail below |
-| `db.py` (bots/tokens/users) | `ecovacs_bridge/servers/registry.py` | **done (FB)**: JSON DeviceRegistry next to the state_file (bumper.db dies) |
-| `create_certs` + data/certs | `ecovacs_bridge/servers/certs.py` | **done (FE)**: CA+cert auto-generated on first boot if missing; existing ones are never touched |
+| `db.py` (bots/tokens/users) | `eco_sunshine/servers/registry.py` | **done (FB)**: JSON DeviceRegistry next to the state_file (bumper.db dies) |
+| `create_certs` + data/certs | `eco_sunshine/servers/certs.py` | **done (FE)**: CA+cert auto-generated on first boot if missing; existing ones are never touched |
 
 ## What gets removed
 

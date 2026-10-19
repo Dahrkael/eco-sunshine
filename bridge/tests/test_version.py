@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ecovacs_bridge.robot import RobotState
+from eco_sunshine.robot import RobotState
 
 
 class TestVersion:

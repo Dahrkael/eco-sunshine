@@ -8,14 +8,14 @@ import struct
 
 import pytest
 
-from ecovacs_bridge.map_pieces import (
+from eco_sunshine.map_pieces import (
     ZSTD_MAGIC,
     decode_piece,
     decode_piece_auto,
     decode_trace_mqtt,
     decompress_auto,
 )
-from ecovacs_bridge.mqtt_transport import build_envelope
+from eco_sunshine.mqtt_transport import build_envelope
 
 
 def make_piece_bytes(size: int = 10000, fill: int = 1) -> bytes:

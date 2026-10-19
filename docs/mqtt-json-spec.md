@@ -1,4 +1,4 @@
-# SPEC: Ecovacs MQTT/JSON protocol — for implementation in ecovacs-bridge
+# SPEC: Ecovacs MQTT/JSON protocol — for implementation in eco-sunshine
 
 > Sources: Ecovacs Home v3.16.1 APK decompile, Bumper source, ecovacs-deebot.js,
 > ecovacs-stack, own corpus (sessions 1-3 with an OZMO 930 over XMPP).

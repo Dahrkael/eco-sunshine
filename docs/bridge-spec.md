@@ -1,4 +1,4 @@
-# ecovacs-bridge — specification (all-in-one, multi-robot)
+# eco-sunshine — specification (all-in-one, multi-robot)
 
 A single service that replaces the app **and** the custom HA component:
 it talks XMPP to Bumper as a client, controls the robot and listens to it,
@@ -9,7 +9,7 @@ Assistant discovery.
 
 ```
                       ┌─────────────────────────────────────────────┐
-                      │  ecovacs-bridge (asyncio)                 |
+                      │  eco-sunshine (asyncio)                 |
  Bumper (XMPP 5223) ←──┤  ├─ XMPP session per robot (fake auto-login) │
                       │  ├─ command ←→ MQTT                          │
    930 robot ⇄ bumper │  ├─ collector: Pos/trace/MapP/CleanSt/...    │
@@ -61,7 +61,7 @@ Assistant discovery.
 | Map | `deebot/<slug>/map` (PNG b64) + `/map_data` | mqtt camera + valetudo-map-card compatible |
 | Position/path | `deebot/<slug>/state` | incl. in the map payload |
 
-## Modules (bridge/ecovacs_bridge/)
+## Modules (bridge/eco_sunshine/)
 
 - `xmpp_client.py` — TLS session against Bumper (own CA), fake-user login,
   iq/ctl sending, event parsing (from Bumper's xmppserver format).

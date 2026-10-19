@@ -24,12 +24,12 @@ import aiomqtt
 import pytest
 from amqtt.plugins.base import BaseContext
 
-from ecovacs_bridge.config import Config
-from ecovacs_bridge.models import DeviceId
-from ecovacs_bridge.mqtt_transport import MqttTransport
-from ecovacs_bridge.servers.mqtt import BridgeAuthPlugin, EmbeddedMqttBroker
-from ecovacs_bridge.servers.registry import DeviceRegistry
-from ecovacs_bridge.serve import Service
+from eco_sunshine.config import Config
+from eco_sunshine.models import DeviceId
+from eco_sunshine.mqtt_transport import MqttTransport
+from eco_sunshine.servers.mqtt import BridgeAuthPlugin, EmbeddedMqttBroker
+from eco_sunshine.servers.registry import DeviceRegistry
+from eco_sunshine.serve import Service
 
 # real eco-ng did: dash-carrying UUID — the case hbmqtt's '+' broke
 DID = "b11fceaf-1234-5678-9abc-def012345678"

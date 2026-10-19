@@ -20,11 +20,11 @@ import aiomqtt
 import pytest
 from cryptography import x509
 
-from ecovacs_bridge.config import Config, load_config
-from ecovacs_bridge.servers.certs import ensure_certs
-from ecovacs_bridge.servers.mqtt import EmbeddedMqttBroker
-from ecovacs_bridge.servers.registry import DeviceRegistry
-from ecovacs_bridge.serve import Service
+from eco_sunshine.config import Config, load_config
+from eco_sunshine.servers.certs import ensure_certs
+from eco_sunshine.servers.mqtt import EmbeddedMqttBroker
+from eco_sunshine.servers.registry import DeviceRegistry
+from eco_sunshine.serve import Service
 
 DID = "b11fceaf-1234-5678-9abc-def012345678"
 BOT_KEY = f"{DID}@yna5xh/axm"

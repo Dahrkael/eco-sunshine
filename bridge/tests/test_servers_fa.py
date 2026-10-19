@@ -8,8 +8,8 @@ import json
 import pytest
 from aiohttp import ClientSession
 
-from ecovacs_bridge.config import Config, ServersConfig, load_config
-from ecovacs_bridge.servers.lookup import LookupServer, lookup_response
+from eco_sunshine.config import Config, ServersConfig, load_config
+from eco_sunshine.servers.lookup import LookupServer, lookup_response
 
 
 class TestServersConfig:
@@ -84,7 +84,7 @@ class TestLookupServer:
 
 class TestNullPanel:
     async def test_noop(self):
-        from ecovacs_bridge.webpanel import NullPanel
+        from eco_sunshine.webpanel import NullPanel
 
         p = NullPanel()
         await p.start()

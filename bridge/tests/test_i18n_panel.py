@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from ecovacs_bridge.webpanel import INDEX_HTML
+from eco_sunshine.webpanel import INDEX_HTML
 
 
 def extract_i18n_dicts() -> tuple[set[str], set[str]]:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from ecovacs_bridge.mqtt_pub import MqttPublisher
+from eco_sunshine.mqtt_pub import MqttPublisher
 
 
 class FakeClient:
@@ -107,8 +107,8 @@ class TestDispatchH1:
 
 class TestServeWiringH1:
     async def test_room_buttons_published_on_learning_rooms(self):
-        from ecovacs_bridge.config import Config
-        from ecovacs_bridge.serve import Service
+        from eco_sunshine.config import Config
+        from eco_sunshine.serve import Service
         from tests.test_serve_wiring import FakeTransport
 
         svc = Service(Config(), None)
@@ -116,9 +116,9 @@ class TestServeWiringH1:
         svc.pub = pub  # type: ignore[assignment]
         t = FakeTransport()
         svc.mqtt_transport = t
-        from ecovacs_bridge.models import DeviceId
-        from ecovacs_bridge.robot import RobotState
-        from ecovacs_bridge.mqtt_commander import MqttCommander
+        from eco_sunshine.models import DeviceId
+        from eco_sunshine.robot import RobotState
+        from eco_sunshine.mqtt_commander import MqttCommander
 
         r = RobotState.from_device_id(DeviceId.from_key("x@yna5xh/axm"))
         key = r.did.key
@@ -133,7 +133,7 @@ class TestServeWiringH1:
         assert f"homeassistant/button/{r.slug}_room_1/config" in ts
         # the device keeps the real model (not degraded to "Deebot")
         cfg = json.loads(ts[f"homeassistant/button/{r.slug}_room_1/config"])
-        assert cfg["device"]["model"] == "Deebot OZMO T9 AIVI via ecovacs-bridge"
+        assert cfg["device"]["model"] == "Deebot OZMO T9 AIVI via eco-sunshine"
         n = len(fc.published)
         # same rooms again → no republication (signature unchanged)
         await svc.on_report(key, "getMapSet", {
@@ -162,12 +162,12 @@ class TestMapDataTopic:
 
 class TestReviewRegressions:
     async def test_set_water_level_maps_levels(self):
-        from ecovacs_bridge.config import Config
-        from ecovacs_bridge.serve import Service
+        from eco_sunshine.config import Config
+        from eco_sunshine.serve import Service
         from tests.test_serve_wiring import FakeTransport
-        from ecovacs_bridge.models import DeviceId
-        from ecovacs_bridge.robot import RobotState
-        from ecovacs_bridge.mqtt_commander import MqttCommander
+        from eco_sunshine.models import DeviceId
+        from eco_sunshine.robot import RobotState
+        from eco_sunshine.mqtt_commander import MqttCommander
 
         svc = Service(Config(), None)
         t = FakeTransport()
@@ -189,18 +189,18 @@ class TestReviewRegressions:
         assert cmd[2]["amount"] == 1
 
     def test_null_panel_build_map_data_noop(self):
-        from ecovacs_bridge.webpanel import NullPanel
+        from eco_sunshine.webpanel import NullPanel
 
         assert NullPanel()._build_map_data("slug", "0", None) is None
 
     async def test_rename_room_republishes_button(self):
-        from ecovacs_bridge.config import Config
-        from ecovacs_bridge.serve import Service
+        from eco_sunshine.config import Config
+        from eco_sunshine.serve import Service
         from tests.test_ha_entities import make_pub, topics
         from tests.test_serve_wiring import FakeTransport
-        from ecovacs_bridge.models import DeviceId
-        from ecovacs_bridge.robot import RobotState
-        from ecovacs_bridge.mqtt_commander import MqttCommander
+        from eco_sunshine.models import DeviceId
+        from eco_sunshine.robot import RobotState
+        from eco_sunshine.mqtt_commander import MqttCommander
 
         svc = Service(Config(), None)
         pub, fc = make_pub()

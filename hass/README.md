@@ -1,6 +1,6 @@
-# ecovacs-bridge Lovelace cards
+# eco-sunshine Lovelace cards
 
-Three custom cards for the ecovacs-bridge MQTT integration.
+Three custom cards for the eco-sunshine MQTT integration.
 
 ## Install (manual)
 

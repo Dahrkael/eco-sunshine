@@ -37,7 +37,7 @@ class ModelInfo:
 
     @property
     def ha_model(self) -> str:
-        return f"{self.display} via ecovacs-bridge"
+        return f"{self.display} via eco-sunshine"
 
 
 @dataclass(frozen=True)

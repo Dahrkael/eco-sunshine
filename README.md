@@ -1,4 +1,4 @@
-# ecovacs-bridge — 100% LAN replacement for the Ecovacs cloud with Home Assistant integration
+# eco-sunshine — 100% LAN replacement for the Ecovacs cloud with Home Assistant integration
 
 Self-hosted service that removes the dependency on Ecovacs' backend for
 Deebot robots (both old ones using XMPP and new ones using MQTT)
@@ -27,7 +27,7 @@ ones are never touched.
 ## Quickstart (fresh clone)
 
 ```bash
-git clone <repo> && cd ecovacs-bridge
+git clone <repo> && cd eco-sunshine
 cp .env.example .env          # edit: BUMPER_ANNOUNCE_IP = this host's LAN IP
 docker compose up -d --build  # bridge + mosquitto
 ```
@@ -44,10 +44,10 @@ recommended), Python ≥3.10 only for development/CLI use without Docker.
 ```bash
 cd bridge
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/python -m ecovacs_bridge serve -c ../configs/bridge-dev.toml --mqtt
+.venv/bin/python -m eco_sunshine serve -c ../configs/bridge-dev.toml --mqtt
 # panel: http://localhost:8282 | HA: discovery on mosquitto :1883
 
-.venv/bin/python -m ecovacs_bridge probe-mqtt --ca-file ../data/certs/ca.crt   # eco-ng diagnostics
+.venv/bin/python -m eco_sunshine probe-mqtt --ca-file ../data/certs/ca.crt   # eco-ng diagnostics
 python tools/mock_mqtt_robot.py    # synthetic T9 AIVI robot (eco-ng/MQTT), no hardware needed
 .venv/bin/python -m pytest         # suite (decoders, assembler, state, routing)
 ```
@@ -59,9 +59,9 @@ lookup+XMPP+MQTT broker+panel) and mosquitto — see Quickstart above for
 the fresh-clone flow.
 
 ```bash
-cd ecovacs-bridge
+cd eco-sunshine
 docker compose up -d --build          # bridge + mosquitto
-docker logs -f ecovacs-bridge       # embedded servers + robots
+docker logs -f eco-sunshine       # embedded servers + robots
 ```
 
 Ports published: 5223 (XMPP), 8007 (lookup), 8883 (eco-ng MQTT), 8181 (panel).
@@ -113,7 +113,7 @@ With the DNS already pointing at the bridge (see above):
 - **Robot already configured** (it was paired with the Ecovacs cloud at
   some point): just restart it. It resolves the Ecovacs domains to your
   host and connects to the bridge — no app involved. Watch it appear in
-  `docker logs -f ecovacs-bridge`, the panel and Home Assistant.
+  `docker logs -f eco-sunshine`, the panel and Home Assistant.
 - **New robot**: it needs the legacy "Ecovacs" app ONCE, to receive your
   WiFi credentials — enable the app API as described in the next section,
   put the robot in pairing mode (WiFi button until it blinks/speaks) and

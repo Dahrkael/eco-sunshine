@@ -1,5 +1,5 @@
 /**
- * ecovacs-bridge shared card utilities.
+ * eco-sunshine shared card utilities.
  * MQTT subscriptions over the HA websocket API, i18n and small helpers
  * shared by the three cards (map / control / status).
  */

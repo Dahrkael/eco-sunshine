@@ -6,7 +6,7 @@ FROM python:3.12-alpine
 # deps.
 WORKDIR /app
 COPY pyproject.toml ./
-COPY ecovacs_bridge ./ecovacs_bridge
+COPY eco_sunshine ./eco_sunshine
 
 RUN pip install --no-cache-dir .
 
@@ -15,5 +15,5 @@ RUN pip install --no-cache-dir .
 # FD and is not published.
 EXPOSE 8007 5223 8883 8181
 
-ENTRYPOINT ["python", "-m", "ecovacs_bridge"]
+ENTRYPOINT ["python", "-m", "eco_sunshine"]
 CMD ["serve", "--mqtt"]

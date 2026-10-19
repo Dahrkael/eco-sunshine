@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ecovacs_bridge.config import Config
-from ecovacs_bridge.serve import Service
+from eco_sunshine.config import Config
+from eco_sunshine.serve import Service
 from tests.test_servers_fc import _free_port
 
 
@@ -42,7 +42,7 @@ class TestXmppWiring:
         from pathlib import Path
 
         # generate real certs so it starts (uses FE's generator)
-        from ecovacs_bridge.servers.certs import ensure_certs
+        from eco_sunshine.servers.certs import ensure_certs
 
         cfg = self._cfg(tmp_path)
         ca = str(tmp_path / "my-ca.crt")

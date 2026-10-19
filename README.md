@@ -1,5 +1,7 @@
 # eco-sunshine — 100% LAN replacement for the Ecovacs cloud with Home Assistant integration
 
+[![CI](https://github.com/Dahrkael/eco-sunshine/actions/workflows/ci.yml/badge.svg)](https://github.com/Dahrkael/eco-sunshine/actions/workflows/ci.yml)
+
 Self-hosted service that removes the dependency on Ecovacs' backend for
 Deebot robots (both old ones using XMPP and new ones using MQTT)
 by replacing the official cloud with a single service of your own:

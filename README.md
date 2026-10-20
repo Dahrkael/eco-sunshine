@@ -31,7 +31,7 @@ ones are never touched.
 ```bash
 git clone <repo> && cd eco-sunshine
 cp .env.example .env          # edit: BUMPER_ANNOUNCE_IP = this host's LAN IP
-docker compose up -d --build  # bridge + mosquitto
+docker compose up -d          # bridge + mosquitto (prebuilt image from ghcr.io)
 ```
 
 The panel is at `http://<host>:8181`. Before a robot can find the bridge
@@ -62,8 +62,16 @@ the fresh-clone flow.
 
 ```bash
 cd eco-sunshine
-docker compose up -d --build          # bridge + mosquitto
-docker logs -f eco-sunshine       # embedded servers + robots
+docker compose up -d                  # bridge + mosquitto
+docker logs -f eco-sunshine           # embedded servers + robots
+```
+
+The compose file pulls `ghcr.io/dahrkael/eco-sunshine` (linux/amd64 +
+linux/arm64) published by CI: `latest` = newest version tag, `unstable` =
+tip of `main`, `X.Y`/`X.Y.Z` = releases. To build from source instead:
+
+```bash
+docker compose -f docker-compose.yml -f compose.build.yml up -d --build
 ```
 
 Ports published: 5223 (XMPP), 8007 (lookup), 8883 (eco-ng MQTT), 8181 (panel).
@@ -194,7 +202,7 @@ requests with HMAC (`X-ECO-SIGN`) and is not implemented.
 
 1. `configs/bridge.toml`: uncomment `conf = true` under `[servers]`.
 2. `docker-compose.yml`: uncomment the bridge's `- "443:443"` mapping.
-3. `docker compose up -d --build` and reinstall/open the legacy app on
+3. `docker compose up -d` and reinstall/open the legacy app on
    the phone (the Pi-hole DNS already redirects `*.ecovacs.com`/
    `*.ecouser.net` to the bridge; the app will install the certificate's
    CA if needed — the same CA the pairing flow already uses).

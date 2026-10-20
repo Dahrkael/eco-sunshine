@@ -7,7 +7,7 @@ services:
   # Port 443 (Ecovacs app conf API) is implemented (FD) but off by default:
   # publish the port only if you enable servers.conf (below).
   bridge:
-    build: ./bridge
+    image: ghcr.io/dahrkael/eco-sunshine:latest
     container_name: eco-sunshine
     restart: unless-stopped
     depends_on: [mosquitto]
